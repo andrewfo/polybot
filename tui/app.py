@@ -31,6 +31,7 @@ from tui.messages import (
     MarketsUpdate,
     PipelineComplete,
     PipelineStageUpdate,
+    SignalUpdate,
     WalletUpdate,
 )
 from tui.state import ConnectionStatus, PipelineProgress
@@ -39,6 +40,7 @@ from tui.widgets.costs_panel import CostsPanel
 from tui.widgets.log_panel import LogPanel
 from tui.widgets.markets_panel import MarketsPanel
 from tui.widgets.pipeline_panel import PipelinePanel
+from tui.widgets.signals_panel import SignalsPanel
 from tui.widgets.status_panel import StatusPanel
 
 logger = logging.getLogger(__name__)
@@ -57,7 +59,8 @@ class TUIApp(App):
         Binding("2", "switch_tab('markets')", "Markets", show=True),
         Binding("3", "switch_tab('filter')", "Filter", show=True),
         Binding("4", "switch_tab('costs')", "Costs", show=True),
-        Binding("5", "switch_tab('logs')", "Logs", show=True),
+        Binding("5", "switch_tab('signals')", "Signals", show=True),
+        Binding("6", "switch_tab('logs')", "Logs", show=True),
         Binding("s", "toggle_bot", "Start/Stop"),
         Binding("f", "run_pipeline", "Run Filter"),
         Binding("r", "refresh", "Refresh"),
@@ -75,6 +78,8 @@ class TUIApp(App):
                 yield PipelinePanel()
             with TabPane("Costs", id="costs"):
                 yield CostsPanel()
+            with TabPane("Signals", id="signals"):
+                yield SignalsPanel()
             with TabPane("Logs", id="logs"):
                 yield LogPanel()
         yield CommandBar()
@@ -559,6 +564,13 @@ class TUIApp(App):
         """Route pipeline completion to the pipeline panel."""
         try:
             self.query_one(PipelinePanel).on_pipeline_complete(event)
+        except Exception:
+            pass
+
+    def on_signal_update(self, event: SignalUpdate) -> None:
+        """Route signal updates to the signals panel."""
+        try:
+            self.query_one(SignalsPanel).on_signal_update(event)
         except Exception:
             pass
 

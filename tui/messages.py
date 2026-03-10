@@ -110,3 +110,25 @@ class CommandResult(Message):
         self.command = command
         self.success = success
         self.output = output
+
+
+class SignalUpdate(Message):
+    """Live update from the news signal pipeline."""
+    def __init__(
+        self,
+        market_question: str,
+        stage: str,
+        detail: str = "",
+        probability: float | None = None,
+        confidence: float = 0.0,
+        data_points: int = 0,
+        done: bool = False,
+    ) -> None:
+        super().__init__()
+        self.market_question = market_question
+        self.stage = stage
+        self.detail = detail
+        self.probability = probability
+        self.confidence = confidence
+        self.data_points = data_points
+        self.done = done
