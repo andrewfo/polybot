@@ -34,7 +34,7 @@ monitoring/notifications.py → Telegram (optional) or stdout notifications + co
 ## Critical Design Rules
 
 ### LLM Routing — Never Violate These
-- Cheap model (`google/gemini-2.0-flash-exp:free`): summarization, classification, extraction, search query generation, initial probability estimates
+- Cheap model (`z-ai/glm-4.5-air`): summarization, classification, extraction, search query generation, initial probability estimates
 - Frontier model (`anthropic/claude-opus-4-6`): final probability estimation, trade/no-trade decisions only
 - If frontier model fails: ALERT AND SKIP. Never silently fall back to cheap model for frontier tasks.
 - Every LLM call must be logged to the `llm_costs` SQLite table before returning

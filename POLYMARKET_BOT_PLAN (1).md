@@ -33,6 +33,8 @@ Set up the entire project from scratch in an empty folder. This includes the rep
    │   ├── base.py              # Abstract signal provider interface
    │   ├── news.py              # News/sentiment signal
    │   ├── polling.py           # Polling/structured data signal (political markets)
+   │   ├── resolution_econ.py   # Economics resolution source watcher (FRED data)
+   │   ├── resolution_crypto.py # Crypto resolution source watcher (CoinGecko + log-normal model)
    │   └── aggregator.py        # Combines signals into probability estimates, calls frontier model for final estimate
    ├── strategy/
    │   ├── __init__.py
@@ -53,7 +55,9 @@ Set up the entire project from scratch in an empty folder. This includes the rep
    │   ├── __init__.py
    │   ├── test_kelly.py        # Unit tests for Kelly sizing
    │   ├── test_market_filter.py
-   │   └── test_signals.py
+   │   ├── test_signals.py
+   │   ├── test_resolution_econ.py   # Mock FRED responses, verify parsing + signal output
+   │   └── test_resolution_crypto.py # Mock CoinGecko responses, verify log-normal math + signal output
    ├── main.py                  # Entry point / orchestrator loop
    ├── requirements.txt
    ├── Dockerfile
@@ -119,6 +123,10 @@ Set up the entire project from scratch in an empty folder. This includes the rep
    MAX_DRAWDOWN_PCT = float(os.getenv("MAX_DRAWDOWN_PCT", "0.30"))       # Stop trading if down 30%
    MAX_DAILY_LOSS_PCT = float(os.getenv("MAX_DAILY_LOSS_PCT", "0.15"))   # Stop for 24h if down 15% in a day
 
+   # --- Resolution Source Monitoring ---
+   RESOLUTION_SIGNAL_WEIGHT = float(os.getenv("RESOLUTION_SIGNAL_WEIGHT", "2.0"))
+   FRED_API_KEY = os.getenv("FRED_API_KEY", "DEMO_KEY")
+
    # --- Notifications ---
    NOTIFICATIONS_ENABLED = os.getenv("NOTIFICATIONS_ENABLED", "true").lower() == "true"
    TELEGRAM_ENABLED = os.getenv("TELEGRAM_ENABLED", "false").lower() == "true"
@@ -153,6 +161,11 @@ Set up the entire project from scratch in an empty folder. This includes the rep
    TELEGRAM_ENABLED=false
    TELEGRAM_BOT_TOKEN=
    TELEGRAM_CHAT_ID=
+
+   # === OPTIONAL: FRED API Key ===
+   # Free API key from https://fred.stlouisfed.org/docs/api/api_key.html
+   # Default DEMO_KEY works for low-volume reads but has stricter rate limits
+   # FRED_API_KEY=DEMO_KEY
 
    # === OPTIONAL: Model Overrides ===
    # Cheap model for routine tasks (default: free Gemini Flash)
@@ -432,13 +445,33 @@ The bot's edge lives in mid-to-low liquidity markets where fewer sophisticated p
        Respond with only the category name, nothing else.
        ```
 
+   - `extract_resolution_params(market_question, category)`:
+     - Only runs for `economics` and `crypto` categories — skip all others
+     - Uses CHEAP model to extract structured resolution metadata from the question
+     - Cached in `market_cache` data blob (no schema change needed — store as JSON in existing blob column)
+     - Prompt template:
+       ```
+       Market question: "{question}"
+       Category: {category}
+
+       Extract the key resolution parameters from this market question.
+       For economics markets, identify: indicator type (rate, inflation, employment, gdp, other), specific metric if known, target value or direction, target date.
+       For crypto markets, identify: coin/token name, target price or metric, direction (above/below), target date.
+
+       Also identify any specific resolution methodology mentioned (e.g., specific exchange, TWAP, specific data source, snapshot time).
+
+       Respond as JSON only:
+       {"indicator_type": "...", "metric_name": "...", "target_value": null, "target_direction": "above"|"below"|"cut"|"hike"|"other", "target_date": "YYYY-MM-DD or null", "coin_id": "coingecko_id or null", "resolution_source": "specific exchange/source mentioned or null"}
+       ```
+
    - `rank_candidates(filtered_markets)`:
      - Score each market by desirability:
        - Resolution in 1-4 weeks: +3 points (sweet spot for signal accuracy)
        - Resolution in 4-8 weeks: +1 point
        - Liquidity $1k-$10k: +2 points (enough to trade, not too efficient)
        - Liquidity $500-$1k: +1 point
-       - Category is `politics` or `economics`: +1 point (best signal source coverage)
+       - Category is `economics` or `crypto`: +2 points (dedicated resolution source monitoring available)
+       - Category is `politics`: +1 point (good signal source coverage via polling)
        - 24h volume > $500: +1 point (active interest)
      - Return sorted by score descending
      - Target: 10-50 candidate markets per cycle
@@ -447,7 +480,8 @@ The bot's edge lives in mid-to-low liquidity markets where fewer sophisticated p
 - Filter pipeline runs end-to-end and returns a manageable candidate list
 - Each filter step is logged with elimination count
 - Markets are categorized using the cheap LLM (verify with a few examples)
-- Ranking produces a sensible ordering
+- Resolution params are extracted and cached for economics/crypto markets
+- Ranking produces a sensible ordering (economics/crypto markets get +2 due to resolution source monitoring)
 - Market cache prevents redundant API calls and LLM classifications
 - All settings are configurable in `settings.py`
 
@@ -480,7 +514,11 @@ The architecture is: cheap models do the grunt work (fetching, parsing, summariz
        """Abstract base class for all signal sources."""
        name: str = "base"
 
-       async def get_signal(self, market_question: str, market_category: str, market_end_date: str) -> SignalResult:
+       async def get_signal(self, market_question: str, market_category: str, market_end_date: str, **kwargs) -> SignalResult:
+           """
+           kwargs may include:
+           - resolution_keywords: dict from extract_resolution_params() for economics/crypto markets
+           """
            raise NotImplementedError
    ```
 
@@ -519,16 +557,16 @@ The architecture is: cheap models do the grunt work (fetching, parsing, summariz
    - Cache signal results per market for 30 minutes
    - If fewer than 2 relevant articles found → return confidence = 0, probability = None
 
-3. **`signals/polling.py`** — Structured data signal (primarily for politics/economics):
+3. **`signals/polling.py`** — Structured data signal (politics and general categories):
+   - **Scope**: This provider handles `politics` and other general categories. Skip `economics` and `crypto` categories (return confidence=0, probability=None) — those are now handled by dedicated resolution source providers (`resolution_econ.py`, `resolution_crypto.py`).
    - **Data sources** (all free, no API keys):
      - FiveThirtyEight / Silver Bulletin: RSS feeds for polling averages
      - RealClearPolitics: Scrape polling average tables with BeautifulSoup
-     - FRED (Federal Reserve Economic Data): Free API for economic indicators
-     - For crypto markets: CoinGecko free API for price/volume data
    - **Pipeline**:
-     1. Based on market category, select relevant data source
-     2. Fetch and parse structured data
-     3. Use CHEAP model to interpret data in context of market question:
+     1. If category is `economics` or `crypto` → return confidence=0, probability=None immediately
+     2. Based on market category, select relevant data source
+     3. Fetch and parse structured data
+     4. Use CHEAP model to interpret data in context of market question:
         ```
         Market question: "{question}"
         Relevant data:
@@ -536,16 +574,120 @@ The architecture is: cheap models do the grunt work (fetching, parsing, summariz
         Based on this data, estimate the probability of YES (0.0 to 1.0).
         Respond as JSON: {"probability": 0.XX, "confidence": 0.XX, "reasoning": "..."}
         ```
-   - This signal is most valuable for `politics` and `economics` categories
+   - This signal is most valuable for `politics` category
    - For categories without structured data sources → return confidence = 0, probability = None
 
-4. **`signals/aggregator.py`** — Signal aggregation with frontier model final call:
+4. **`signals/resolution_econ.py`** — Economics resolution source watcher:
+   - `EconomicsResolutionProvider(SignalProvider)` with `name = "resolution_econ"`
+   - **Data sources** (all free, no API key required beyond DEMO_KEY):
+
+     | Source | Endpoint | Data |
+     |--------|----------|------|
+     | FRED API | `https://api.stlouisfed.org/fred/series/observations?series_id={ID}&file_type=json&api_key={FRED_API_KEY}&sort_order=desc&limit=12` | Fed funds rate (`FEDFUNDS`), CPI (`CPIAUCSL`), unemployment (`UNRATE`), GDP (`GDP`), 10Y treasury (`DGS10`) |
+     | FRED yield curve | Series `T10Y2Y`, `DFF` | Yield curve shape, effective fed funds rate |
+
+   - **Pipeline**:
+     1. If category != `economics` → return confidence=0, probability=None
+     2. Map `resolution_keywords["indicator_type"]` from kwargs to FRED series IDs:
+        - `rate` → `FEDFUNDS`, `DFF`
+        - `inflation` → `CPIAUCSL`
+        - `employment` → `UNRATE`
+        - `gdp` → `GDP`
+        - `other` → `DGS10`, `T10Y2Y` (general economic indicators)
+     3. Fetch latest observations via aiohttp (use `FRED_API_KEY` from settings, defaults to `DEMO_KEY` — works for low-volume reads)
+     4. Parse: extract latest value, 3-6 month trend (direction, magnitude), rate of change
+     5. CHEAP model interprets data:
+        ```
+        Market question: "{question}"
+        Resolution date: {end_date}
+
+        Current economic data from Federal Reserve (FRED):
+        {formatted_data_points}
+
+        Based on this official economic data, estimate the probability of YES (0.0 to 1.0).
+        This data comes directly from the resolution source (Federal Reserve / government statistics).
+        Weight it heavily.
+
+        Respond as JSON: {"probability": 0.XX, "confidence": 0.XX, "reasoning": "..."}
+        ```
+     6. Return SignalResult with source="resolution_econ"
+   - Cache results per market for 30 minutes (same as news signal)
+   - Use `FRED_API_KEY` from `config/settings.py` (defaults to `DEMO_KEY`)
+
+5. **`signals/resolution_crypto.py`** — Crypto resolution source watcher:
+   - `CryptoResolutionProvider(SignalProvider)` with `name = "resolution_crypto"`
+   - **Data sources** (all free, no API key):
+
+     | Source | Endpoint | Data |
+     |--------|----------|------|
+     | CoinGecko price | `https://api.coingecko.com/api/v3/simple/price?ids={coin}&vs_currencies=usd&include_24hr_change=true` | Current price, 24h change |
+     | CoinGecko history | `https://api.coingecko.com/api/v3/coins/{id}/market_chart?vs_currency=usd&days=30` | 30-day price history |
+
+   - **Pipeline**:
+     1. If category != `crypto` → return confidence=0, probability=None
+     2. Use `resolution_keywords["coin_id"]` from kwargs for CoinGecko ID; if missing, use cheap LLM to map coin name → CoinGecko ID (one-time, cached in market_cache)
+     3. Fetch current price + 30-day history
+     4. Calculate derived metrics: distance from target (%), daily volatility (std dev of log returns), days to resolution
+     5. **Log-normal price model probability (no LLM needed):**
+        - Compute annualized volatility from 30-day daily log returns
+        - Use geometric Brownian motion to estimate P(price reaches target by resolution date):
+          ```python
+          import math
+
+          def norm_cdf(x: float) -> float:
+              """Normal CDF via math.erf — no scipy dependency needed."""
+              return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+          log_ratio = math.log(target_price / current_price)
+          drift = -0.5 * annual_vol**2  # risk-neutral drift
+          time_years = days_remaining / 365.0
+          z = (log_ratio - drift * time_years) / (annual_vol * math.sqrt(time_years))
+          model_prob = 1.0 - norm_cdf(z)  # P(price >= target)
+          # Flip for "below" direction: model_prob = norm_cdf(z)
+          ```
+        - This gives a mathematically grounded baseline probability at zero LLM cost
+     6. **CHEAP model adjusts for trend/sentiment** — the LLM gets the model output as an anchor:
+        ```
+        Market question: "{question}"
+        Resolution date: {end_date}
+
+        Current market data from CoinGecko:
+        - Current price: ${current_price}
+        - 24h change: {change_24h}%
+        - 30-day trend: {trend_description}
+        - Distance from target: {distance}%
+        - 30-day annualized volatility: {annual_vol}%
+        - Days until resolution: {days_remaining}
+
+        Log-normal price model estimate: {model_prob:.2f} probability of YES
+        (Based on current price, volatility, and time remaining assuming random walk)
+
+        Adjust this probability based on the trend data and any momentum factors.
+        The model estimate is mathematically derived — only adjust if trend/context warrants it.
+        Adjustments should typically be small (±0.05-0.15).
+
+        Respond as JSON: {"probability": 0.XX, "confidence": 0.XX, "reasoning": "..."}
+        ```
+     7. Return SignalResult with source="resolution_crypto". Store both `model_prob` and LLM-adjusted prob in `raw_data` dict for audit.
+   - Cache results per market for 15 minutes (crypto moves faster than economics data)
+   - **No scipy dependency**: Use the `norm_cdf` helper via `math.erf` as shown above
+
+6. **`signals/aggregator.py`** — Signal aggregation with frontier model final call:
    - **Step 1**: Collect signals from all providers for a given market
    - **Step 2**: Filter out signals with confidence = 0 or probability = None
    - **Step 3**: If 0 usable signals → skip this market (return None)
-   - **Step 4**: If 1+ usable signals → weighted average as a preliminary estimate:
-     ```
-     preliminary_prob = sum(s.probability * s.confidence for s in signals) / sum(s.confidence for s in signals)
+   - **Step 4**: If 1+ usable signals → weighted average as a preliminary estimate, with source-based weight multipliers:
+     ```python
+     SIGNAL_WEIGHT_MULTIPLIERS = {
+         "resolution_econ": 2.0,   # Direct resolution source — data from FRED
+         "resolution_crypto": 2.0, # Direct resolution source — data from CoinGecko
+         "polling": 1.5,           # Structured data
+         "news": 1.0,              # Baseline
+     }
+     # Use RESOLUTION_SIGNAL_WEIGHT from settings.py for resolution_* multipliers
+
+     effective_weight = signal.confidence * SIGNAL_WEIGHT_MULTIPLIERS.get(signal.source, 1.0)
+     preliminary_prob = sum(s.probability * ew(s) for s in signals) / sum(ew(s) for s in signals)
      ```
    - **Step 5**: FRONTIER MODEL CALL — this is where accuracy matters most:
      ```
@@ -558,7 +700,7 @@ The architecture is: cheap models do the grunt work (fetching, parsing, summariz
 
      Signal analysis from multiple sources:
      {for each signal:}
-     - Source: {signal.source}
+     - Source: {signal.source} {"(DIRECT RESOLUTION SOURCE)" if signal.source.startswith("resolution_") else ""}
        Estimate: {signal.probability}
        Confidence: {signal.confidence}
        Reasoning: {signal.reasoning}
@@ -568,11 +710,13 @@ The architecture is: cheap models do the grunt work (fetching, parsing, summariz
 
      Instructions:
      1. Critically evaluate each signal source. Are any likely biased or unreliable?
-     2. Consider base rates for this type of event.
-     3. Consider what information the market might have that our signals don't.
-     4. Provide your final probability estimate.
-     5. Rate your overall confidence (0-1) in this estimate.
-     6. Explain your reasoning in 2-3 sentences.
+     2. Signals marked as "DIRECT RESOLUTION SOURCE" come from the actual data providers (FRED, CoinGecko) whose data would be used to resolve this market. Weight these more heavily than news or sentiment signals.
+     3. IMPORTANT: Check whether the market's resolution criteria specifies a particular data source, exchange, timestamp methodology, or TWAP that might differ from the signal data provided. If the resolution source differs from our data source (e.g., market resolves on Binance spot price but our data is from CoinGecko aggregated price), adjust your confidence downward accordingly.
+     4. Consider base rates for this type of event.
+     5. Consider what information the market might have that our signals don't.
+     6. Provide your final probability estimate.
+     7. Rate your overall confidence (0-1) in this estimate.
+     8. Explain your reasoning in 2-3 sentences.
 
      IMPORTANT: Be calibrated. If you're unsure, your probability should be closer to the market price, not further from it. Only diverge significantly from the market when evidence is strong.
 
@@ -596,7 +740,14 @@ The architecture is: cheap models do the grunt work (fetching, parsing, summariz
 - Markets with insufficient data are correctly skipped
 - All signal results are logged to SQLite with full audit trail
 - Cost per market analysis averages ~$0.02-0.05 (mostly from one frontier call)
+- Economics resolution provider fetches real FRED data and produces probability estimates
+- Crypto resolution provider computes log-normal model probability, then uses cheap LLM to adjust for trend
+- Log-normal model unit tests: known inputs produce correct mathematical outputs (no LLM needed to verify)
+- Resolution source signals are weighted 2x in the aggregator
+- Frontier prompt includes resolution source labels and resolution criteria mismatch warning
+- Polling provider skips economics/crypto categories (returns confidence=0)
 - Unit tests: mock LLM responses and verify the full pipeline
+- Unit tests: mock FRED/CoinGecko responses and verify full pipeline for each resolution provider (`tests/test_resolution_econ.py`, `tests/test_resolution_crypto.py`)
 
 ---
 
@@ -839,6 +990,8 @@ The bot runs 24/7 unattended. We need automated health monitoring that catches p
      - **Stale orders**: Any orders PENDING > 30 minutes? (may indicate API issue)
      - **Process health**: Main loop last completed within 2x POLL_INTERVAL? (detect hangs)
      - **LLM availability**: Can we reach OpenRouter? (simple /models endpoint call)
+     - **FRED API connectivity**: Can we fetch from FRED? (simple series observation fetch for `DGS10` with `FRED_API_KEY`)
+     - **CoinGecko API connectivity**: Can we reach CoinGecko? (simple `/api/v3/ping` endpoint)
      - **Cost runaway**: Daily LLM cost < $20? (hard cap to prevent billing surprises)
      - **Disk space**: SQLite DB < 500MB? (prevent disk issues on small VPS)
    - Each check returns: `{check_name, status: "ok"|"warning"|"critical", message}`
@@ -884,7 +1037,8 @@ Tie everything together into a single entry point that runs the bot 24/7. This i
      4. Filter and rank candidate markets
      5. For each candidate (up to MAX_NEW_TRADES_PER_HOUR remaining):
         a. Skip if we already hold max position in this market
-        b. Fetch/refresh signals for this market
+        a2. If market category is `economics` or `crypto`, call `extract_resolution_params()` (cached) and pass the resulting `resolution_keywords` dict through to signal providers via kwargs
+        b. Fetch/refresh signals for this market (pass resolution_keywords to providers)
         c. Aggregate signals → get final probability estimate (frontier model call)
         d. Calculate Kelly sizing
         e. Check all risk guardrails

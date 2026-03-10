@@ -23,6 +23,9 @@ MIN_MARKET_LIQUIDITY = float(os.getenv("MIN_MARKET_LIQUIDITY", "500"))
 MAX_MARKET_LIQUIDITY = float(os.getenv("MAX_MARKET_LIQUIDITY", "50000"))
 MIN_HOURS_TO_RESOLUTION = int(os.getenv("MIN_HOURS_TO_RESOLUTION", "24"))
 MAX_DAYS_TO_RESOLUTION = int(os.getenv("MAX_DAYS_TO_RESOLUTION", "90"))
+MAX_SPREAD = float(os.getenv("MAX_SPREAD", "0.10"))
+MIN_24H_VOLUME = float(os.getenv("MIN_24H_VOLUME", "100"))
+MARKET_CACHE_REFRESH_SECONDS = int(os.getenv("MARKET_CACHE_REFRESH_SECONDS", "1800"))  # 30 minutes
 
 # --- Operational ---
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "300"))
@@ -35,6 +38,10 @@ MAX_SIMULTANEOUS_POSITIONS = int(os.getenv("MAX_SIMULTANEOUS_POSITIONS", "5"))
 MAX_NEW_TRADES_PER_HOUR = int(os.getenv("MAX_NEW_TRADES_PER_HOUR", "3"))
 MAX_DRAWDOWN_PCT = float(os.getenv("MAX_DRAWDOWN_PCT", "0.30"))       # Stop trading if down 30%
 MAX_DAILY_LOSS_PCT = float(os.getenv("MAX_DAILY_LOSS_PCT", "0.15"))   # Stop for 24h if down 15% in a day
+
+# --- Resolution Source Monitoring ---
+RESOLUTION_SIGNAL_WEIGHT = float(os.getenv("RESOLUTION_SIGNAL_WEIGHT", "2.0"))
+FRED_API_KEY = os.getenv("FRED_API_KEY", "DEMO_KEY")
 
 # --- Notifications ---
 NOTIFICATIONS_ENABLED = os.getenv("NOTIFICATIONS_ENABLED", "true").lower() == "true"
