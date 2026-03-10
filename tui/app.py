@@ -387,6 +387,7 @@ class TUIApp(App):
         from core.client import ClobClientWrapper
         from core.llm import LLMClient
         from strategy.market_filter import (
+            batch_categorize_markets,
             categorize_market,
             discover_markets,
             extract_resolution_params,
@@ -407,11 +408,10 @@ class TUIApp(App):
                 self._post_stage("filter", 1, total=len(markets), started_at=pipeline_start)
                 filtered = await filter_markets(markets, client)
 
-                # Stage 2: Categorize (per-item progress)
+                # Stage 2: Categorize (batched to avoid rate limits)
                 self._post_stage("categorize", 2, processed=0, total=len(filtered), started_at=pipeline_start)
-                for i, m in enumerate(filtered):
-                    m["_category"] = await categorize_market(m, llm)
-                    self._post_stage("categorize", 2, processed=i + 1, total=len(filtered), started_at=pipeline_start)
+                await batch_categorize_markets(filtered, llm)
+                self._post_stage("categorize", 2, processed=len(filtered), total=len(filtered), started_at=pipeline_start)
 
                 # Stage 3: Extract resolution params
                 self._post_stage("extract", 3, processed=0, total=len(filtered), started_at=pipeline_start)

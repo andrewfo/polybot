@@ -202,6 +202,15 @@ class LLMClient:
 
                     elif resp.status in (429, 500, 502, 503):
                         backoff = 2 ** attempt
+                        if resp.status == 429:
+                            # Respect Retry-After header; default to longer backoff for rate limits
+                            retry_after = resp.headers.get("Retry-After")
+                            if retry_after:
+                                try:
+                                    backoff = max(backoff, int(retry_after))
+                                except ValueError:
+                                    pass
+                            backoff = max(backoff, 5)  # At least 5s for rate limits
                         logger.warning(
                             "OpenRouter %d for model %s (attempt %d/%d), retrying in %ds",
                             resp.status, model, attempt + 1, MAX_RETRIES, backoff,

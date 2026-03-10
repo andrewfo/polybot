@@ -113,42 +113,58 @@ class Wallet:
         """Store a value in the cache."""
         self._cache[key] = (value, time.monotonic())
 
+    def _rpc_call_with_retry(self, label: str, fn: callable, max_retries: int = 3) -> Any:
+        """Execute an RPC call with exponential backoff retry."""
+        last_error: Exception | None = None
+        for attempt in range(max_retries):
+            try:
+                return fn()
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    backoff = 2 ** attempt
+                    logger.warning(
+                        "%s failed (attempt %d/%d): %s, retrying in %ds",
+                        label, attempt + 1, max_retries, str(e)[:80], backoff,
+                    )
+                    time.sleep(backoff)
+        logger.error("Failed to %s after %d attempts: %s", label, max_retries, last_error)
+        raise WalletError(f"Failed to {label}: {last_error}") from last_error
+
     def get_usdc_balance(self) -> float:
-        """Get USDC balance on Polygon (cached for 60s)."""
+        """Get USDC balance on Polygon (cached for 60s, retries on RPC failure)."""
         cached = self._get_cached("usdc")
         if cached is not None:
             return cached
 
-        try:
+        def _fetch() -> float:
             raw_balance = self._usdc_contract.functions.balanceOf(
                 Web3.to_checksum_address(self._address)
             ).call()
             decimals = self._usdc_contract.functions.decimals().call()
-            balance = raw_balance / (10 ** decimals)
-            self._set_cached("usdc", balance)
-            logger.debug("USDC balance: %.2f", balance)
-            return balance
-        except Exception as e:
-            logger.error("Failed to fetch USDC balance: %s", e)
-            raise WalletError(f"Failed to fetch USDC balance: {e}") from e
+            return raw_balance / (10 ** decimals)
+
+        balance = self._rpc_call_with_retry("fetch USDC balance", _fetch)
+        self._set_cached("usdc", balance)
+        logger.debug("USDC balance: %.2f", balance)
+        return balance
 
     def get_matic_balance(self) -> float:
-        """Get MATIC balance for gas (cached for 60s)."""
+        """Get MATIC balance for gas (cached for 60s, retries on RPC failure)."""
         cached = self._get_cached("matic")
         if cached is not None:
             return cached
 
-        try:
+        def _fetch() -> float:
             raw_balance = self._w3.eth.get_balance(
                 Web3.to_checksum_address(self._address)
             )
-            balance = float(Web3.from_wei(raw_balance, "ether"))
-            self._set_cached("matic", balance)
-            logger.debug("MATIC balance: %.4f", balance)
-            return balance
-        except Exception as e:
-            logger.error("Failed to fetch MATIC balance: %s", e)
-            raise WalletError(f"Failed to fetch MATIC balance: {e}") from e
+            return float(Web3.from_wei(raw_balance, "ether"))
+
+        balance = self._rpc_call_with_retry("fetch MATIC balance", _fetch)
+        self._set_cached("matic", balance)
+        logger.debug("MATIC balance: %.4f", balance)
+        return balance
 
     def get_polymarket_balance(self) -> float:
         """Get USDC available in Polymarket proxy wallet.

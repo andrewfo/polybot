@@ -360,6 +360,107 @@ async def categorize_market(market: dict[str, Any], llm: LLMClient) -> str:
     return category
 
 
+async def batch_categorize_markets(
+    markets: list[dict[str, Any]], llm: LLMClient, batch_size: int = 20
+) -> None:
+    """Categorize multiple markets in batched LLM calls to avoid rate limits.
+
+    Sends up to batch_size market questions per LLM call, parsing the batch
+    response to assign categories. Markets already cached are skipped.
+    Modifies markets in-place, setting '_category' on each.
+    """
+    # Split into uncached and cached
+    uncached: list[dict[str, Any]] = []
+    for m in markets:
+        condition_id = m.get("condition_id", "")
+        if condition_id:
+            cached = db.get_cached_market(condition_id)
+            if cached and cached.get("category"):
+                m["_category"] = cached["category"]
+                continue
+        uncached.append(m)
+
+    logger.info(
+        "Batch categorize: %d markets (%d cached, %d need classification)",
+        len(markets), len(markets) - len(uncached), len(uncached),
+    )
+
+    # Process in batches
+    for batch_start in range(0, len(uncached), batch_size):
+        batch = uncached[batch_start:batch_start + batch_size]
+
+        # Build numbered list for the LLM
+        lines = []
+        for i, m in enumerate(batch, 1):
+            lines.append(f'{i}. "{m.get("question", "unknown")}"')
+        numbered_list = "\n".join(lines)
+
+        prompt = (
+            'Classify each prediction market question into exactly one category.\n'
+            f'Categories: politics, crypto, sports, science_tech, entertainment, economics, other\n\n'
+            f'{numbered_list}\n\n'
+            'Respond with ONLY a numbered list of categories, one per line, like:\n'
+            '1. politics\n'
+            '2. crypto\n'
+            'No other text.'
+        )
+
+        try:
+            response = await llm.call(prompt, task_type="classify")
+            # Parse numbered response lines
+            categories = _parse_batch_categories(response, len(batch))
+        except Exception as e:
+            logger.error("Batch categorize failed: %s", e)
+            categories = ["other"] * len(batch)
+
+        # Assign categories and cache
+        for m, category in zip(batch, categories):
+            m["_category"] = category
+            condition_id = m.get("condition_id", "")
+            if condition_id:
+                db.cache_market(
+                    condition_id=condition_id,
+                    data=m,
+                    category=category,
+                )
+
+        logger.info(
+            "Batch categorized %d-%d of %d markets",
+            batch_start + 1, batch_start + len(batch), len(uncached),
+        )
+
+
+def _parse_batch_categories(response: str, expected_count: int) -> list[str]:
+    """Parse a numbered list of categories from a batch LLM response.
+
+    Expects lines like '1. politics' or '1. politics\n2. crypto'.
+    Returns a list of validated category strings.
+    """
+    import re
+
+    categories: list[str] = []
+    for line in response.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # Match patterns like "1. politics" or "1: politics" or just "politics"
+        match = re.match(r'^\d+[\.\):\-]\s*(.+)$', line)
+        if match:
+            cat = match.group(1).strip().lower().replace(" ", "_")
+        else:
+            cat = line.strip().lower().replace(" ", "_")
+
+        if cat in VALID_CATEGORIES:
+            categories.append(cat)
+        else:
+            categories.append("other")
+
+    # Pad or truncate to expected count
+    while len(categories) < expected_count:
+        categories.append("other")
+    return categories[:expected_count]
+
+
 async def extract_resolution_params(
     market_question: str,
     category: str,
