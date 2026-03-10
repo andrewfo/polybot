@@ -1,18 +1,18 @@
-"""Home tab — connection health, wallet, positions, uptime."""
+"""Home tab — connection health, wallet, positions, uptime, bot toggle."""
 
 from datetime import datetime, timezone
 
 from textual.app import ComposeResult
 from textual.containers import Vertical, Horizontal
-from textual.widgets import Static, DataTable
+from textual.widgets import Static, Button
 from textual.reactive import reactive
 
-from tui.messages import ConnectionUpdate, WalletUpdate
+from tui.messages import BotStatusUpdate, BotToggle, ConnectionUpdate, WalletUpdate
 from tui.state import ConnectionStatus
 
 
 class StatusPanel(Vertical):
-    """Home tab showing connection health, wallet info, and bot status."""
+    """Home tab showing connection health, wallet info, and bot start/stop."""
 
     DEFAULT_CSS = """
     StatusPanel {
@@ -41,7 +41,28 @@ class StatusPanel(Vertical):
         height: 1;
         margin: 0 0 0 2;
     }
+    StatusPanel #bot-toggle-row {
+        height: 3;
+        margin: 1 0 0 2;
+    }
+    StatusPanel #bot-toggle {
+        min-width: 20;
+    }
+    StatusPanel #bot-toggle.bot-stopped {
+        background: $success;
+        color: $text;
+    }
+    StatusPanel #bot-toggle.bot-running {
+        background: $error;
+        color: $text;
+    }
+    StatusPanel #bot-status-line {
+        height: 1;
+        margin: 0 0 0 2;
+    }
     """
+
+    bot_running: reactive[bool] = reactive(False)
 
     def __init__(self) -> None:
         super().__init__()
@@ -58,6 +79,11 @@ class StatusPanel(Vertical):
         self._started_at = datetime.now(timezone.utc)
 
     def compose(self) -> ComposeResult:
+        yield Static("BOT CONTROL", classes="section-title")
+        yield Static(id="bot-status-line")
+        with Horizontal(id="bot-toggle-row"):
+            yield Button("Start Bot", id="bot-toggle", variant="success", classes="bot-stopped")
+
         yield Static("CONNECTIONS", classes="section-title")
         yield Static(id="conn-polymarket", classes="conn-row")
         yield Static(id="conn-polygon", classes="conn-row")
@@ -75,10 +101,6 @@ class StatusPanel(Vertical):
         yield Static("BOT INFO", classes="section-title")
         yield Static(id="bot-mode", classes="kv-line")
         yield Static(id="bot-uptime", classes="kv-line")
-
-    def on_mount(self) -> None:
-        self._refresh_display()
-        self.set_interval(10, self._refresh_uptime)
 
     def _format_conn(self, status: ConnectionStatus) -> str:
         icon = "[green]\u25cf[/green]" if status.healthy else "[red]\u25cf[/red]"
@@ -121,6 +143,38 @@ class StatusPanel(Vertical):
             self.query_one("#bot-uptime", Static).update(f"Uptime:         {hours}h {minutes}m {seconds}s")
         except Exception:
             pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "bot-toggle":
+            self.post_message(BotToggle(running=not self.bot_running))
+
+    def on_bot_status_update(self, event: BotStatusUpdate) -> None:
+        self.bot_running = event.running
+        self._refresh_bot_toggle()
+
+    def _refresh_bot_toggle(self) -> None:
+        try:
+            btn = self.query_one("#bot-toggle", Button)
+            status_line = self.query_one("#bot-status-line", Static)
+            if self.bot_running:
+                btn.label = "Stop Bot"
+                btn.variant = "error"
+                btn.remove_class("bot-stopped")
+                btn.add_class("bot-running")
+                status_line.update("[green]● RUNNING[/green]  Pipeline loop active — press [b]s[/b] or click to stop")
+            else:
+                btn.label = "Start Bot"
+                btn.variant = "success"
+                btn.remove_class("bot-running")
+                btn.add_class("bot-stopped")
+                status_line.update("[dim]● STOPPED[/dim]   Press [b]s[/b] or click Start to begin")
+        except Exception:
+            pass
+
+    def on_mount(self) -> None:
+        self._refresh_display()
+        self._refresh_bot_toggle()
+        self.set_interval(10, self._refresh_uptime)
 
     def on_connection_update(self, event: ConnectionUpdate) -> None:
         self._connections[event.status.name] = event.status

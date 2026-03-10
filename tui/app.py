@@ -21,6 +21,8 @@ if _project_root not in sys.path:
 
 from tui.log_handler import TUILogHandler
 from tui.messages import (
+    BotStatusUpdate,
+    BotToggle,
     CommandResult,
     ConnectionUpdate,
     CostUpdate,
@@ -55,6 +57,7 @@ class TUIApp(App):
         Binding("3", "switch_tab('filter')", "Filter", show=True),
         Binding("4", "switch_tab('costs')", "Costs", show=True),
         Binding("5", "switch_tab('logs')", "Logs", show=True),
+        Binding("s", "toggle_bot", "Start/Stop"),
         Binding("f", "run_pipeline", "Run Filter"),
         Binding("r", "refresh", "Refresh"),
         Binding("colon", "toggle_command_bar", "Command", show=False),
@@ -76,6 +79,8 @@ class TUIApp(App):
         yield CommandBar()
         yield Footer()
 
+    _bot_running: bool = False
+
     def on_mount(self) -> None:
         """Attach log handler and kick off background workers."""
         # Attach TUI log handler to root logger
@@ -86,11 +91,33 @@ class TUIApp(App):
 
         logger.info("TUI Dashboard starting...")
 
-        # Start background loops
+        # Start health loop (always runs) and initial data fetch
         self._start_health_loop()
-        self._start_pipeline_loop()
         self.refresh_markets()
         self.refresh_costs()
+        # Pipeline loop does NOT start until bot is started
+
+    # -----------------------------------------------------------------
+    # Bot start/stop
+    # -----------------------------------------------------------------
+
+    def action_toggle_bot(self) -> None:
+        self._set_bot_running(not self._bot_running)
+
+    def on_bot_toggle(self, event: BotToggle) -> None:
+        self._set_bot_running(event.running)
+
+    def _set_bot_running(self, running: bool) -> None:
+        if running == self._bot_running:
+            return
+        self._bot_running = running
+        self.post_message(BotStatusUpdate(running))
+        if running:
+            logger.info("Bot STARTED — pipeline loop active")
+            self._start_pipeline_loop()
+        else:
+            logger.info("Bot STOPPED — pipeline loop cancelled")
+            self.workers.cancel_group(self, "pipeline-loop")
 
     # -----------------------------------------------------------------
     # Tab switching
@@ -315,16 +342,19 @@ class TUIApp(App):
         self.run_worker(self._pipeline_loop(), exclusive=True, group="pipeline-loop")
 
     async def _pipeline_loop(self) -> None:
-        """Run the filter pipeline on a recurring interval."""
-        # Small initial delay to let health checks finish first
-        await asyncio.sleep(15)
-        while True:
+        """Run the filter pipeline on a recurring interval while bot is running."""
+        await asyncio.sleep(5)
+        while self._bot_running:
             logger.info("Auto-pipeline: starting scheduled run (interval=%ds)", self.PIPELINE_INTERVAL_SECONDS)
             try:
                 await self._run_filter_pipeline()
             except Exception as e:
                 logger.error("Auto-pipeline failed: %s", e, exc_info=True)
-            await asyncio.sleep(self.PIPELINE_INTERVAL_SECONDS)
+            # Sleep in short increments so cancellation is responsive
+            for _ in range(self.PIPELINE_INTERVAL_SECONDS // 5):
+                if not self._bot_running:
+                    break
+                await asyncio.sleep(5)
 
     # -----------------------------------------------------------------
     # Pipeline worker
@@ -522,6 +552,13 @@ class TUIApp(App):
         """Route pipeline completion to the pipeline panel."""
         try:
             self.query_one(PipelinePanel).on_pipeline_complete(event)
+        except Exception:
+            pass
+
+    def on_bot_status_update(self, event: BotStatusUpdate) -> None:
+        """Route bot status to the status panel."""
+        try:
+            self.query_one(StatusPanel).on_bot_status_update(event)
         except Exception:
             pass
 

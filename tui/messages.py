@@ -89,6 +89,20 @@ class MarketsUpdate(Message):
         self.markets = markets
 
 
+class BotToggle(Message):
+    """Request to start or stop the bot."""
+    def __init__(self, running: bool) -> None:
+        super().__init__()
+        self.running = running
+
+
+class BotStatusUpdate(Message):
+    """Bot running state changed."""
+    def __init__(self, running: bool) -> None:
+        super().__init__()
+        self.running = running
+
+
 class CommandResult(Message):
     """Result of a command bar command."""
     def __init__(self, command: str, success: bool, output: str) -> None:
