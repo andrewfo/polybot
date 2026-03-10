@@ -88,6 +88,7 @@ class TUIApp(App):
 
         # Start background loops
         self._start_health_loop()
+        self._start_pipeline_loop()
         self.refresh_markets()
         self.refresh_costs()
 
@@ -303,6 +304,27 @@ class TUIApp(App):
             ))
         except Exception as e:
             logger.error("Failed to load cost data: %s", e)
+
+    # -----------------------------------------------------------------
+    # Pipeline auto-repeat loop
+    # -----------------------------------------------------------------
+
+    PIPELINE_INTERVAL_SECONDS = int(os.environ.get("PIPELINE_INTERVAL_SECONDS", "600"))  # 10 min default
+
+    def _start_pipeline_loop(self) -> None:
+        self.run_worker(self._pipeline_loop(), exclusive=True, group="pipeline-loop")
+
+    async def _pipeline_loop(self) -> None:
+        """Run the filter pipeline on a recurring interval."""
+        # Small initial delay to let health checks finish first
+        await asyncio.sleep(15)
+        while True:
+            logger.info("Auto-pipeline: starting scheduled run (interval=%ds)", self.PIPELINE_INTERVAL_SECONDS)
+            try:
+                await self._run_filter_pipeline()
+            except Exception as e:
+                logger.error("Auto-pipeline failed: %s", e, exc_info=True)
+            await asyncio.sleep(self.PIPELINE_INTERVAL_SECONDS)
 
     # -----------------------------------------------------------------
     # Pipeline worker

@@ -394,18 +394,65 @@ class TestRankCandidates:
 class TestDiscoverMarkets:
     @pytest.mark.asyncio
     async def test_discover_fetches_and_caches(self) -> None:
-        client = AsyncMock(spec=ClobClientWrapper)
-        client.get_markets = AsyncMock(return_value=[
-            _make_market(condition_id="m1"),
-            _make_market(condition_id="m2"),
-        ])
-        with patch("strategy.market_filter.db") as mock_db:
+        """discover_markets should fetch from Gamma API and cache results."""
+        # Gamma API returns camelCase fields
+        gamma_markets = [
+            {
+                "conditionId": "m1",
+                "question": "Will BTC hit 100k?",
+                "clobTokenIds": ["tok_0", "tok_1"],
+                "outcomes": ["Yes", "No"],
+                "outcomePrices": ["0.65", "0.35"],
+                "liquidity": "5000",
+                "liquidityNum": 5000,
+                "volume": "10000",
+                "volumeNum": 10000,
+                "volume24hr": 200,
+                "endDate": "2026-06-01T00:00:00Z",
+                "spread": 0.02,
+                "id": "123",
+            },
+            {
+                "conditionId": "m2",
+                "question": "Will ETH hit 10k?",
+                "clobTokenIds": ["tok_2", "tok_3"],
+                "outcomes": ["Yes", "No"],
+                "outcomePrices": ["0.40", "0.60"],
+                "liquidity": "3000",
+                "liquidityNum": 3000,
+                "volume": "8000",
+                "volumeNum": 8000,
+                "volume24hr": 150,
+                "endDate": "2026-07-01T00:00:00Z",
+                "spread": 0.03,
+                "id": "456",
+            },
+        ]
+
+        # Mock aiohttp response
+        mock_resp = AsyncMock()
+        mock_resp.status = 200
+        mock_resp.json = AsyncMock(return_value=gamma_markets)
+        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = AsyncMock()
+        mock_session.get = MagicMock(return_value=mock_resp)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("strategy.market_filter.db") as mock_db, \
+             patch("strategy.market_filter.aiohttp.ClientSession", return_value=mock_session):
             mock_db.get_db.return_value = MagicMock()
             mock_db.get_db.return_value.execute.return_value.fetchall.return_value = []
             mock_db.get_cached_market.return_value = None
-            markets = await discover_markets(client)
+            markets = await discover_markets()
+
         assert len(markets) == 2
-        client.get_markets.assert_called_once()
+        assert markets[0]["condition_id"] == "m1"
+        assert markets[0]["liquidity"] == 5000
+        assert len(markets[0]["tokens"]) == 2
+        assert markets[0]["tokens"][0]["token_id"] == "tok_0"
 
 
 # Use ClobClientWrapper for type hints in fixtures

@@ -10,6 +10,8 @@ import logging
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
+import aiohttp
+
 from config.settings import (
     MAX_DAYS_TO_RESOLUTION,
     MAX_MARKET_LIQUIDITY,
@@ -24,6 +26,11 @@ from core import db
 from core.client import ClobClientWrapper
 from core.llm import LLMClient
 
+# Gamma API returns richer market data (liquidity, volume, spread, etc.)
+GAMMA_API_BASE = "https://gamma-api.polymarket.com"
+GAMMA_FETCH_LIMIT = 200  # per page
+GAMMA_MAX_PAGES = 5      # up to 1000 markets total
+
 logger = logging.getLogger(__name__)
 
 VALID_CATEGORIES = frozenset({
@@ -33,16 +40,18 @@ VALID_CATEGORIES = frozenset({
 
 
 async def discover_markets(
-    client: ClobClientWrapper, max_pages: int = 0
+    client: ClobClientWrapper | None = None, max_pages: int = 0
 ) -> list[dict[str, Any]]:
-    """Fetch active markets, caching in SQLite market_cache table.
+    """Fetch active markets from Gamma API, caching in SQLite market_cache table.
+
+    Uses the Gamma API which returns rich metadata (liquidity, volume, spread,
+    token IDs, end dates) — unlike the CLOB API which omits these fields.
 
     Cache refreshes every MARKET_CACHE_REFRESH_SECONDS (default 30 min).
-    Returns the list with metadata.
 
     Args:
-        client: CLOB client wrapper.
-        max_pages: Maximum pages to fetch from API. 0 = unlimited.
+        client: Optional CLOB client (unused, kept for backward compat).
+        max_pages: Maximum pages to fetch. 0 = use GAMMA_MAX_PAGES default.
     """
     # Check if we have a recent enough cache
     database = db.get_db()
@@ -54,6 +63,19 @@ async def discover_markets(
             last_fetch = datetime.fromisoformat(rows[0][0])
             age = (datetime.now(timezone.utc) - last_fetch).total_seconds()
             if age < MARKET_CACHE_REFRESH_SECONDS:
+                # Validate cache has Gamma-format data (has liquidity field)
+                sample = database.execute(
+                    "SELECT data FROM market_cache LIMIT 1"
+                ).fetchone()
+                if sample:
+                    try:
+                        sample_data = json.loads(sample[0])
+                        if "liquidity" not in sample_data:
+                            logger.info("Cache contains old CLOB-format data, refreshing...")
+                            raise ValueError("stale cache format")
+                    except (json.JSONDecodeError, ValueError):
+                        raise ValueError("stale cache")
+
                 logger.info(
                     "Using cached markets (age=%.0fs, refresh=%ds)",
                     age, MARKET_CACHE_REFRESH_SECONDS,
@@ -71,10 +93,45 @@ async def discover_markets(
     except Exception:
         pass  # Table empty or doesn't exist yet — fetch fresh
 
-    # Fetch fresh from Polymarket
-    logger.info("Fetching fresh market list from Polymarket CLOB API...")
-    markets = await client.get_markets(max_pages=max_pages)
-    logger.info("Discovered %d markets from API", len(markets))
+    # Fetch from Gamma API (rich metadata: liquidity, volume, spread, etc.)
+    pages = max_pages if max_pages > 0 else GAMMA_MAX_PAGES
+    all_markets: list[dict[str, Any]] = []
+    offset = 0
+
+    logger.info("Fetching markets from Gamma API (limit=%d per page, max_pages=%d)...", GAMMA_FETCH_LIMIT, pages)
+
+    async with aiohttp.ClientSession() as session:
+        for page in range(pages):
+            url = (
+                f"{GAMMA_API_BASE}/markets"
+                f"?active=true&closed=false"
+                f"&limit={GAMMA_FETCH_LIMIT}&offset={offset}"
+                f"&order=volume24hr&ascending=false"
+            )
+            try:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    if resp.status != 200:
+                        logger.error("Gamma API returned HTTP %d on page %d", resp.status, page)
+                        break
+                    page_markets = await resp.json()
+                    if not page_markets:
+                        break
+                    all_markets.extend(page_markets)
+                    offset += GAMMA_FETCH_LIMIT
+                    if len(page_markets) < GAMMA_FETCH_LIMIT:
+                        break  # Last page
+            except Exception as e:
+                logger.error("Gamma API fetch failed on page %d: %s", page, e)
+                break
+
+    logger.info("Discovered %d markets from Gamma API", len(all_markets))
+
+    # Normalize Gamma field names to match expected format
+    markets = []
+    for m in all_markets:
+        market = _normalize_gamma_market(m)
+        if market:
+            markets.append(market)
 
     # Cache each market
     for market in markets:
@@ -94,6 +151,53 @@ async def discover_markets(
 
     logger.info("Cached %d markets in market_cache table", len(markets))
     return markets
+
+
+def _normalize_gamma_market(gamma: dict[str, Any]) -> dict[str, Any] | None:
+    """Normalize Gamma API market data to the format expected by filters.
+
+    Maps Gamma field names (camelCase) to our expected field names and builds
+    a `tokens` list matching the format other code expects.
+    """
+    condition_id = gamma.get("conditionId", "")
+    if not condition_id:
+        return None
+
+    # Build tokens list from Gamma's separate arrays
+    clob_ids = gamma.get("clobTokenIds", [])
+    outcomes = gamma.get("outcomes", [])
+    outcome_prices = gamma.get("outcomePrices", [])
+
+    tokens = []
+    for i, token_id in enumerate(clob_ids):
+        token: dict[str, Any] = {"token_id": token_id}
+        if i < len(outcomes):
+            token["outcome"] = outcomes[i]
+        if i < len(outcome_prices):
+            try:
+                token["price"] = str(outcome_prices[i])
+            except (TypeError, ValueError):
+                pass
+        tokens.append(token)
+
+    return {
+        "condition_id": condition_id,
+        "question": gamma.get("question", ""),
+        "tokens": tokens,
+        "liquidity": gamma.get("liquidityNum", gamma.get("liquidity", 0)),
+        "volume": gamma.get("volumeNum", gamma.get("volume", 0)),
+        "volume24hr": gamma.get("volume24hr", 0),
+        "endDate": gamma.get("endDate", gamma.get("endDateIso", "")),
+        "startDate": gamma.get("startDate", ""),
+        "spread": gamma.get("spread", None),
+        "bestBid": gamma.get("bestBid", None),
+        "bestAsk": gamma.get("bestAsk", None),
+        "slug": gamma.get("slug", ""),
+        "description": gamma.get("description", ""),
+        "negRisk": gamma.get("negRisk", False),
+        # Preserve raw Gamma data for reference
+        "_gamma_id": gamma.get("id", ""),
+    }
 
 
 async def filter_markets(
@@ -144,8 +248,20 @@ async def filter_markets(
     markets = filtered
 
     # 4. Spread < MAX_SPREAD
+    # Use pre-fetched spread from Gamma API when available; fall back to CLOB orderbook
     filtered = []
     for m in markets:
+        gamma_spread = m.get("spread")
+        if gamma_spread is not None:
+            try:
+                spread = float(gamma_spread)
+                if spread < MAX_SPREAD:
+                    m["_spread"] = spread
+                    filtered.append(m)
+                continue
+            except (TypeError, ValueError):
+                pass
+        # Fallback: fetch spread from CLOB orderbook
         tokens = m.get("tokens", [])
         if tokens:
             token_id = tokens[0].get("token_id", "")
