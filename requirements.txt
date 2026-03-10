@@ -1,0 +1,15 @@
+py-clob-client
+python-dotenv
+aiohttp
+aiofiles
+web3
+eth-account
+requests
+feedparser
+beautifulsoup4
+lxml
+schedule
+sqlite-utils
+python-telegram-bot
+pytest
+pytest-asyncio
