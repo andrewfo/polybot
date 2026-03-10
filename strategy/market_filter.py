@@ -32,11 +32,17 @@ VALID_CATEGORIES = frozenset({
 })
 
 
-async def discover_markets(client: ClobClientWrapper) -> list[dict[str, Any]]:
-    """Fetch all active markets, caching in SQLite market_cache table.
+async def discover_markets(
+    client: ClobClientWrapper, max_pages: int = 0
+) -> list[dict[str, Any]]:
+    """Fetch active markets, caching in SQLite market_cache table.
 
     Cache refreshes every MARKET_CACHE_REFRESH_SECONDS (default 30 min).
-    Returns the full list with metadata.
+    Returns the list with metadata.
+
+    Args:
+        client: CLOB client wrapper.
+        max_pages: Maximum pages to fetch from API. 0 = unlimited.
     """
     # Check if we have a recent enough cache
     database = db.get_db()
@@ -67,7 +73,7 @@ async def discover_markets(client: ClobClientWrapper) -> list[dict[str, Any]]:
 
     # Fetch fresh from Polymarket
     logger.info("Fetching fresh market list from Polymarket CLOB API...")
-    markets = await client.get_markets()
+    markets = await client.get_markets(max_pages=max_pages)
     logger.info("Discovered %d markets from API", len(markets))
 
     # Cache each market

@@ -172,14 +172,21 @@ class ClobClientWrapper:
         # Should not reach here
         raise ClientError(f"CLOB API call {method_name} failed")  # pragma: no cover
 
-    async def get_markets(self, next_cursor: str = "") -> list[dict[str, Any]]:
-        """Fetch all active markets with metadata.
+    async def get_markets(
+        self, next_cursor: str = "", max_pages: int = 0
+    ) -> list[dict[str, Any]]:
+        """Fetch active markets with metadata.
 
         Returns a list of market dicts with question, end_date, tokens, liquidity, etc.
-        Paginates through all results automatically.
+        Paginates through results automatically.
+
+        Args:
+            next_cursor: Starting cursor for pagination.
+            max_pages: Maximum number of pages to fetch. 0 = unlimited (all pages).
         """
         all_markets: list[dict[str, Any]] = []
         cursor = next_cursor
+        pages_fetched = 0
 
         while True:
             if cursor:
@@ -188,6 +195,8 @@ class ClobClientWrapper:
                 )
             else:
                 result = await self._rate_limited_call(self._client.get_markets)
+
+            pages_fetched += 1
 
             if isinstance(result, dict):
                 markets = result.get("data", result.get("markets", []))
@@ -201,7 +210,11 @@ class ClobClientWrapper:
             else:
                 break
 
-        logger.info("Fetched %d markets", len(all_markets))
+            if max_pages and pages_fetched >= max_pages:
+                logger.info("Reached max_pages=%d, stopping pagination", max_pages)
+                break
+
+        logger.info("Fetched %d markets (%d pages)", len(all_markets), pages_fetched)
         return all_markets
 
     async def get_market(self, condition_id: str) -> dict[str, Any]:

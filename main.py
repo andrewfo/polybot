@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import sys
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,4 +19,14 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    if "--tui" in sys.argv:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+
+        from tui.app import TUIApp
+
+        app = TUIApp()
+        app.run()
+    else:
+        asyncio.run(main())

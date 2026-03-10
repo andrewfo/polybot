@@ -37,7 +37,7 @@ TASK_ROUTING: dict[str, str] = {
     "evaluate_confidence": "frontier",
 }
 
-FALLBACK_CHEAP_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
+FALLBACK_CHEAP_MODEL = "z-ai/glm-4.5-air:free"
 
 CHEAP_TIMEOUT = 30
 FRONTIER_TIMEOUT = 120

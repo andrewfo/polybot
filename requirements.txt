@@ -11,5 +11,6 @@ lxml
 schedule
 sqlite-utils
 python-telegram-bot
+textual>=0.85.0
 pytest
 pytest-asyncio

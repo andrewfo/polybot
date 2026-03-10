@@ -1,0 +1,73 @@
+/* Bloomberg-inspired dark theme for Polymarket Bot TUI */
+
+Screen {
+    background: $surface;
+}
+
+Header {
+    background: $primary-darken-2;
+    color: $text;
+}
+
+Footer {
+    background: $primary-darken-3;
+}
+
+TabbedContent {
+    height: 1fr;
+}
+
+ContentSwitcher {
+    height: 1fr;
+}
+
+TabPane {
+    height: 1fr;
+    padding: 0;
+}
+
+/* DataTable styling */
+DataTable {
+    height: 1fr;
+}
+
+DataTable > .datatable--header {
+    text-style: bold;
+    color: $secondary;
+    background: $surface-darken-1;
+}
+
+DataTable > .datatable--cursor {
+    background: $primary-lighten-1;
+}
+
+/* Progress bar */
+ProgressBar Bar > .bar--bar {
+    color: $success;
+}
+
+ProgressBar Bar > .bar--complete {
+    color: $success;
+}
+
+/* Button variants */
+Button {
+    min-width: 8;
+}
+
+/* Status indicators */
+.healthy {
+    color: green;
+}
+
+.unhealthy {
+    color: red;
+}
+
+/* Section titles */
+.section-title {
+    text-style: bold;
+    color: $secondary;
+    padding: 0 0 0 0;
+    margin: 1 0 0 0;
+}
