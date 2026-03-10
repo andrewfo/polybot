@@ -162,9 +162,25 @@ def _normalize_gamma_market(gamma: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
     # Build tokens list from Gamma's separate arrays
+    # Gamma API returns these as JSON strings, not Python lists — parse them
     clob_ids = gamma.get("clobTokenIds", [])
     outcomes = gamma.get("outcomes", [])
     outcome_prices = gamma.get("outcomePrices", [])
+    if isinstance(clob_ids, str):
+        try:
+            clob_ids = json.loads(clob_ids)
+        except (json.JSONDecodeError, TypeError):
+            clob_ids = []
+    if isinstance(outcomes, str):
+        try:
+            outcomes = json.loads(outcomes)
+        except (json.JSONDecodeError, TypeError):
+            outcomes = []
+    if isinstance(outcome_prices, str):
+        try:
+            outcome_prices = json.loads(outcome_prices)
+        except (json.JSONDecodeError, TypeError):
+            outcome_prices = []
 
     tokens = []
     for i, token_id in enumerate(clob_ids):
