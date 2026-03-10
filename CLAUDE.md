@@ -18,11 +18,11 @@ Autonomous Polymarket trading bot. Signal-based trading with Kelly criterion siz
 ```
 main.py                  → Entry point, --tui flag for dashboard (main loop NOT YET IMPLEMENTED)
 core/llm.py              → OpenRouter client, tiered routing (cheap vs frontier)
-core/client.py           → Polymarket CLOB wrapper with retry + rate limiting (uses run_in_executor for sync lib)
+core/client.py           → Polymarket CLOB wrapper for ORDER EXECUTION ONLY (no market reading methods)
 core/wallet.py           → Wallet balance checks, gas monitoring
 core/db.py               → SQLite tables: trades, positions, signals, bankroll, llm_costs, market_cache
 strategy/market_filter.py→ Gamma API discovery, filtering, LLM categorization, ranking
-tui/app.py               → Textual TUI dashboard with 5 tabs (Home, Markets, Filter, Costs, Logs)
+tui/app.py               → Textual TUI dashboard with 5 tabs (Home, Markets, Filter, Costs, Logs), neon green/black/red theme
 tui/widgets/             → StatusPanel, MarketsPanel, PipelinePanel, CostsPanel, LogPanel, CommandBar
 scripts/setup_wallet.py  → Wallet setup helper
 scripts/dashboard.py     → Standalone dashboard launcher
@@ -49,7 +49,9 @@ monitoring/notifications.py → Telegram (optional) or stdout notifications + co
 - `liquidity`/`liquidityNum` values on Polymarket range from $500 to $5M+ — filter bands must account for this
 - Spread data comes from Gamma directly — do NOT fall back to CLOB API for spread (causes 400 errors)
 - If Gamma `spread` is null, compute from `bestAsk - bestBid`
-- CLOB client (`py-clob-client`) is for order execution only
+- CLOB client (`py-clob-client`) is for order execution only — NO market reading methods on ClobClientWrapper
+- `discover_markets()` and `filter_markets()` do NOT take a CLOB client parameter — they use Gamma API exclusively
+- The filter pipeline must NEVER instantiate ClobClientWrapper (it causes auth HTTP calls to clob.polymarket.com on init)
 
 ### Market Filter Pipeline (strategy/market_filter.py)
 1. Binary only (2 tokens)
@@ -63,7 +65,8 @@ monitoring/notifications.py → Telegram (optional) or stdout notifications + co
 ## Critical Design Rules
 
 ### LLM Routing — Never Violate These
-- Cheap model (`z-ai/glm-4.5-air:free`): summarization, classification, extraction, search query generation, initial probability estimates
+- Cheap model (`google/gemini-2.0-flash-lite-001`): summarization, classification, extraction, search query generation, initial probability estimates
+- Fallback cheap model (`z-ai/glm-4.5-air:free`): used automatically if primary cheap model fails
 - Frontier model (`anthropic/claude-opus-4-6`): final probability estimation, trade/no-trade decisions only
 - If frontier model fails: ALERT AND SKIP. Never silently fall back to cheap model for frontier tasks.
 - Every LLM call must be logged to the `llm_costs` SQLite table before returning
@@ -85,6 +88,12 @@ monitoring/notifications.py → Telegram (optional) or stdout notifications + co
 - SQLite tables auto-create on first import of `core/db.py`
 - Paper trades stored in same tables with `paper=True` column
 - All timestamps ISO 8601 UTC
+
+### TUI Behavior
+- Theme: neon green (#00ff41), black (#0a0a0a), red (#ff0040) — hacker aesthetic
+- Bot Stop MUST cancel ALL worker groups (pipeline-loop, pipeline, health-loop, health-check, markets, costs) — no background tasks should survive a stop
+- Bot Start restarts health-loop and pipeline-loop
+- Health checks (wallet, RPC, OpenRouter) only run while bot is running
 
 ### Code Standards
 - Type hints on all function signatures and return types

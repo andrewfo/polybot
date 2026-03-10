@@ -15,17 +15,21 @@ class CommandBar(Horizontal):
         dock: bottom;
         padding: 0 1;
         display: none;
+        background: #0d0d0d;
     }
     CommandBar.visible {
         display: block;
     }
     CommandBar Input {
         width: 1fr;
+        background: #111111;
+        color: #00ff41;
+        border: tall #00ff41;
     }
     CommandBar .cmd-hint {
         width: auto;
         min-width: 40;
-        color: $text-muted;
+        color: #007a20;
         content-align: right middle;
         padding: 0 1;
     }

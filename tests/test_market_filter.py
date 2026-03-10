@@ -97,14 +97,8 @@ class TestHelpers:
 # ---------------------------------------------------------------------------
 
 class TestFilterMarkets:
-    @pytest.fixture
-    def mock_client(self) -> AsyncMock:
-        client = AsyncMock(spec=ClobClientWrapper)
-        client.get_spread = AsyncMock(return_value=0.03)
-        return client
-
     @pytest.mark.asyncio
-    async def test_binary_only_filter(self, mock_client: AsyncMock) -> None:
+    async def test_binary_only_filter(self) -> None:
         """Non-binary markets (!=2 tokens) are eliminated."""
         markets = [
             _make_market(condition_id="binary", num_tokens=2),
@@ -113,12 +107,12 @@ class TestFilterMarkets:
         ]
         with patch("strategy.market_filter.db") as mock_db:
             mock_db.get_open_positions.return_value = []
-            result = await filter_markets(markets, mock_client)
+            result = await filter_markets(markets)
         assert len(result) == 1
         assert result[0]["condition_id"] == "binary"
 
     @pytest.mark.asyncio
-    async def test_liquidity_filter(self, mock_client: AsyncMock) -> None:
+    async def test_liquidity_filter(self) -> None:
         """Markets outside liquidity band are eliminated."""
         markets = [
             _make_market(condition_id="low", liquidity=100),      # below MIN
@@ -127,12 +121,12 @@ class TestFilterMarkets:
         ]
         with patch("strategy.market_filter.db") as mock_db:
             mock_db.get_open_positions.return_value = []
-            result = await filter_markets(markets, mock_client)
+            result = await filter_markets(markets)
         assert len(result) == 1
         assert result[0]["condition_id"] == "good"
 
     @pytest.mark.asyncio
-    async def test_time_to_resolution_filter(self, mock_client: AsyncMock) -> None:
+    async def test_time_to_resolution_filter(self) -> None:
         """Markets too close or too far from resolution are eliminated."""
         markets = [
             _make_market(condition_id="too_soon", days_until_end=0),
@@ -141,12 +135,12 @@ class TestFilterMarkets:
         ]
         with patch("strategy.market_filter.db") as mock_db:
             mock_db.get_open_positions.return_value = []
-            result = await filter_markets(markets, mock_client)
+            result = await filter_markets(markets)
         assert len(result) == 1
         assert result[0]["condition_id"] == "good"
 
     @pytest.mark.asyncio
-    async def test_spread_filter(self, mock_client: AsyncMock) -> None:
+    async def test_spread_filter(self) -> None:
         """Markets with spread > MAX_SPREAD are eliminated."""
         markets = [
             _make_market(condition_id="tight", liquidity=5000, days_until_end=30, spread=0.03),
@@ -154,12 +148,12 @@ class TestFilterMarkets:
         ]
         with patch("strategy.market_filter.db") as mock_db:
             mock_db.get_open_positions.return_value = []
-            result = await filter_markets(markets, mock_client)
+            result = await filter_markets(markets)
         assert len(result) == 1
         assert result[0]["condition_id"] == "tight"
 
     @pytest.mark.asyncio
-    async def test_near_certain_filter(self, mock_client: AsyncMock) -> None:
+    async def test_near_certain_filter(self) -> None:
         """Markets with outcome prices <= 0.02 or >= 0.98 are eliminated."""
         markets = [
             _make_market(condition_id="balanced", yes_price=0.55),
@@ -168,12 +162,12 @@ class TestFilterMarkets:
         ]
         with patch("strategy.market_filter.db") as mock_db:
             mock_db.get_open_positions.return_value = []
-            result = await filter_markets(markets, mock_client)
+            result = await filter_markets(markets)
         assert len(result) == 1
         assert result[0]["condition_id"] == "balanced"
 
     @pytest.mark.asyncio
-    async def test_position_filter(self, mock_client: AsyncMock) -> None:
+    async def test_position_filter(self) -> None:
         """Markets where we already hold a position are eliminated."""
         markets = [
             _make_market(condition_id="cond_new"),
@@ -183,12 +177,12 @@ class TestFilterMarkets:
             mock_db.get_open_positions.return_value = [
                 {"market_id": "cond_existing", "size": 50.0}
             ]
-            result = await filter_markets(markets, mock_client)
+            result = await filter_markets(markets)
         assert len(result) == 1
         assert result[0]["condition_id"] == "cond_new"
 
     @pytest.mark.asyncio
-    async def test_full_pipeline(self, mock_client: AsyncMock) -> None:
+    async def test_full_pipeline(self) -> None:
         """A valid market passes all filters."""
         markets = [_make_market(
             condition_id="perfect",
@@ -199,7 +193,7 @@ class TestFilterMarkets:
         )]
         with patch("strategy.market_filter.db") as mock_db:
             mock_db.get_open_positions.return_value = []
-            result = await filter_markets(markets, mock_client)
+            result = await filter_markets(markets)
         assert len(result) == 1
 
 
@@ -464,6 +458,4 @@ class TestDiscoverMarkets:
         assert markets[0]["tokens"][0]["token_id"] == "tok_0"
 
 
-# Use ClobClientWrapper for type hints in fixtures
-from core.client import ClobClientWrapper
 from core.llm import LLMClient

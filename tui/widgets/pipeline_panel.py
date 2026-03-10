@@ -20,20 +20,22 @@ class PipelinePanel(Vertical):
     DEFAULT_CSS = """
     PipelinePanel {
         height: 1fr;
+        background: #0a0a0a;
     }
     PipelinePanel .progress-area {
         height: auto;
         max-height: 8;
         padding: 1 2;
-        border-bottom: solid $surface-lighten-2;
+        border-bottom: solid #1a3a1a;
     }
     PipelinePanel .progress-area .stage-label {
         height: 1;
         text-style: bold;
+        color: #00ff41;
     }
     PipelinePanel .progress-area .eta-label {
         height: 1;
-        color: $text-muted;
+        color: #007a20;
     }
     PipelinePanel .progress-area ProgressBar {
         margin: 0 0 0 0;
@@ -48,7 +50,7 @@ class PipelinePanel(Vertical):
     PipelinePanel .summary-label {
         height: 1;
         padding: 0 2;
-        color: $text-muted;
+        color: #00cc33;
     }
     PipelinePanel DataTable {
         height: 1fr;

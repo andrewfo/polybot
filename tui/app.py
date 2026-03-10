@@ -115,10 +115,16 @@ class TUIApp(App):
         self.post_message(BotStatusUpdate(running))
         if running:
             logger.info("Bot STARTED — pipeline loop active")
+            self._start_health_loop()
             self._start_pipeline_loop()
         else:
-            logger.info("Bot STOPPED — pipeline loop cancelled")
+            logger.info("Bot STOPPED — all workers cancelled")
             self.workers.cancel_group(self, "pipeline-loop")
+            self.workers.cancel_group(self, "pipeline")
+            self.workers.cancel_group(self, "health-loop")
+            self.workers.cancel_group(self, "health-check")
+            self.workers.cancel_group(self, "markets")
+            self.workers.cancel_group(self, "costs")
             from core.db import clear_pipeline_cache
             clear_pipeline_cache()
 
@@ -387,7 +393,6 @@ class TUIApp(App):
 
     async def _run_filter_pipeline(self) -> None:
         """Execute the full filter pipeline with progress updates."""
-        from core.client import ClobClientWrapper
         from core.llm import LLMClient
         from strategy.market_filter import (
             batch_categorize_markets,
@@ -401,15 +406,14 @@ class TUIApp(App):
         pipeline_start = datetime.now(timezone.utc)
 
         try:
-            client = ClobClientWrapper()
             async with LLMClient() as llm:
                 # Stage 0: Discover
                 self._post_stage("discover", 0, started_at=pipeline_start)
-                markets = await discover_markets(client)
+                markets = await discover_markets()
 
                 # Stage 1: Filter
                 self._post_stage("filter", 1, total=len(markets), started_at=pipeline_start)
-                filtered = await filter_markets(markets, client)
+                filtered = await filter_markets(markets)
 
                 # Stage 2: Categorize (batched to avoid rate limits)
                 self._post_stage("categorize", 2, processed=0, total=len(filtered), started_at=pipeline_start)

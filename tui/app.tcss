@@ -1,16 +1,17 @@
-/* Bloomberg-inspired dark theme for Polymarket Bot TUI */
+/* Neon hacker theme — green, black, red */
 
 Screen {
-    background: $surface;
+    background: #0a0a0a;
 }
 
 Header {
-    background: $primary-darken-2;
-    color: $text;
+    background: #001a00;
+    color: #00ff41;
 }
 
 Footer {
-    background: $primary-darken-3;
+    background: #001a00;
+    color: #00ff41;
 }
 
 TabbedContent {
@@ -24,50 +25,121 @@ ContentSwitcher {
 TabPane {
     height: 1fr;
     padding: 0;
+    background: #0a0a0a;
+}
+
+Tabs {
+    background: #0d0d0d;
+}
+
+Tab {
+    color: #00ff41;
+    background: #0d0d0d;
+}
+
+Tab.-active {
+    color: #0a0a0a;
+    background: #00ff41;
+    text-style: bold;
 }
 
 /* DataTable styling */
 DataTable {
     height: 1fr;
+    background: #0a0a0a;
 }
 
 DataTable > .datatable--header {
     text-style: bold;
-    color: $secondary;
-    background: $surface-darken-1;
+    color: #00ff41;
+    background: #111111;
 }
 
 DataTable > .datatable--cursor {
-    background: $primary-lighten-1;
+    background: #003300;
+    color: #00ff41;
+}
+
+DataTable > .datatable--even-row {
+    background: #0d0d0d;
+}
+
+DataTable > .datatable--odd-row {
+    background: #0a0a0a;
 }
 
 /* Progress bar */
 ProgressBar Bar > .bar--bar {
-    color: $success;
+    color: #00ff41;
 }
 
 ProgressBar Bar > .bar--complete {
-    color: $success;
+    color: #00ff41;
 }
 
 /* Button variants */
 Button {
     min-width: 8;
+    background: #1a1a1a;
+    color: #00ff41;
+    border: tall #00ff41;
+}
+
+Button:hover {
+    background: #003300;
+}
+
+Button.-primary {
+    background: #003300;
+    color: #00ff41;
+    border: tall #00ff41;
+}
+
+Button.-success {
+    background: #002200;
+    color: #00ff41;
+    border: tall #00ff41;
+}
+
+Button.-error {
+    background: #330000;
+    color: #ff0040;
+    border: tall #ff0040;
 }
 
 /* Status indicators */
 .healthy {
-    color: green;
+    color: #00ff41;
 }
 
 .unhealthy {
-    color: red;
+    color: #ff0040;
 }
 
 /* Section titles */
 .section-title {
     text-style: bold;
-    color: $secondary;
+    color: #00ff41;
     padding: 0 0 0 0;
     margin: 1 0 0 0;
+}
+
+/* Static text defaults */
+Static {
+    color: #00cc33;
+}
+
+Label {
+    color: #00cc33;
+}
+
+Input {
+    background: #111111;
+    color: #00ff41;
+    border: tall #00ff41;
+}
+
+RichLog {
+    background: #0a0a0a;
+    border: solid #1a3a1a;
 }

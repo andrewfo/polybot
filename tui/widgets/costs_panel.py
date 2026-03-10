@@ -14,14 +14,17 @@ class CostsPanel(Vertical):
     CostsPanel {
         height: 1fr;
         padding: 1 2;
+        background: #0a0a0a;
     }
     CostsPanel .section-title {
         text-style: bold;
+        color: #00ff41;
         margin: 1 0 0 0;
     }
     CostsPanel .cost-summary {
         margin: 0 0 0 2;
         height: 1;
+        color: #00cc33;
     }
     CostsPanel DataTable {
         height: auto;

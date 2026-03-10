@@ -11,12 +11,12 @@ from tui.messages import LogMessage, CommandResult
 MAX_LOG_LINES = 1000
 
 LEVEL_COLORS = {
-    "DEBUG": "dim white",
-    "INFO": "white",
-    "WARNING": "yellow",
-    "ERROR": "red",
-    "CRITICAL": "bold red",
-    "COMMAND": "bold cyan",
+    "DEBUG": "dim #007a20",
+    "INFO": "#00cc33",
+    "WARNING": "#ffaa00",
+    "ERROR": "#ff0040",
+    "CRITICAL": "bold #ff0040",
+    "COMMAND": "bold #00ff41",
 }
 
 LEVEL_PRIORITY = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4, "COMMAND": 1}
@@ -28,6 +28,7 @@ class LogPanel(Vertical):
     DEFAULT_CSS = """
     LogPanel {
         height: 1fr;
+        background: #0a0a0a;
     }
     LogPanel .log-filters {
         height: 3;
@@ -40,7 +41,8 @@ class LogPanel(Vertical):
     }
     LogPanel RichLog {
         height: 1fr;
-        border: solid $surface-lighten-2;
+        border: solid #1a3a1a;
+        background: #050505;
     }
     """
 

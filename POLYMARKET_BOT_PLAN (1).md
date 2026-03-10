@@ -90,7 +90,7 @@ Set up the entire project from scratch in an empty folder. This includes the rep
    # --- LLM Model Routing ---
    # Cheap model: used for summarization, article parsing, classification, simple extraction
    # Should cost < $0.10 per million input tokens or be free
-   CHEAP_MODEL = os.getenv("CHEAP_MODEL", "google/gemini-2.0-flash-exp:free")
+   CHEAP_MODEL = os.getenv("CHEAP_MODEL", "google/gemini-2.0-flash-lite-001")
 
    # Frontier model: used for final probability estimation and trade/no-trade decisions
    # This is where accuracy matters most — worth paying for
@@ -168,8 +168,8 @@ Set up the entire project from scratch in an empty folder. This includes the rep
    # FRED_API_KEY=DEMO_KEY
 
    # === OPTIONAL: Model Overrides ===
-   # Cheap model for routine tasks (default: free Gemini Flash)
-   # CHEAP_MODEL=google/gemini-2.0-flash-exp:free
+   # Cheap model for routine tasks (default: Gemini Flash Lite)
+   # CHEAP_MODEL=google/gemini-2.0-flash-lite-001
    # Frontier model for high-stakes decisions (default: Claude Opus 4.6)
    # FRONTIER_MODEL=anthropic/claude-opus-4-6
    ```

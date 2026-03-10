@@ -18,21 +18,23 @@ class StatusPanel(Vertical):
     StatusPanel {
         height: 1fr;
         padding: 1 2;
+        background: #0a0a0a;
     }
     StatusPanel .section-title {
         text-style: bold;
-        color: $text;
+        color: #00ff41;
         margin: 1 0 0 0;
     }
     StatusPanel .conn-row {
         height: 1;
         margin: 0 0 0 2;
+        color: #00cc33;
     }
     StatusPanel .healthy {
-        color: green;
+        color: #00ff41;
     }
     StatusPanel .unhealthy {
-        color: red;
+        color: #ff0040;
     }
     StatusPanel .wallet-info {
         margin: 0 0 0 2;
@@ -40,6 +42,7 @@ class StatusPanel(Vertical):
     StatusPanel .kv-line {
         height: 1;
         margin: 0 0 0 2;
+        color: #00cc33;
     }
     StatusPanel #bot-toggle-row {
         height: 3;
@@ -49,16 +52,19 @@ class StatusPanel(Vertical):
         min-width: 20;
     }
     StatusPanel #bot-toggle.bot-stopped {
-        background: $success;
-        color: $text;
+        background: #002200;
+        color: #00ff41;
+        border: tall #00ff41;
     }
     StatusPanel #bot-toggle.bot-running {
-        background: $error;
-        color: $text;
+        background: #330000;
+        color: #ff0040;
+        border: tall #ff0040;
     }
     StatusPanel #bot-status-line {
         height: 1;
         margin: 0 0 0 2;
+        color: #00cc33;
     }
     """
 
@@ -103,7 +109,7 @@ class StatusPanel(Vertical):
         yield Static(id="bot-uptime", classes="kv-line")
 
     def _format_conn(self, status: ConnectionStatus) -> str:
-        icon = "[green]\u25cf[/green]" if status.healthy else "[red]\u25cf[/red]"
+        icon = "[#00ff41]\u25cf[/#00ff41]" if status.healthy else "[#ff0040]\u25cf[/#ff0040]"
         check_str = status.last_check.strftime("%H:%M:%S") if status.last_check else "never"
         err = f"  ({status.error})" if status.error and not status.healthy else ""
         return f"{icon} {status.name:<20} last check: {check_str}{err}"
@@ -126,7 +132,7 @@ class StatusPanel(Vertical):
             self.query_one("#wallet-address", Static).update(f"Address:        {self._wallet_address}")
             self.query_one("#wallet-usdc", Static).update(f"USDC Balance:   ${self._usdc:,.2f}")
             self.query_one("#wallet-matic", Static).update(f"MATIC Balance:  {self._matic:.4f}")
-            gas_str = "[green]OK[/green]" if self._has_gas else "[red]LOW[/red]"
+            gas_str = "[#00ff41]OK[/#00ff41]" if self._has_gas else "[#ff0040]LOW[/#ff0040]"
             self.query_one("#wallet-gas", Static).update(f"Gas Status:     {gas_str}")
             self.query_one("#positions-count", Static).update(f"Open Positions: {self._positions_count}")
             self.query_one("#bot-mode", Static).update(f"Mode:           Paper Trading")
@@ -161,13 +167,13 @@ class StatusPanel(Vertical):
                 btn.variant = "error"
                 btn.remove_class("bot-stopped")
                 btn.add_class("bot-running")
-                status_line.update("[green]● RUNNING[/green]  Pipeline loop active — press [b]s[/b] or click to stop")
+                status_line.update("[#00ff41]● RUNNING[/#00ff41]  Pipeline loop active — press [b]s[/b] or click to stop")
             else:
                 btn.label = "Start Bot"
                 btn.variant = "success"
                 btn.remove_class("bot-running")
                 btn.add_class("bot-stopped")
-                status_line.update("[dim]● STOPPED[/dim]   Press [b]s[/b] or click Start to begin")
+                status_line.update("[#ff0040]● STOPPED[/#ff0040]   Press [b]s[/b] or click Start to begin")
         except Exception:
             pass
 

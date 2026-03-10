@@ -21,7 +21,6 @@ from config.settings import (
     MIN_MARKET_LIQUIDITY,
 )
 from core import db
-from core.client import ClobClientWrapper
 from core.llm import LLMClient
 
 # Gamma API returns richer market data (liquidity, volume, spread, etc.)
@@ -37,9 +36,7 @@ VALID_CATEGORIES = frozenset({
 })
 
 
-async def discover_markets(
-    client: ClobClientWrapper | None = None, max_pages: int = 0
-) -> list[dict[str, Any]]:
+async def discover_markets(max_pages: int = 0) -> list[dict[str, Any]]:
     """Fetch active markets from Gamma API, caching in SQLite market_cache table.
 
     Uses the Gamma API which returns rich metadata (liquidity, volume, spread,
@@ -48,7 +45,6 @@ async def discover_markets(
     Cache refreshes every MARKET_CACHE_REFRESH_SECONDS (default 30 min).
 
     Args:
-        client: Optional CLOB client (unused, kept for backward compat).
         max_pages: Maximum pages to fetch. 0 = use GAMMA_MAX_PAGES default.
     """
     # Check if we have a recent enough cache
@@ -216,7 +212,6 @@ def _normalize_gamma_market(gamma: dict[str, Any]) -> dict[str, Any] | None:
 
 async def filter_markets(
     markets: list[dict[str, Any]],
-    client: ClobClientWrapper,
 ) -> list[dict[str, Any]]:
     """Apply filtering pipeline to narrow down candidate markets.
 
