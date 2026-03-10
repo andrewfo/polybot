@@ -15,10 +15,8 @@ import aiohttp
 from config.settings import (
     MAX_DAYS_TO_RESOLUTION,
     MAX_MARKET_LIQUIDITY,
-    MAX_POSITION_PCT,
     MAX_SPREAD,
     MARKET_CACHE_REFRESH_SECONDS,
-    MIN_24H_VOLUME,
     MIN_HOURS_TO_RESOLUTION,
     MIN_MARKET_LIQUIDITY,
 )
@@ -206,13 +204,14 @@ async def filter_markets(
 ) -> list[dict[str, Any]]:
     """Apply filtering pipeline to narrow down candidate markets.
 
-    Filters in order:
+    Filters in order (per spec):
     1. Binary only (YES/NO markets)
-    2. Liquidity band
-    3. Time to resolution
-    4. Spread < MAX_SPREAD
-    5. 24h volume >= MIN_24H_VOLUME
+    2. Liquidity band (MIN_MARKET_LIQUIDITY to MAX_MARKET_LIQUIDITY)
+    3. Time to resolution (MIN_HOURS_TO_RESOLUTION to MAX_DAYS_TO_RESOLUTION)
+    4. Near-certain filter: drop if best outcome price <= 0.02 or >= 0.98
+    5. Spread filter: drop if spread > MAX_SPREAD (Gamma data only, no CLOB fallback)
     6. Not already at max position
+    7. Sort survivors by volume_24hr descending
     """
     initial_count = len(markets)
     logger.info("Starting filter pipeline with %d markets", initial_count)
@@ -247,55 +246,44 @@ async def filter_markets(
     _log_filter_step("time_to_resolution", len(markets), len(filtered))
     markets = filtered
 
-    # 4. Spread < MAX_SPREAD
-    # Use pre-fetched spread from Gamma API when available; fall back to CLOB orderbook
+    # 4. Near-certain price filter: drop if any outcome price <= 0.02 or >= 0.98
     filtered = []
     for m in markets:
-        gamma_spread = m.get("spread")
-        if gamma_spread is not None:
-            try:
-                spread = float(gamma_spread)
-                if spread < MAX_SPREAD:
-                    m["_spread"] = spread
-                    filtered.append(m)
-                continue
-            except (TypeError, ValueError):
-                pass
-        # Fallback: fetch spread from CLOB orderbook
-        tokens = m.get("tokens", [])
-        if tokens:
-            token_id = tokens[0].get("token_id", "")
-            if token_id:
-                try:
-                    spread = await client.get_spread(token_id)
-                    if spread < MAX_SPREAD:
-                        m["_spread"] = spread
-                        filtered.append(m)
-                except Exception as e:
-                    logger.debug("Failed to get spread for %s: %s", token_id, e)
-    _log_filter_step("spread", len(markets), len(filtered))
+        prices = _get_outcome_prices(m)
+        if prices and all(0.02 < p < 0.98 for p in prices):
+            filtered.append(m)
+        elif not prices:
+            # No price data available — keep the market (don't penalize missing data)
+            filtered.append(m)
+    _log_filter_step("near_certain", len(markets), len(filtered))
     markets = filtered
 
-    # 5. 24h volume
+    # 5. Spread filter: use Gamma spread or compute from bestAsk - bestBid
     filtered = []
     for m in markets:
-        volume = _get_volume_24h(m)
-        if volume >= MIN_24H_VOLUME:
+        spread = _get_spread(m)
+        if spread is not None and spread <= MAX_SPREAD:
+            m["_spread"] = spread
             filtered.append(m)
-    _log_filter_step("volume_24h", len(markets), len(filtered))
+        elif spread is None:
+            # No spread data — keep market, don't penalize missing data
+            m["_spread"] = None
+            filtered.append(m)
+    _log_filter_step("spread", len(markets), len(filtered))
     markets = filtered
 
     # 6. Not already at max position
     open_positions = db.get_open_positions()
     position_market_ids = {p["market_id"] for p in open_positions if p.get("size", 0) > 0}
-    # Count positions at max — simplified check: skip markets we already have positions in
-    # A more precise check would compare position size vs bankroll * MAX_POSITION_PCT
     filtered = []
     for m in markets:
         condition_id = m.get("condition_id", "")
         if condition_id not in position_market_ids:
             filtered.append(m)
     _log_filter_step("max_position", len(markets), len(filtered))
+
+    # 7. Sort by volume_24hr descending
+    filtered.sort(key=lambda m: _get_volume_24h(m), reverse=True)
 
     logger.info(
         "Filter pipeline complete: %d → %d markets",
@@ -522,6 +510,50 @@ def _get_volume_24h(market: dict[str, Any]) -> float:
             except (TypeError, ValueError):
                 continue
     return 0.0
+
+
+def _get_outcome_prices(market: dict[str, Any]) -> list[float]:
+    """Extract outcome prices from token data.
+
+    Returns list of floats for each outcome's price, or empty list if unavailable.
+    """
+    tokens = market.get("tokens", [])
+    prices: list[float] = []
+    for token in tokens:
+        price = token.get("price")
+        if price is not None:
+            try:
+                prices.append(float(price))
+            except (TypeError, ValueError):
+                continue
+    return prices
+
+
+def _get_spread(market: dict[str, Any]) -> float | None:
+    """Extract spread from Gamma API data.
+
+    Uses the spread field directly if available, otherwise computes from
+    bestAsk - bestBid. Returns None if no spread data is available.
+    Does NOT fall back to CLOB API (avoids 400 errors).
+    """
+    # Try Gamma spread field first
+    gamma_spread = market.get("spread")
+    if gamma_spread is not None:
+        try:
+            return float(gamma_spread)
+        except (TypeError, ValueError):
+            pass
+
+    # Compute from bestAsk - bestBid
+    best_ask = market.get("bestAsk")
+    best_bid = market.get("bestBid")
+    if best_ask is not None and best_bid is not None:
+        try:
+            return float(best_ask) - float(best_bid)
+        except (TypeError, ValueError):
+            pass
+
+    return None
 
 
 def _parse_end_date(market: dict[str, Any]) -> datetime | None:

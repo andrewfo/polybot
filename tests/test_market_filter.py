@@ -15,6 +15,8 @@ from strategy.market_filter import (
     filter_markets,
     rank_candidates,
     _get_liquidity,
+    _get_outcome_prices,
+    _get_spread,
     _get_volume_24h,
     _parse_end_date,
 )
@@ -32,17 +34,24 @@ def _make_market(
     days_until_end: int = 14,
     num_tokens: int = 2,
     category: str = "",
+    yes_price: float = 0.55,
+    spread: float | None = 0.02,
 ) -> dict:
     now = datetime.now(timezone.utc)
     end = now + timedelta(days=days_until_end)
-    tokens = [{"token_id": f"tok_{i}"} for i in range(num_tokens)]
-    m = {
+    no_price = round(1.0 - yes_price, 4)
+    tokens = [
+        {"token_id": f"tok_{i}", "price": str(yes_price if i == 0 else no_price)}
+        for i in range(num_tokens)
+    ]
+    m: dict = {
         "condition_id": condition_id,
         "question": question,
         "liquidity": liquidity,
         "volume24hr": volume_24h,
         "end_date_iso": end.isoformat(),
         "tokens": tokens,
+        "spread": spread,
     }
     if category:
         m["_category"] = category
@@ -114,7 +123,7 @@ class TestFilterMarkets:
         markets = [
             _make_market(condition_id="low", liquidity=100),      # below MIN
             _make_market(condition_id="good", liquidity=5000),     # in band
-            _make_market(condition_id="high", liquidity=100000),   # above MAX
+            _make_market(condition_id="high", liquidity=600000),   # above MAX
         ]
         with patch("strategy.market_filter.db") as mock_db:
             mock_db.get_open_positions.return_value = []
@@ -138,11 +147,10 @@ class TestFilterMarkets:
 
     @pytest.mark.asyncio
     async def test_spread_filter(self, mock_client: AsyncMock) -> None:
-        """Markets with spread >= MAX_SPREAD are eliminated."""
-        mock_client.get_spread = AsyncMock(side_effect=[0.03, 0.15])
+        """Markets with spread > MAX_SPREAD are eliminated."""
         markets = [
-            _make_market(condition_id="tight", liquidity=5000, days_until_end=30),
-            _make_market(condition_id="wide", liquidity=5000, days_until_end=30),
+            _make_market(condition_id="tight", liquidity=5000, days_until_end=30, spread=0.03),
+            _make_market(condition_id="wide", liquidity=5000, days_until_end=30, spread=0.15),
         ]
         with patch("strategy.market_filter.db") as mock_db:
             mock_db.get_open_positions.return_value = []
@@ -151,17 +159,18 @@ class TestFilterMarkets:
         assert result[0]["condition_id"] == "tight"
 
     @pytest.mark.asyncio
-    async def test_volume_filter(self, mock_client: AsyncMock) -> None:
-        """Markets with < MIN_24H_VOLUME are eliminated."""
+    async def test_near_certain_filter(self, mock_client: AsyncMock) -> None:
+        """Markets with outcome prices <= 0.02 or >= 0.98 are eliminated."""
         markets = [
-            _make_market(condition_id="active", volume_24h=500),
-            _make_market(condition_id="dead", volume_24h=10),
+            _make_market(condition_id="balanced", yes_price=0.55),
+            _make_market(condition_id="near_yes", yes_price=0.99),
+            _make_market(condition_id="near_no", yes_price=0.01),
         ]
         with patch("strategy.market_filter.db") as mock_db:
             mock_db.get_open_positions.return_value = []
             result = await filter_markets(markets, mock_client)
         assert len(result) == 1
-        assert result[0]["condition_id"] == "active"
+        assert result[0]["condition_id"] == "balanced"
 
     @pytest.mark.asyncio
     async def test_position_filter(self, mock_client: AsyncMock) -> None:
