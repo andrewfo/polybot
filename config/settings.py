@@ -3,7 +3,7 @@ import os
 # --- LLM Model Routing ---
 # Cheap model: used for summarization, article parsing, classification, simple extraction
 # Should cost < $0.10 per million input tokens or be free
-CHEAP_MODEL = os.getenv("CHEAP_MODEL", "z-ai/glm-4.5-air:free")
+CHEAP_MODEL = os.getenv("CHEAP_MODEL", "google/gemini-2.0-flash-lite")
 
 # Frontier model: used for final probability estimation and trade/no-trade decisions
 # This is where accuracy matters most — worth paying for

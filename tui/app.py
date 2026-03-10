@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import aiohttp
+from config.settings import CHEAP_MODEL
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.widgets import Header, Footer, TabbedContent, TabPane
@@ -118,6 +119,8 @@ class TUIApp(App):
         else:
             logger.info("Bot STOPPED — pipeline loop cancelled")
             self.workers.cancel_group(self, "pipeline-loop")
+            from core.db import clear_pipeline_cache
+            clear_pipeline_cache()
 
     # -----------------------------------------------------------------
     # Tab switching
@@ -221,7 +224,7 @@ class TUIApp(App):
                 async with session.post(
                     "https://openrouter.ai/api/v1/chat/completions",
                     json={
-                        "model": "z-ai/glm-4.5-air:free",
+                        "model": CHEAP_MODEL,
                         "messages": [{"role": "user", "content": "ping"}],
                     },
                     headers={

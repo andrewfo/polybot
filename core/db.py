@@ -358,5 +358,13 @@ def get_cached_market(condition_id: str) -> dict[str, Any] | None:
         return None
 
 
+def clear_pipeline_cache() -> None:
+    """Clear the market_cache table. Called on bot stop to reset pipeline state."""
+    db = get_db()
+    if "market_cache" in db.table_names():
+        db["market_cache"].delete_where()
+        logger.info("Cleared market_cache table")
+
+
 # Auto-create tables on import
 ensure_tables()
