@@ -487,12 +487,16 @@ The bot's edge lives in mid-to-low liquidity markets where fewer sophisticated p
 
 ---
 
-## Section 4: Signal Engine
+## Section 4A: Signal Base + News Signal
 
 ### Context
-This is the core edge generator. We need to estimate the true probability of events more accurately than the market consensus. We use multiple signal sources (news, structured data) processed through cheap LLMs, then aggregate and make the final probability estimate using the frontier model.
+This is the first part of the signal engine. We define the shared dataclass and abstract base, then build the news/sentiment signal provider — the most broadly applicable signal source. This part has zero external API key requirements.
 
-The architecture is: cheap models do the grunt work (fetching, parsing, summarizing), frontier model makes the final call.
+The architecture across all of Section 4: cheap models do the grunt work (fetching, parsing, summarizing), frontier model makes the final call (in 4D).
+
+### Dependencies
+- Sections 0-3 complete (core/llm.py, core/db.py, strategy/market_filter.py)
+- `feedparser` package (add to requirements.txt)
 
 ### Tasks
 1. **`signals/base.py`** — Abstract signal interface:
@@ -557,7 +561,38 @@ The architecture is: cheap models do the grunt work (fetching, parsing, summariz
    - Cache signal results per market for 30 minutes
    - If fewer than 2 relevant articles found → return confidence = 0, probability = None
 
-3. **`signals/polling.py`** — Structured data signal (politics and general categories):
+3. **`signals/__init__.py`** — Export `SignalResult`, `SignalProvider`, `NewsSignalProvider`
+
+4. **`tests/test_news_signal.py`** — Unit tests:
+   - Mock Google News RSS and Reddit responses
+   - Mock cheap LLM calls (search queries, summarization, probability estimate)
+   - Test: sufficient articles → returns probability and confidence
+   - Test: fewer than 2 articles → returns confidence=0, probability=None
+   - Test: LLM failure during summarization → graceful degradation
+   - Test: deduplication removes near-identical titles
+   - Test: cache returns same result within 30 minutes
+
+### Acceptance Criteria
+- `SignalResult` dataclass and `SignalProvider` ABC are defined and importable
+- News signal fetches articles from Google News RSS and Reddit without API keys
+- All LLM calls use cheap tier only
+- Cache prevents redundant fetches within 30 minutes
+- All tests pass with mocked external dependencies
+- Signal results are logged to `signals` SQLite table
+
+---
+
+## Section 4B: Polling Signal
+
+### Context
+The polling/structured data signal for politics and general categories. Handles RSS and scraping of polling data sources. Economics and crypto categories are skipped here — they get dedicated resolution providers in 4C.
+
+### Dependencies
+- Section 4A complete (signals/base.py with SignalResult + SignalProvider)
+- `beautifulsoup4` package (add to requirements.txt if not already present)
+
+### Tasks
+1. **`signals/polling.py`** — Structured data signal (politics and general categories):
    - **Scope**: This provider handles `politics` and other general categories. Skip `economics` and `crypto` categories (return confidence=0, probability=None) — those are now handled by dedicated resolution source providers (`resolution_econ.py`, `resolution_crypto.py`).
    - **Data sources** (all free, no API keys):
      - FiveThirtyEight / Silver Bulletin: RSS feeds for polling averages
@@ -577,7 +612,35 @@ The architecture is: cheap models do the grunt work (fetching, parsing, summariz
    - This signal is most valuable for `politics` category
    - For categories without structured data sources → return confidence = 0, probability = None
 
-4. **`signals/resolution_econ.py`** — Economics resolution source watcher:
+2. **`tests/test_polling_signal.py`** — Unit tests:
+   - Mock RSS and HTML responses from polling sources
+   - Mock cheap LLM calls
+   - Test: politics category → returns probability from polling data
+   - Test: economics category → immediately returns confidence=0, probability=None
+   - Test: crypto category → immediately returns confidence=0, probability=None
+   - Test: no structured data available → returns confidence=0, probability=None
+   - Test: fetch failure → graceful degradation
+
+### Acceptance Criteria
+- Polling provider correctly skips economics/crypto categories (returns confidence=0)
+- Politics markets produce probability estimates from polling data
+- Categories with no data source return confidence=0 gracefully
+- All LLM calls use cheap tier only
+- All tests pass with mocked external dependencies
+
+---
+
+## Section 4C: Resolution Source Signals (Economics + Crypto)
+
+### Context
+These are the highest-value signal providers — they fetch data directly from the sources that would be used to resolve the market (FRED for economics, CoinGecko for crypto). The crypto provider includes a log-normal price model for a mathematically grounded baseline before LLM adjustment.
+
+### Dependencies
+- Section 4A complete (signals/base.py with SignalResult + SignalProvider)
+- `FRED_API_KEY` in config/settings.py (already exists, defaults to `DEMO_KEY`)
+
+### Tasks
+1. **`signals/resolution_econ.py`** — Economics resolution source watcher:
    - `EconomicsResolutionProvider(SignalProvider)` with `name = "resolution_econ"`
    - **Data sources** (all free, no API key required beyond DEMO_KEY):
 
@@ -614,7 +677,7 @@ The architecture is: cheap models do the grunt work (fetching, parsing, summariz
    - Cache results per market for 30 minutes (same as news signal)
    - Use `FRED_API_KEY` from `config/settings.py` (defaults to `DEMO_KEY`)
 
-5. **`signals/resolution_crypto.py`** — Crypto resolution source watcher:
+2. **`signals/resolution_crypto.py`** — Crypto resolution source watcher:
    - `CryptoResolutionProvider(SignalProvider)` with `name = "resolution_crypto"`
    - **Data sources** (all free, no API key):
 
@@ -672,7 +735,46 @@ The architecture is: cheap models do the grunt work (fetching, parsing, summariz
    - Cache results per market for 15 minutes (crypto moves faster than economics data)
    - **No scipy dependency**: Use the `norm_cdf` helper via `math.erf` as shown above
 
-6. **`signals/aggregator.py`** — Signal aggregation with frontier model final call:
+3. **`tests/test_resolution_econ.py`** — Unit tests:
+   - Mock FRED API responses with known data
+   - Mock cheap LLM interpretation calls
+   - Test: economics category with rate indicator → fetches FEDFUNDS, produces SignalResult
+   - Test: non-economics category → immediately returns confidence=0
+   - Test: FRED API failure → graceful degradation
+   - Test: cache prevents redundant FRED fetches
+
+4. **`tests/test_resolution_crypto.py`** — Unit tests:
+   - Mock CoinGecko price + history responses
+   - Mock cheap LLM adjustment calls
+   - Test: crypto category → fetches price data, computes log-normal model, returns SignalResult
+   - Test: non-crypto category → immediately returns confidence=0
+   - Test: log-normal model math with known inputs produces correct outputs (no LLM mock needed)
+   - Test: missing coin_id → cheap LLM maps name to CoinGecko ID
+   - Test: CoinGecko API failure → graceful degradation
+
+### Acceptance Criteria
+- Economics provider fetches real FRED data and produces probability estimates
+- Crypto provider computes log-normal model probability, then uses cheap LLM to adjust for trend
+- Log-normal model unit tests: known inputs produce correct mathematical outputs (no LLM needed to verify)
+- Non-matching categories immediately return confidence=0 (no wasted API calls)
+- All LLM calls use cheap tier only
+- Both providers cache results to avoid redundant API calls
+- All tests pass with mocked external dependencies
+- **No scipy dependency**: `norm_cdf` uses `math.erf` only
+
+---
+
+## Section 4D: Signal Aggregator (Frontier Model)
+
+### Context
+This is the most important module in the entire bot. The aggregator collects signals from all providers (4A-4C), computes a weighted preliminary estimate, then makes the single FRONTIER MODEL call that determines our final probability. This is the only place the expensive frontier model is used in the signal pipeline.
+
+### Dependencies
+- Sections 4A, 4B, 4C complete (all signal providers)
+- Frontier model configured in config/settings.py (already exists)
+
+### Tasks
+1. **`signals/aggregator.py`** — Signal aggregation with frontier model final call:
    - **Step 1**: Collect signals from all providers for a given market
    - **Step 2**: Filter out signals with confidence = 0 or probability = None
    - **Step 3**: If 0 usable signals → skip this market (return None)
@@ -733,21 +835,27 @@ The architecture is: cheap models do the grunt work (fetching, parsing, summariz
    - **Step 7**: Return final aggregated result with full audit trail.
    - Store everything in `signals` table for later analysis.
 
+2. **`tests/test_aggregator.py`** — Unit tests:
+   - Mock all signal providers to return known SignalResult values
+   - Mock frontier LLM call
+   - Test: multiple signals → weighted average computed correctly
+   - Test: resolution source signals get 2x weight multiplier
+   - Test: 0 usable signals → returns None (skip market)
+   - Test: frontier model confidence < 0.4 → skip market
+   - Test: frontier model failure → raises, does NOT fall back to cheap
+   - Test: full pipeline with mixed signal confidences
+   - Test: all results stored in signals SQLite table
+
 ### Acceptance Criteria
-- News signal fetches articles from Google News RSS and Reddit without API keys
-- All LLM calls use the correct tier (cheap for parsing/summarizing, frontier for final estimate)
 - Aggregator produces a final probability estimate with reasoning
-- Markets with insufficient data are correctly skipped
-- All signal results are logged to SQLite with full audit trail
-- Cost per market analysis averages ~$0.02-0.05 (mostly from one frontier call)
-- Economics resolution provider fetches real FRED data and produces probability estimates
-- Crypto resolution provider computes log-normal model probability, then uses cheap LLM to adjust for trend
-- Log-normal model unit tests: known inputs produce correct mathematical outputs (no LLM needed to verify)
 - Resolution source signals are weighted 2x in the aggregator
 - Frontier prompt includes resolution source labels and resolution criteria mismatch warning
-- Polling provider skips economics/crypto categories (returns confidence=0)
-- Unit tests: mock LLM responses and verify the full pipeline
-- Unit tests: mock FRED/CoinGecko responses and verify full pipeline for each resolution provider (`tests/test_resolution_econ.py`, `tests/test_resolution_crypto.py`)
+- Markets with insufficient data (0 usable signals) are correctly skipped
+- Low-confidence frontier results (< 0.4) are correctly skipped
+- All signal results are logged to SQLite `signals` table with full audit trail
+- Cost per market analysis averages ~$0.02-0.05 (mostly from one frontier call)
+- Frontier model failure raises — NEVER silently falls back to cheap
+- All tests pass with mocked LLM and signal providers
 
 ---
 

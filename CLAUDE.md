@@ -28,12 +28,14 @@ scripts/setup_wallet.py  → Wallet setup helper
 scripts/dashboard.py     → Standalone dashboard launcher
 ```
 
-### Not Yet Implemented (build plan sections 4-11)
+### Not Yet Implemented (build plan sections 4A-11)
 ```
-signals/base.py          → SignalResult dataclass + SignalProvider ABC
-signals/news.py          → Google News RSS + Reddit scraping → cheap LLM summarization
-signals/polling.py       → Structured data (polls, FRED, CoinGecko) → cheap LLM interpretation
-signals/aggregator.py    → Weighted signal merge → FRONTIER model final probability call
+signals/base.py          → SignalResult dataclass + SignalProvider ABC (Section 4A)
+signals/news.py          → Google News RSS + Reddit scraping → cheap LLM summarization (Section 4A)
+signals/polling.py       → Structured data (polls, RCP) → cheap LLM interpretation (Section 4B)
+signals/resolution_econ.py → FRED API economics data → cheap LLM probability (Section 4C)
+signals/resolution_crypto.py → CoinGecko + log-normal model → cheap LLM adjustment (Section 4C)
+signals/aggregator.py    → Weighted signal merge → FRONTIER model final probability call (Section 4D)
 strategy/kelly.py        → Kelly criterion sizing with safety caps
 strategy/executor.py     → Order placement, fill monitoring, position management
 monitoring/pnl.py        → P&L tracking, bankroll snapshots, performance metrics
@@ -124,9 +126,9 @@ docker-compose logs -f              # Tail logs
 ```
 
 ## Build Sequence
-This project is built section by section from `POLYMARKET_BOT_PLAN.md`. Each section is self-contained. Build in order: 0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11. Do not skip ahead. Run tests after each section before proceeding.
+This project is built section by section from `POLYMARKET_BOT_PLAN (1).md`. Each section is self-contained. Build in order: 0 → 1 → 2 → 3 → 4A → 4B → 4C → 4D → 5 → 6 → 7 → 8 → 9 → 10 → 11. Do not skip ahead. Run tests after each section before proceeding.
 
-**Current progress:** Sections 0-3 complete (core infra, LLM, wallet, DB, market filtering, TUI). Sections 4+ (signals, kelly, executor, monitoring, main loop) not yet implemented.
+**Current progress:** Sections 0-3 complete (core infra, LLM, wallet, DB, market filtering, TUI). Sections 4A+ (signals, kelly, executor, monitoring, main loop) not yet implemented.
 
 ## File Naming
 - All Python files use snake_case
