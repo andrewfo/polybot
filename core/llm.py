@@ -294,6 +294,47 @@ class LLMClient:
         else:
             return await self.cheap(prompt, system)
 
+    @staticmethod
+    def _extract_json(text: str) -> dict[str, Any] | list[Any] | None:
+        """Try to extract a JSON object or array from text.
+
+        Attempts in order:
+        1. Direct parse of stripped text
+        2. Strip markdown code fences then parse
+        3. Find first { ... } or [ ... ] substring and parse
+        """
+        stripped = text.strip()
+
+        # 1. Direct parse
+        try:
+            return json.loads(stripped)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # 2. Strip markdown code fences
+        cleaned = re.sub(r"^```(?:json)?\s*\n?", "", stripped)
+        cleaned = re.sub(r"\n?```\s*$", "", cleaned)
+        try:
+            return json.loads(cleaned)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # 3. Find first JSON object or array in the text
+        for start_char, end_char in [('{', '}'), ('[', ']')]:
+            start_idx = cleaned.find(start_char)
+            if start_idx == -1:
+                continue
+            # Find matching close by searching from the end
+            end_idx = cleaned.rfind(end_char)
+            if end_idx > start_idx:
+                candidate = cleaned[start_idx:end_idx + 1]
+                try:
+                    return json.loads(candidate)
+                except (json.JSONDecodeError, ValueError):
+                    pass
+
+        return None
+
     async def call_json(
         self, prompt: str, task_type: str, system: str | None = None
     ) -> dict[str, Any] | list[Any]:
@@ -304,26 +345,24 @@ class LLMClient:
         for attempt in range(max_json_retries):
             text = await self.call(current_prompt, task_type, system)
 
-            # Strip markdown code fences if present
-            cleaned = re.sub(r"^```(?:json)?\s*\n?", "", text.strip())
-            cleaned = re.sub(r"\n?```\s*$", "", cleaned)
+            result = self._extract_json(text)
+            if result is not None:
+                return result
 
-            try:
-                return json.loads(cleaned)
-            except json.JSONDecodeError:
-                if attempt < max_json_retries - 1:
-                    logger.warning(
-                        "JSON parse failed (attempt %d/%d), retrying with instruction",
-                        attempt + 1, max_json_retries,
-                    )
-                    current_prompt = (
-                        prompt + "\n\nYour response must be valid JSON with no other text."
-                    )
-                else:
-                    raise LLMError(
-                        f"Failed to parse JSON after {max_json_retries} attempts. "
-                        f"Last response: {text[:200]}"
-                    )
+            if attempt < max_json_retries - 1:
+                logger.warning(
+                    "JSON parse failed (attempt %d/%d), retrying with instruction",
+                    attempt + 1, max_json_retries,
+                )
+                current_prompt = (
+                    prompt + "\n\nIMPORTANT: Your response must be ONLY valid JSON. "
+                    "No explanation, no markdown, no text before or after the JSON."
+                )
+            else:
+                raise LLMError(
+                    f"Failed to parse JSON after {max_json_retries} attempts. "
+                    f"Last response: {text[:200]}"
+                )
 
         # Should not reach here, but satisfy type checker
         raise LLMError("JSON parsing failed")  # pragma: no cover

@@ -40,18 +40,18 @@ class SignalsPanel(Vertical):
     DEFAULT_CSS = """
     SignalsPanel {
         height: 1fr;
-        background: #0a0a0a;
+        background: #0a1628;
     }
     SignalsPanel .signals-header {
         height: 1;
         padding: 0 2;
         text-style: bold;
-        color: #00ff41;
+        color: #e0e8f0;
     }
     SignalsPanel .signals-status {
         height: 1;
         padding: 0 2;
-        color: #007a20;
+        color: #667788;
     }
     SignalsPanel .signals-split {
         height: 1fr;
@@ -59,18 +59,18 @@ class SignalsPanel(Vertical):
     SignalsPanel .activity-section {
         height: 1fr;
         max-height: 50%;
-        border-bottom: solid #1a3a1a;
+        border-bottom: solid #2a3a5a;
     }
     SignalsPanel .activity-section .section-label {
         height: 1;
         padding: 0 2;
         text-style: bold;
-        color: #00ff41;
+        color: #e0e8f0;
     }
     SignalsPanel .activity-section RichLog {
         height: 1fr;
-        background: #050505;
-        border: solid #1a3a1a;
+        background: #0d1f3c;
+        border: solid #2a3a5a;
     }
     SignalsPanel .results-section {
         height: 1fr;
@@ -79,7 +79,7 @@ class SignalsPanel(Vertical):
         height: 1;
         padding: 0 2;
         text-style: bold;
-        color: #00ff41;
+        color: #e0e8f0;
     }
     SignalsPanel DataTable {
         height: 1fr;
@@ -117,10 +117,9 @@ class SignalsPanel(Vertical):
 
     def on_aggregation_result(self, event: AggregationResult) -> None:
         """Store aggregation data for drill-down lookup."""
-        if event.aggregation is not None:
-            self._aggregation_store[event.market_question] = (
-                event.market_data, event.aggregation,
-            )
+        self._aggregation_store[event.market_question] = (
+            event.market_data, event.aggregation,
+        )
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Drill down into a signal result row."""
@@ -157,19 +156,19 @@ class SignalsPanel(Vertical):
             if event.probability is not None:
                 prob_str = f"{event.probability:.0%}"
                 conf_str = f"{event.confidence:.0%}"
-                color = "#00ff41"
+                color = "#e0e8f0"
                 line = f"{icon} {source_prefix}{question_short}  =>  P={prob_str} C={conf_str} ({event.data_points} pts)"
             else:
-                color = "#ffaa00"
+                color = "#ccaa44"
                 line = f"{icon} {source_prefix}{question_short}  =>  insufficient data ({event.data_points} pts)"
         elif event.stage == "error":
-            color = "#ff0040"
+            color = "#cc4444"
             line = f"{icon} {source_prefix}{question_short}  {event.detail}"
         elif event.stage == "cache":
-            color = "#007a20"
+            color = "#667788"
             line = f"{icon} {source_prefix}{question_short}  cache hit"
         else:
-            color = "#00cc33"
+            color = "#8899aa"
             detail_str = f"  {event.detail}" if event.detail else ""
             line = f"{icon} {source_prefix}[{event.stage}] {question_short}{detail_str}"
 

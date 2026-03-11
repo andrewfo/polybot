@@ -7,6 +7,7 @@ from textual.widgets import DataTable, ProgressBar, RichLog, Label, Static
 
 from tui.app import TUIApp
 from tui.messages import (
+    BatchUpdate,
     ConnectionUpdate,
     LogMessage,
     PipelineComplete,
@@ -101,7 +102,7 @@ async def test_tab_switching(app):
 
         await pilot.press("3")
         await pilot.pause()
-        assert tc.active == "filter"
+        assert tc.active == "progress"
 
         await pilot.press("1")
         await pilot.pause()
@@ -109,24 +110,23 @@ async def test_tab_switching(app):
 
 
 @pytest.mark.asyncio
-async def test_pipeline_complete_populates_table(app):
-    """PipelineComplete should populate the results DataTable."""
+async def test_batch_update_populates_table(app):
+    """BatchUpdate should populate the In Progress results DataTable."""
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.press("3")
 
-        app.post_message(PipelineComplete(
-            results=[
+        app.post_message(BatchUpdate(
+            markets=[
                 {
                     "question": "Will BTC reach 100k?",
-                    "_score": 8,
+                    "conditionId": "abc123",
                     "_category": "crypto",
-                    "tokens": [{"outcome": "YES", "price": "0.65"}],
-                    "liquidity": 5000,
-                    "endDate": "2026-06-01",
+                    "outcomePrices": "[\"0.65\", \"0.35\"]",
+                    "liquidityNum": 5000,
                 },
             ],
-            discovered=100,
-            filtered=20,
+            current_index=0,
+            statuses={"abc123": "processing"},
         ))
         await pilot.pause()
         await pilot.pause()

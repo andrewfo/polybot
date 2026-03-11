@@ -3,7 +3,6 @@
 from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Input, Static
-from textual.reactive import reactive
 
 
 class CommandBar(Horizontal):
@@ -15,21 +14,21 @@ class CommandBar(Horizontal):
         dock: bottom;
         padding: 0 1;
         display: none;
-        background: #0d0d0d;
+        background: #0d1f3c;
     }
     CommandBar.visible {
         display: block;
     }
     CommandBar Input {
         width: 1fr;
-        background: #111111;
-        color: #00ff41;
-        border: tall #00ff41;
+        background: #1a2a4a;
+        color: #e0e8f0;
+        border: tall #4488cc;
     }
     CommandBar .cmd-hint {
         width: auto;
         min-width: 40;
-        color: #007a20;
+        color: #667788;
         content-align: right middle;
         padding: 0 1;
     }

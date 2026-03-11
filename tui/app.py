@@ -13,7 +13,6 @@ from config.settings import CHEAP_MODEL
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.widgets import Header, Footer, TabbedContent, TabPane
-from textual.worker import Worker, get_current_worker
 
 # Ensure project root is on sys.path
 _project_root = str(Path(__file__).parent.parent)
@@ -23,6 +22,8 @@ if _project_root not in sys.path:
 from tui.log_handler import TUILogHandler
 from tui.messages import (
     AggregationResult,
+    BatchUpdate,
+    BotProcessUpdate,
     BotStatusUpdate,
     BotToggle,
     CommandResult,
@@ -47,6 +48,9 @@ from tui.widgets.status_panel import StatusPanel
 
 logger = logging.getLogger(__name__)
 
+# Max markets to aggregate per filter cycle
+BATCH_SIZE = 20
+
 
 class TUIApp(App):
     """Polymarket Bot — Real-Time TUI Dashboard."""
@@ -59,12 +63,11 @@ class TUIApp(App):
         Binding("q", "quit", "Quit", priority=True),
         Binding("1", "switch_tab('home')", "Home", show=True),
         Binding("2", "switch_tab('markets')", "Markets", show=True),
-        Binding("3", "switch_tab('filter')", "Filter", show=True),
+        Binding("3", "switch_tab('progress')", "In Progress", show=True),
         Binding("4", "switch_tab('costs')", "Costs", show=True),
         Binding("5", "switch_tab('signals')", "Signals", show=True),
         Binding("6", "switch_tab('logs')", "Logs", show=True),
         Binding("s", "toggle_bot", "Start/Stop"),
-        Binding("f", "run_pipeline", "Run Filter"),
         Binding("a", "run_aggregate_default", "Aggregate"),
         Binding("r", "refresh", "Refresh"),
         Binding("colon", "toggle_command_bar", "Command", show=False),
@@ -77,7 +80,7 @@ class TUIApp(App):
                 yield StatusPanel()
             with TabPane("Markets", id="markets"):
                 yield MarketsPanel()
-            with TabPane("Filter", id="filter"):
+            with TabPane("In Progress", id="progress"):
                 yield PipelinePanel()
             with TabPane("Costs", id="costs"):
                 yield CostsPanel()
@@ -90,8 +93,15 @@ class TUIApp(App):
 
     _bot_running: bool = False
 
+    # Track already-aggregated markets to avoid duplicates across cycles
+    _aggregated_ids: set[str] = set()
+    _cycle_count: int = 0
+
     def on_mount(self) -> None:
         """Attach log handler and kick off background workers."""
+        self._aggregated_ids = set()
+        self._cycle_count = 0
+
         # Attach TUI log handler to root logger
         handler = TUILogHandler(self)
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-8s %(name)s: %(message)s"))
@@ -123,8 +133,11 @@ class TUIApp(App):
         self.post_message(BotStatusUpdate(running))
         if running:
             logger.info("Bot STARTED — pipeline loop active")
+            self._aggregated_ids = set()
+            self._cycle_count = 0
             self._start_health_loop()
             self._start_pipeline_loop()
+            self.post_message(BotProcessUpdate("filtering", "Starting first filter cycle..."))
         else:
             logger.info("Bot STOPPED — all workers cancelled")
             self.workers.cancel_group(self, "pipeline-loop")
@@ -135,6 +148,7 @@ class TUIApp(App):
             self.workers.cancel_group(self, "costs")
             from core.db import clear_pipeline_cache
             clear_pipeline_cache()
+            self.post_message(BotProcessUpdate("idle", "Bot is stopped. Press s to start."))
 
     # -----------------------------------------------------------------
     # Tab switching
@@ -154,9 +168,6 @@ class TUIApp(App):
     # -----------------------------------------------------------------
     # Action shortcuts
     # -----------------------------------------------------------------
-
-    def action_run_pipeline(self) -> None:
-        self.run_filter_pipeline()
 
     def action_run_aggregate_default(self) -> None:
         self.run_aggregate()
@@ -353,35 +364,142 @@ class TUIApp(App):
             logger.error("Failed to load cost data: %s", e)
 
     # -----------------------------------------------------------------
-    # Pipeline auto-repeat loop
+    # Pipeline loop — filter → aggregate top 20 → repeat
     # -----------------------------------------------------------------
-
-    PIPELINE_INTERVAL_SECONDS = int(os.environ.get("PIPELINE_INTERVAL_SECONDS", "600"))  # 10 min default
 
     def _start_pipeline_loop(self) -> None:
         self.run_worker(self._pipeline_loop(), exclusive=True, group="pipeline-loop")
 
     async def _pipeline_loop(self) -> None:
-        """Run the filter pipeline on a recurring interval while bot is running."""
-        await asyncio.sleep(5)
+        """Continuous loop: filter markets → aggregate top 20 → repeat while bot is running."""
+        await asyncio.sleep(3)  # Brief startup delay
+
         while self._bot_running:
-            logger.info("Auto-pipeline: starting scheduled run (interval=%ds)", self.PIPELINE_INTERVAL_SECONDS)
+            self._cycle_count += 1
+            cycle = self._cycle_count
+
             try:
-                await self._run_filter_pipeline()
-            except Exception as e:
-                logger.error("Auto-pipeline failed: %s", e, exc_info=True)
-            # Sleep in short increments so cancellation is responsive
-            for _ in range(self.PIPELINE_INTERVAL_SECONDS // 5):
+                # Phase 1: Filter
+                self.post_message(BotProcessUpdate("filtering", "Discovering and filtering markets...", cycle))
+                ranked = await self._run_filter_stages()
+
                 if not self._bot_running:
                     break
-                await asyncio.sleep(5)
 
-    # -----------------------------------------------------------------
-    # Pipeline worker
-    # -----------------------------------------------------------------
+                if not ranked:
+                    logger.warning("No markets survived filtering. Waiting 60s before retry.")
+                    self.post_message(BotProcessUpdate("waiting", "No markets found. Retrying in 60s...", cycle))
+                    for _ in range(12):
+                        if not self._bot_running:
+                            break
+                        await asyncio.sleep(5)
+                    continue
 
-    def run_filter_pipeline(self) -> None:
-        self.run_worker(self._run_filter_pipeline(), exclusive=True, group="pipeline")
+                # Phase 2: Select top 20, skip already-aggregated
+                batch = []
+                for m in ranked:
+                    cond_id = m.get("conditionId", m.get("condition_id", ""))
+                    if cond_id and cond_id in self._aggregated_ids:
+                        continue
+                    batch.append(m)
+                    if len(batch) >= BATCH_SIZE:
+                        break
+
+                if not batch:
+                    logger.info("All top markets already aggregated. Clearing history and re-filtering.")
+                    self._aggregated_ids.clear()
+                    self.post_message(BotProcessUpdate("waiting", "All markets processed. Clearing and re-filtering...", cycle))
+                    await asyncio.sleep(10)
+                    continue
+
+                logger.info("Cycle %d: Aggregating %d markets (skipped %d already processed)",
+                            cycle, len(batch), len(ranked) - len(batch))
+
+                # Post batch to In Progress tab
+                statuses: dict[str, str] = {}
+                for m in batch:
+                    cond_id = m.get("conditionId", m.get("condition_id", ""))
+                    statuses[cond_id] = "waiting"
+                self.post_message(BatchUpdate(markets=batch, current_index=-1, statuses=dict(statuses)))
+
+                # Switch to In Progress tab
+                self.post_message(PipelineComplete(
+                    results=ranked,
+                    discovered=len(ranked),
+                    filtered=len(batch),
+                ))
+
+                # Phase 3: Aggregate each market in the batch
+                self.post_message(BotProcessUpdate("aggregating", f"Starting batch of {len(batch)} markets...", cycle))
+                await self._aggregate_batch(batch, statuses, cycle)
+
+                if not self._bot_running:
+                    break
+
+                # Refresh costs and markets after a full cycle
+                self.refresh_costs()
+                self.refresh_markets()
+
+                # Brief pause before next cycle
+                self.post_message(BotProcessUpdate("waiting", "Cycle complete. Starting next filter cycle...", cycle))
+                for _ in range(4):  # 20s pause
+                    if not self._bot_running:
+                        break
+                    await asyncio.sleep(5)
+
+            except Exception as e:
+                logger.error("Pipeline loop error: %s", e, exc_info=True)
+                self.post_message(BotProcessUpdate("waiting", f"Error: {str(e)[:80]}. Retrying in 30s...", cycle))
+                for _ in range(6):
+                    if not self._bot_running:
+                        break
+                    await asyncio.sleep(5)
+
+    async def _run_filter_stages(self) -> list[dict[str, Any]]:
+        """Execute filter stages 0-4 and return ranked markets."""
+        from core.llm import LLMClient
+        from strategy.market_filter import (
+            batch_categorize_markets,
+            discover_markets,
+            extract_resolution_params,
+            filter_markets,
+            rank_candidates,
+        )
+
+        pipeline_start = datetime.now(timezone.utc)
+
+        async with LLMClient() as llm:
+            # Stage 0: Discover
+            self._post_stage("discover", 0, started_at=pipeline_start)
+            markets = await discover_markets()
+
+            # Stage 1: Filter
+            self._post_stage("filter", 1, total=len(markets), started_at=pipeline_start)
+            filtered = await filter_markets(markets)
+
+            # Stage 2: Categorize (batched to avoid rate limits)
+            self._post_stage("categorize", 2, processed=0, total=len(filtered), started_at=pipeline_start)
+            await batch_categorize_markets(filtered, llm)
+            self._post_stage("categorize", 2, processed=len(filtered), total=len(filtered), started_at=pipeline_start)
+
+            # Stage 3: Extract resolution params
+            self._post_stage("extract", 3, processed=0, total=len(filtered), started_at=pipeline_start)
+            for i, m in enumerate(filtered):
+                cat = m.get("_category", "")
+                if cat in ("economics", "crypto"):
+                    params = await extract_resolution_params(
+                        m.get("question", ""), cat, llm,
+                        condition_id=m.get("condition_id", ""),
+                    )
+                    if params:
+                        m["_resolution_params"] = params
+                self._post_stage("extract", 3, processed=i + 1, total=len(filtered), started_at=pipeline_start)
+
+            # Stage 4: Rank
+            self._post_stage("rank", 4, started_at=pipeline_start)
+            ranked = rank_candidates(filtered)
+
+        return ranked
 
     def _post_stage(
         self,
@@ -402,181 +520,137 @@ class TUIApp(App):
             stage_started_at=datetime.now(timezone.utc),
         )))
 
-    async def _run_filter_pipeline(self) -> None:
-        """Execute the full filter pipeline with progress updates.
-
-        Stages 0-4: Market discovery, filtering, categorization, extraction, ranking.
-        Stage 5 (if bot is running): Signal aggregation on top-ranked markets.
-        """
+    async def _aggregate_batch(
+        self,
+        batch: list[dict[str, Any]],
+        statuses: dict[str, str],
+        cycle: int,
+    ) -> None:
+        """Aggregate signals for each market in the batch."""
+        import json as _json
         from core.llm import LLMClient
-        from strategy.market_filter import (
-            batch_categorize_markets,
-            categorize_market,
-            discover_markets,
-            extract_resolution_params,
-            filter_markets,
-            rank_candidates,
-        )
+        from signals.aggregator import SignalAggregator
+        from signals.news import NewsSignalProvider
+        from signals.polling import PollingSignalProvider
+        from signals.resolution_crypto import CryptoResolutionProvider
+        from signals.resolution_econ import EconomicsResolutionProvider
 
-        pipeline_start = datetime.now(timezone.utc)
+        async with LLMClient() as llm:
+            for i, mkt in enumerate(batch):
+                if not self._bot_running:
+                    break
 
-        try:
-            async with LLMClient() as llm:
-                # Stage 0: Discover
-                self._post_stage("discover", 0, started_at=pipeline_start)
-                markets = await discover_markets()
+                cond_id = mkt.get("conditionId", mkt.get("condition_id", ""))
+                question = mkt.get("question", "")
+                category = mkt.get("_category", "")
+                end_date = mkt.get("endDate", "2026-12-31")
 
-                # Stage 1: Filter
-                self._post_stage("filter", 1, total=len(markets), started_at=pipeline_start)
-                filtered = await filter_markets(markets)
-
-                # Stage 2: Categorize (batched to avoid rate limits)
-                self._post_stage("categorize", 2, processed=0, total=len(filtered), started_at=pipeline_start)
-                await batch_categorize_markets(filtered, llm)
-                self._post_stage("categorize", 2, processed=len(filtered), total=len(filtered), started_at=pipeline_start)
-
-                # Stage 3: Extract resolution params
-                self._post_stage("extract", 3, processed=0, total=len(filtered), started_at=pipeline_start)
-                for i, m in enumerate(filtered):
-                    cat = m.get("_category", "")
-                    if cat in ("economics", "crypto"):
-                        params = await extract_resolution_params(
-                            m.get("question", ""), cat, llm,
-                            condition_id=m.get("condition_id", ""),
-                        )
-                        if params:
-                            m["_resolution_params"] = params
-                    self._post_stage("extract", 3, processed=i + 1, total=len(filtered), started_at=pipeline_start)
-
-                # Stage 4: Rank
-                self._post_stage("rank", 4, started_at=pipeline_start)
-                ranked = rank_candidates(filtered)
-
-                self.post_message(PipelineComplete(
-                    results=ranked,
-                    discovered=len(markets),
-                    filtered=len(filtered),
+                question_short = question[:60] + "..." if len(question) > 60 else question
+                self.post_message(BotProcessUpdate(
+                    "aggregating", f"Market {i + 1}/{len(batch)}: {question_short}", cycle
                 ))
 
-                # Stage 5: Signal aggregation (only when bot is running)
-                if self._bot_running and ranked:
-                    from signals.aggregator import SignalAggregator
-                    from signals.news import NewsSignalProvider
-                    from signals.polling import PollingSignalProvider
-                    from signals.resolution_crypto import CryptoResolutionProvider
-                    from signals.resolution_econ import EconomicsResolutionProvider
+                # Update batch status
+                statuses[cond_id] = "processing"
+                self.post_message(BatchUpdate(markets=batch, current_index=i, statuses=dict(statuses)))
 
-                    def _agg_progress(mkt_question: str, stage: str, detail: str = "") -> None:
+                # Get market price
+                outcome_prices = mkt.get("outcomePrices", "[]")
+                if isinstance(outcome_prices, str):
+                    try:
+                        prices = _json.loads(outcome_prices)
+                    except (ValueError, TypeError):
+                        prices = []
+                else:
+                    prices = outcome_prices
+                market_price = float(prices[0]) if prices else 0.50
+
+                # Build resolution kwargs
+                resolution_kwargs: dict = {}
+                res_params = mkt.get("_resolution_params")
+                if res_params:
+                    resolution_kwargs["resolution_keywords"] = res_params
+
+                def _agg_progress(mkt_question: str, stage: str, detail: str = "") -> None:
+                    self.post_message(SignalUpdate(
+                        market_question=mkt_question,
+                        stage=stage,
+                        detail=detail,
+                        source="aggregator",
+                    ))
+
+                providers = [
+                    NewsSignalProvider(llm=llm),
+                    PollingSignalProvider(llm=llm),
+                    EconomicsResolutionProvider(llm=llm),
+                    CryptoResolutionProvider(llm=llm),
+                ]
+
+                aggregator = SignalAggregator(
+                    llm=llm,
+                    providers=providers,
+                    on_progress=_agg_progress,
+                )
+
+                try:
+                    agg_result = await aggregator.aggregate(
+                        market_question=question,
+                        market_category=category,
+                        market_end_date=end_date,
+                        market_price=market_price,
+                        **resolution_kwargs,
+                    )
+
+                    # Post aggregation result for drill-down storage
+                    self.post_message(AggregationResult(
+                        market_data=mkt,
+                        aggregation=agg_result,
+                        market_question=question,
+                    ))
+
+                    if agg_result is not None:
+                        statuses[cond_id] = "done"
                         self.post_message(SignalUpdate(
-                            market_question=mkt_question,
-                            stage=stage,
-                            detail=detail,
+                            market_question=question,
+                            stage="done",
+                            detail=agg_result.reasoning[:100],
+                            probability=agg_result.final_probability,
+                            confidence=agg_result.confidence,
+                            data_points=agg_result.total_data_points,
+                            done=True,
                             source="aggregator",
                         ))
-
-                    top_markets = ranked[:5]  # Analyze top 5
-                    logger.info("Running signal aggregation on %d top markets", len(top_markets))
-
-                    for i, mkt in enumerate(top_markets):
-                        if not self._bot_running:
-                            break
-
-                        question = mkt.get("question", "")
-                        category = mkt.get("_category", "")
-                        end_date = mkt.get("endDate", "2026-12-31")
-
-                        # Get market price from outcome prices
-                        outcome_prices = mkt.get("outcomePrices", "[]")
-                        if isinstance(outcome_prices, str):
-                            import json as _json
-                            try:
-                                prices = _json.loads(outcome_prices)
-                            except (ValueError, TypeError):
-                                prices = []
-                        else:
-                            prices = outcome_prices
-                        market_price = float(prices[0]) if prices else 0.50
-
-                        # Build resolution kwargs
-                        resolution_kwargs: dict = {}
-                        res_params = mkt.get("_resolution_params")
-                        if res_params:
-                            resolution_kwargs["resolution_keywords"] = res_params
-
-                        providers = [
-                            NewsSignalProvider(llm=llm),
-                            PollingSignalProvider(llm=llm),
-                            EconomicsResolutionProvider(llm=llm),
-                            CryptoResolutionProvider(llm=llm),
-                        ]
-
-                        aggregator = SignalAggregator(
-                            llm=llm,
-                            providers=providers,
-                            on_progress=_agg_progress,
+                        logger.info(
+                            "Aggregated: %s => P=%.2f C=%.2f (%s)",
+                            question[:50], agg_result.final_probability,
+                            agg_result.confidence, agg_result.market_efficiency,
                         )
+                    else:
+                        statuses[cond_id] = "skipped"
+                        self.post_message(SignalUpdate(
+                            market_question=question,
+                            stage="skip",
+                            detail="Market skipped by aggregator",
+                            source="aggregator",
+                            done=True,
+                        ))
+                except Exception as e:
+                    statuses[cond_id] = "error"
+                    logger.warning("Aggregation failed for '%s': %s", question[:50], e)
+                    self.post_message(SignalUpdate(
+                        market_question=question,
+                        stage="error",
+                        detail=str(e)[:100],
+                        source="aggregator",
+                        done=True,
+                    ))
 
-                        try:
-                            agg_result = await aggregator.aggregate(
-                                market_question=question,
-                                market_category=category,
-                                market_end_date=end_date,
-                                market_price=market_price,
-                                **resolution_kwargs,
-                            )
+                # Mark as aggregated regardless of outcome
+                if cond_id:
+                    self._aggregated_ids.add(cond_id)
 
-                            # Post aggregation result for drill-down storage
-                            self.post_message(AggregationResult(
-                                market_data=mkt,
-                                aggregation=agg_result,
-                                market_question=question,
-                            ))
-
-                            if agg_result is not None:
-                                self.post_message(SignalUpdate(
-                                    market_question=question,
-                                    stage="done",
-                                    detail=agg_result.reasoning[:100],
-                                    probability=agg_result.final_probability,
-                                    confidence=agg_result.confidence,
-                                    data_points=agg_result.total_data_points,
-                                    done=True,
-                                    source="aggregator",
-                                ))
-                                logger.info(
-                                    "Aggregated: %s => P=%.2f C=%.2f (%s)",
-                                    question[:50], agg_result.final_probability,
-                                    agg_result.confidence, agg_result.market_efficiency,
-                                )
-                            else:
-                                self.post_message(SignalUpdate(
-                                    market_question=question,
-                                    stage="skip",
-                                    detail="Market skipped by aggregator",
-                                    source="aggregator",
-                                    done=True,
-                                ))
-                        except Exception as e:
-                            logger.warning("Aggregation failed for '%s': %s", question[:50], e)
-                            self.post_message(SignalUpdate(
-                                market_question=question,
-                                stage="error",
-                                detail=str(e)[:100],
-                                source="aggregator",
-                                done=True,
-                            ))
-
-                # Refresh costs after pipeline (it made LLM calls)
-                self.refresh_costs()
-
-        except Exception as e:
-            logger.error("Pipeline failed: %s", e, exc_info=True)
-            self.post_message(PipelineStageUpdate(PipelineProgress(running=False)))
-            self.post_message(CommandResult(
-                command="pipeline",
-                success=False,
-                output=f"Pipeline failed: {e}",
-            ))
+                # Update batch display
+                self.post_message(BatchUpdate(markets=batch, current_index=i, statuses=dict(statuses)))
 
     # -----------------------------------------------------------------
     # Command bar workers
@@ -974,3 +1048,17 @@ class TUIApp(App):
             pass
         tc = self.query_one(TabbedContent)
         tc.active = "logs"
+
+    def on_bot_process_update(self, event: BotProcessUpdate) -> None:
+        """Route bot process updates to the status panel."""
+        try:
+            self.query_one(StatusPanel).on_bot_process_update(event)
+        except Exception:
+            pass
+
+    def on_batch_update(self, event: BatchUpdate) -> None:
+        """Route batch updates to the pipeline (In Progress) panel."""
+        try:
+            self.query_one(PipelinePanel).on_batch_update(event)
+        except Exception:
+            pass

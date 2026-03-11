@@ -1,4 +1,4 @@
-"""Home tab — connection health, wallet, positions, uptime, bot toggle."""
+"""Home tab — connection health, wallet, positions, uptime, bot toggle, process status."""
 
 from datetime import datetime, timezone
 
@@ -7,34 +7,28 @@ from textual.containers import Vertical, Horizontal
 from textual.widgets import Static, Button
 from textual.reactive import reactive
 
-from tui.messages import BotStatusUpdate, BotToggle, ConnectionUpdate, WalletUpdate
+from tui.messages import BotProcessUpdate, BotStatusUpdate, BotToggle, ConnectionUpdate, WalletUpdate
 from tui.state import ConnectionStatus
 
 
 class StatusPanel(Vertical):
-    """Home tab showing connection health, wallet info, and bot start/stop."""
+    """Home tab showing connection health, wallet info, bot start/stop, and current process."""
 
     DEFAULT_CSS = """
     StatusPanel {
         height: 1fr;
         padding: 1 2;
-        background: #0a0a0a;
+        background: #0a1628;
     }
     StatusPanel .section-title {
         text-style: bold;
-        color: #00ff41;
+        color: #e0e8f0;
         margin: 1 0 0 0;
     }
     StatusPanel .conn-row {
         height: 1;
         margin: 0 0 0 2;
-        color: #00cc33;
-    }
-    StatusPanel .healthy {
-        color: #00ff41;
-    }
-    StatusPanel .unhealthy {
-        color: #ff0040;
+        color: #8899aa;
     }
     StatusPanel .wallet-info {
         margin: 0 0 0 2;
@@ -42,7 +36,7 @@ class StatusPanel(Vertical):
     StatusPanel .kv-line {
         height: 1;
         margin: 0 0 0 2;
-        color: #00cc33;
+        color: #8899aa;
     }
     StatusPanel #bot-toggle-row {
         height: 3;
@@ -52,19 +46,39 @@ class StatusPanel(Vertical):
         min-width: 20;
     }
     StatusPanel #bot-toggle.bot-stopped {
-        background: #002200;
-        color: #00ff41;
-        border: tall #00ff41;
+        background: #1a3a2a;
+        color: #44aa66;
+        border: tall #44aa66;
     }
     StatusPanel #bot-toggle.bot-running {
-        background: #330000;
-        color: #ff0040;
-        border: tall #ff0040;
+        background: #3a1a1a;
+        color: #cc4444;
+        border: tall #cc4444;
     }
     StatusPanel #bot-status-line {
         height: 1;
         margin: 0 0 0 2;
-        color: #00cc33;
+        color: #8899aa;
+    }
+    StatusPanel .process-box {
+        height: auto;
+        margin: 0 0 0 2;
+        padding: 1 2;
+        border: solid #2a3a5a;
+        background: #0d1f3c;
+    }
+    StatusPanel #process-phase {
+        height: 1;
+        text-style: bold;
+        color: #e0e8f0;
+    }
+    StatusPanel #process-detail {
+        height: 1;
+        color: #8899aa;
+    }
+    StatusPanel #process-cycle {
+        height: 1;
+        color: #667788;
     }
     """
 
@@ -90,6 +104,12 @@ class StatusPanel(Vertical):
         with Horizontal(id="bot-toggle-row"):
             yield Button("Start Bot", id="bot-toggle", variant="success", classes="bot-stopped")
 
+        yield Static("CURRENT PROCESS", classes="section-title")
+        with Vertical(classes="process-box"):
+            yield Static("Idle", id="process-phase")
+            yield Static("Bot is stopped. Press s to start.", id="process-detail")
+            yield Static("", id="process-cycle")
+
         yield Static("CONNECTIONS", classes="section-title")
         yield Static(id="conn-polymarket", classes="conn-row")
         yield Static(id="conn-polygon", classes="conn-row")
@@ -109,7 +129,7 @@ class StatusPanel(Vertical):
         yield Static(id="bot-uptime", classes="kv-line")
 
     def _format_conn(self, status: ConnectionStatus) -> str:
-        icon = "[#00ff41]\u25cf[/#00ff41]" if status.healthy else "[#ff0040]\u25cf[/#ff0040]"
+        icon = "[#44aa66]\u25cf[/#44aa66]" if status.healthy else "[#cc4444]\u25cf[/#cc4444]"
         check_str = status.last_check.strftime("%H:%M:%S") if status.last_check else "never"
         err = f"  ({status.error})" if status.error and not status.healthy else ""
         return f"{icon} {status.name:<20} last check: {check_str}{err}"
@@ -132,7 +152,7 @@ class StatusPanel(Vertical):
             self.query_one("#wallet-address", Static).update(f"Address:        {self._wallet_address}")
             self.query_one("#wallet-usdc", Static).update(f"USDC Balance:   ${self._usdc:,.2f}")
             self.query_one("#wallet-matic", Static).update(f"MATIC Balance:  {self._matic:.4f}")
-            gas_str = "[#00ff41]OK[/#00ff41]" if self._has_gas else "[#ff0040]LOW[/#ff0040]"
+            gas_str = "[#44aa66]OK[/#44aa66]" if self._has_gas else "[#cc4444]LOW[/#cc4444]"
             self.query_one("#wallet-gas", Static).update(f"Gas Status:     {gas_str}")
             self.query_one("#positions-count", Static).update(f"Open Positions: {self._positions_count}")
             self.query_one("#bot-mode", Static).update(f"Mode:           Paper Trading")
@@ -167,13 +187,20 @@ class StatusPanel(Vertical):
                 btn.variant = "error"
                 btn.remove_class("bot-stopped")
                 btn.add_class("bot-running")
-                status_line.update("[#00ff41]● RUNNING[/#00ff41]  Pipeline loop active — press [b]s[/b] or click to stop")
+                status_line.update("[#44aa66]\u25cf RUNNING[/#44aa66]  Pipeline loop active \u2014 press [b]s[/b] or click to stop")
             else:
                 btn.label = "Start Bot"
                 btn.variant = "success"
                 btn.remove_class("bot-running")
                 btn.add_class("bot-stopped")
-                status_line.update("[#ff0040]● STOPPED[/#ff0040]   Press [b]s[/b] or click Start to begin")
+                status_line.update("[#cc4444]\u25cf STOPPED[/#cc4444]   Press [b]s[/b] or click Start to begin")
+                # Reset process display
+                try:
+                    self.query_one("#process-phase", Static).update("Idle")
+                    self.query_one("#process-detail", Static).update("Bot is stopped. Press s to start.")
+                    self.query_one("#process-cycle", Static).update("")
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -194,3 +221,25 @@ class StatusPanel(Vertical):
         if event.address:
             self._wallet_address = event.address
         self._refresh_display()
+
+    def on_bot_process_update(self, event: BotProcessUpdate) -> None:
+        """Update the current process display on the home tab."""
+        try:
+            phase_label = self.query_one("#process-phase", Static)
+            detail_label = self.query_one("#process-detail", Static)
+            cycle_label = self.query_one("#process-cycle", Static)
+
+            phase_icons = {
+                "idle": "\u23f8 Idle",
+                "filtering": "\u2699 Filtering Markets...",
+                "aggregating": "\u26a1 Aggregating Signals...",
+                "waiting": "\u23f3 Waiting for next cycle...",
+            }
+            phase_label.update(phase_icons.get(event.phase, event.phase))
+            detail_label.update(event.detail)
+            if event.cycle > 0:
+                cycle_label.update(f"Cycle #{event.cycle}")
+            else:
+                cycle_label.update("")
+        except Exception:
+            pass

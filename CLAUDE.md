@@ -22,8 +22,8 @@ core/client.py           → Polymarket CLOB wrapper for ORDER EXECUTION ONLY (n
 core/wallet.py           → Wallet balance checks, gas monitoring
 core/db.py               → SQLite tables: trades, positions, signals, bankroll, llm_costs, market_cache
 strategy/market_filter.py→ Gamma API discovery, filtering, LLM categorization, ranking
-tui/app.py               → Textual TUI dashboard with 6 tabs (Home, Markets, Filter, Costs, Signals, Logs), neon green/black/red theme
-tui/widgets/             → StatusPanel, MarketsPanel, PipelinePanel, CostsPanel, SignalsPanel, LogPanel, CommandBar
+tui/app.py               → Textual TUI dashboard with 6 tabs (Home, Markets, In Progress, Costs, Signals, Logs), navy/grey/white theme
+tui/widgets/             → StatusPanel, MarketsPanel, PipelinePanel (In Progress), CostsPanel, SignalsPanel, LogPanel, CommandBar
 scripts/setup_wallet.py  → Wallet setup helper
 scripts/dashboard.py     → Standalone dashboard launcher
 ```
@@ -93,12 +93,21 @@ monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
 - `refresh` — Re-run health checks and market fetch
 
 ### TUI Keybindings
-- `1-6` — Switch tabs (Home, Markets, Filter, Costs, Signals, Logs)
+- `1-6` — Switch tabs (Home, Markets, In Progress, Costs, Signals, Logs)
 - `s` — Start/Stop bot
-- `f` — Run filter pipeline
 - `a` — Run aggregate on default test question
 - `r` — Refresh all
 - `:` — Toggle command bar
+
+### Pipeline Loop (when bot is running)
+When the bot is started via `s` key, it runs a continuous loop:
+1. **Filter**: Discover → filter → categorize → extract → rank markets
+2. **Aggregate**: Take top 20 filtered markets, run full signal aggregation on each
+3. **Dedup**: Skip markets already aggregated in previous cycles (tracked by conditionId)
+4. **Repeat**: After top 20 are done, discard remaining and re-filter
+5. If all top markets are already processed, clear history and re-filter
+6. The "In Progress" tab shows the current batch with per-market status (waiting/processing/done/skipped/error)
+7. The Home tab shows the current bot process phase (filtering/aggregating/waiting)
 
 ## Critical Design Rules
 
@@ -128,10 +137,11 @@ monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
 - All timestamps ISO 8601 UTC
 
 ### TUI Behavior
-- Theme: neon green (#00ff41), black (#0a0a0a), red (#ff0040) — hacker aesthetic
+- Theme: navy (#0a1628, #0d1f3c), grey (#8899aa, #667788), white (#e0e8f0), blue accent (#4488cc)
 - Bot Stop MUST cancel ALL worker groups (pipeline-loop, pipeline, health-loop, health-check, markets, costs) — no background tasks should survive a stop
-- Bot Start restarts health-loop and pipeline-loop
-- Health checks (wallet, RPC, OpenRouter) only run while bot is running
+- Bot Start restarts health-loop and pipeline-loop, clears aggregated IDs
+- Health checks (wallet, RPC, OpenRouter) always run
+- "In Progress" tab (formerly Filter) shows current batch of markets being aggregated with live status per market
 
 ### Code Standards
 - Type hints on all function signatures and return types

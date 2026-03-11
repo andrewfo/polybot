@@ -11,12 +11,12 @@ from tui.messages import LogMessage, CommandResult
 MAX_LOG_LINES = 1000
 
 LEVEL_COLORS = {
-    "DEBUG": "dim #007a20",
-    "INFO": "#00cc33",
-    "WARNING": "#ffaa00",
-    "ERROR": "#ff0040",
-    "CRITICAL": "bold #ff0040",
-    "COMMAND": "bold #00ff41",
+    "DEBUG": "dim #667788",
+    "INFO": "#8899aa",
+    "WARNING": "#ccaa44",
+    "ERROR": "#cc4444",
+    "CRITICAL": "bold #cc4444",
+    "COMMAND": "bold #4488cc",
 }
 
 LEVEL_PRIORITY = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4, "COMMAND": 1}
@@ -28,7 +28,7 @@ class LogPanel(Vertical):
     DEFAULT_CSS = """
     LogPanel {
         height: 1fr;
-        background: #0a0a0a;
+        background: #0a1628;
     }
     LogPanel .log-filters {
         height: 3;
@@ -41,8 +41,8 @@ class LogPanel(Vertical):
     }
     LogPanel RichLog {
         height: 1fr;
-        border: solid #1a3a1a;
-        background: #050505;
+        border: solid #2a3a5a;
+        background: #0d1f3c;
     }
     """
 
@@ -83,7 +83,7 @@ class LogPanel(Vertical):
 
     def on_command_result(self, event: CommandResult) -> None:
         prefix = "[COMMAND]"
-        style = "bold cyan" if event.success else "bold red"
+        style = "bold #4488cc" if event.success else "bold #cc4444"
         text = Text(f"{prefix} :{event.command}\n{event.output}", style=style)
         self._append(text)
 

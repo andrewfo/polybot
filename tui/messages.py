@@ -160,3 +160,26 @@ class SignalUpdate(Message):
         self.data_points = data_points
         self.done = done
         self.source = source
+
+
+class BotProcessUpdate(Message):
+    """Current bot process phase for the home tab."""
+    def __init__(self, phase: str, detail: str = "", cycle: int = 0) -> None:
+        super().__init__()
+        self.phase = phase      # "idle" | "filtering" | "aggregating" | "waiting"
+        self.detail = detail    # e.g. "Market 3/20: Will Bitcoin..."
+        self.cycle = cycle      # which filter-aggregate cycle we're on
+
+
+class BatchUpdate(Message):
+    """Update for the In Progress tab — current batch of markets being processed."""
+    def __init__(
+        self,
+        markets: list[dict[str, Any]],
+        current_index: int,
+        statuses: dict[str, str],
+    ) -> None:
+        super().__init__()
+        self.markets = markets          # top 20 filtered markets
+        self.current_index = current_index  # -1 = not started, 0..N = processing index
+        self.statuses = statuses        # condition_id -> "waiting"|"processing"|"done"|"skipped"|"error"

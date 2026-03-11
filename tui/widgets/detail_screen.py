@@ -60,15 +60,15 @@ def _build_market_info(market: dict[str, Any]) -> str:
     days_str = f"{int(days)} days" if days is not None else "unknown"
 
     lines = [
-        "[bold #00ff41]═══ MARKET INFO ═══[/]",
+        "[bold #e0e8f0]\u2550\u2550\u2550 MARKET INFO \u2550\u2550\u2550[/]",
         "",
-        f"[#00ff41]Question:[/] {question}",
-        f"[#00ff41]Category:[/] {category}",
-        f"[#00ff41]Condition ID:[/] {condition_id}",
+        f"[#4488cc]Question:[/] {question}",
+        f"[#4488cc]Category:[/] {category}",
+        f"[#4488cc]Condition ID:[/] {condition_id}",
         "",
-        f"[#00ff41]YES:[/] {yes_p}    [#00ff41]NO:[/] {no_p}    [#00ff41]Spread:[/] {spread_str}",
-        f"[#00ff41]Liquidity:[/] ${liq:,.0f}    [#00ff41]Volume 24h:[/] ${vol:,.0f}",
-        f"[#00ff41]End Date:[/] {end_date[:10] if end_date else '---'}    [#00ff41]Days Remaining:[/] {days_str}    [#00ff41]Urgency:[/] {urgency}",
+        f"[#4488cc]YES:[/] {yes_p}    [#4488cc]NO:[/] {no_p}    [#4488cc]Spread:[/] {spread_str}",
+        f"[#4488cc]Liquidity:[/] ${liq:,.0f}    [#4488cc]Volume 24h:[/] ${vol:,.0f}",
+        f"[#4488cc]End Date:[/] {end_date[:10] if end_date else '---'}    [#4488cc]Days Remaining:[/] {days_str}    [#4488cc]Urgency:[/] {urgency}",
     ]
     return "\n".join(lines)
 
@@ -77,26 +77,26 @@ def _build_signals_section(agg: AggregatedSignal) -> str:
     """Section B: Individual signals with raw evidence."""
     lines = [
         "",
-        "[bold #00ff41]═══ INDIVIDUAL SIGNALS ═══[/]",
+        "[bold #e0e8f0]\u2550\u2550\u2550 INDIVIDUAL SIGNALS \u2550\u2550\u2550[/]",
     ]
 
     for signal in agg.individual_signals:
-        resolution_tag = " [bold #ff0040](DIRECT RESOLUTION SOURCE)[/]" if signal.source.startswith("resolution_") else ""
+        resolution_tag = " [bold #cc4444](DIRECT RESOLUTION SOURCE)[/]" if signal.source.startswith("resolution_") else ""
         multiplier = SIGNAL_WEIGHT_MULTIPLIERS.get(signal.source, 1.0)
         ew = _compute_effective_weight(signal)
 
         lines.append("")
-        lines.append(f"[bold #00ff41]── {signal.source.upper()}{resolution_tag} ──[/]")
-        lines.append(f"  [#00ff41]Probability:[/] {signal.probability:.2%}" if signal.probability is not None else "  [#00ff41]Probability:[/] ---")
-        lines.append(f"  [#00ff41]Confidence:[/] {signal.confidence:.2%}")
-        lines.append(f"  [#00ff41]Weight:[/] {signal.confidence:.2f} × {multiplier:.1f}x = {ew:.2f}")
-        lines.append(f"  [#00ff41]Data Points:[/] {signal.data_points}")
-        lines.append(f"  [#00ff41]Reasoning:[/] {signal.reasoning}")
+        lines.append(f"[bold #4488cc]\u2500\u2500 {signal.source.upper()}{resolution_tag} \u2500\u2500[/]")
+        lines.append(f"  [#4488cc]Probability:[/] {signal.probability:.2%}" if signal.probability is not None else "  [#4488cc]Probability:[/] ---")
+        lines.append(f"  [#4488cc]Confidence:[/] {signal.confidence:.2%}")
+        lines.append(f"  [#4488cc]Weight:[/] {signal.confidence:.2f} \u00d7 {multiplier:.1f}x = {ew:.2f}")
+        lines.append(f"  [#4488cc]Data Points:[/] {signal.data_points}")
+        lines.append(f"  [#4488cc]Reasoning:[/] {signal.reasoning}")
 
         # Raw evidence
         evidence = _format_raw_evidence(signal)
         if evidence:
-            lines.append(f"  [#00ff41]Raw Data:[/]")
+            lines.append(f"  [#4488cc]Raw Data:[/]")
             lines.append(evidence)
 
     return "\n".join(lines)
@@ -106,12 +106,12 @@ def _build_math_section(agg: AggregatedSignal) -> str:
     """Section C: Aggregation math breakdown."""
     lines = [
         "",
-        "[bold #00ff41]═══ AGGREGATION MATH ═══[/]",
+        "[bold #e0e8f0]\u2550\u2550\u2550 AGGREGATION MATH \u2550\u2550\u2550[/]",
         "",
-        "[#00ff41]Source Multipliers:[/]",
+        "[#4488cc]Source Multipliers:[/]",
         "  news: 1.0x  |  polling: 1.5x  |  econ: 2.0x  |  crypto: 2.0x",
         "",
-        "[#00ff41]Per-Signal Weight Calculation:[/]",
+        "[#4488cc]Per-Signal Weight Calculation:[/]",
     ]
 
     total_weight = 0.0
@@ -124,14 +124,14 @@ def _build_math_section(agg: AggregatedSignal) -> str:
         total_weight += ew
         weighted_sum += signal.probability * ew
         lines.append(
-            f"  {signal.source}: {signal.confidence:.2f} × {multiplier:.1f}x = {ew:.2f}  "
-            f"(prob {signal.probability:.2f} × weight {ew:.2f} = {signal.probability * ew:.3f})"
+            f"  {signal.source}: {signal.confidence:.2f} \u00d7 {multiplier:.1f}x = {ew:.2f}  "
+            f"(prob {signal.probability:.2f} \u00d7 weight {ew:.2f} = {signal.probability * ew:.3f})"
         )
 
     lines.append("")
-    lines.append(f"[#00ff41]Weighted Sum:[/] {weighted_sum:.4f}")
-    lines.append(f"[#00ff41]Total Weight:[/] {total_weight:.4f}")
-    lines.append(f"[#00ff41]Preliminary Estimate:[/] {agg.preliminary_probability:.4f}")
+    lines.append(f"[#4488cc]Weighted Sum:[/] {weighted_sum:.4f}")
+    lines.append(f"[#4488cc]Total Weight:[/] {total_weight:.4f}")
+    lines.append(f"[#4488cc]Preliminary Estimate:[/] {agg.preliminary_probability:.4f}")
 
     return "\n".join(lines)
 
@@ -142,20 +142,20 @@ def _build_frontier_section(agg: AggregatedSignal) -> str:
 
     lines = [
         "",
-        "[bold #00ff41]═══ FRONTIER MODEL DECISION ═══[/]",
+        "[bold #e0e8f0]\u2550\u2550\u2550 FRONTIER MODEL DECISION \u2550\u2550\u2550[/]",
         "",
-        f"[#00ff41]Final Probability:[/] {agg.final_probability:.2%}",
-        f"[#00ff41]Confidence:[/] {agg.confidence:.2%}",
-        f"[#00ff41]Signals Agreement:[/] {agg.signals_agreement}",
-        f"[#00ff41]Market Efficiency:[/] {agg.market_efficiency}",
-        f"[#00ff41]Divergence from Market:[/] {divergence:.2%} (|{agg.final_probability:.2f} - {agg.market_price:.2f}|)",
+        f"[#4488cc]Final Probability:[/] {agg.final_probability:.2%}",
+        f"[#4488cc]Confidence:[/] {agg.confidence:.2%}",
+        f"[#4488cc]Signals Agreement:[/] {agg.signals_agreement}",
+        f"[#4488cc]Market Efficiency:[/] {agg.market_efficiency}",
+        f"[#4488cc]Divergence from Market:[/] {divergence:.2%} (|{agg.final_probability:.2f} - {agg.market_price:.2f}|)",
         "",
-        f"[#00ff41]Reasoning:[/] {agg.reasoning}",
+        f"[#4488cc]Reasoning:[/] {agg.reasoning}",
     ]
 
     if agg.skipped:
         lines.append("")
-        lines.append(f"[bold #ff0040]SKIPPED:[/] {agg.skip_reason}")
+        lines.append(f"[bold #cc4444]SKIPPED:[/] {agg.skip_reason}")
 
     return "\n".join(lines)
 
@@ -174,12 +174,12 @@ class MarketDetailScreen(ModalScreen[None]):
     MarketDetailScreen > VerticalScroll {
         width: 90%;
         height: 90%;
-        background: #0a0a0a;
-        border: solid #00ff41;
+        background: #0a1628;
+        border: solid #4488cc;
         padding: 1 2;
     }
     MarketDetailScreen Static {
-        color: #00cc33;
+        color: #8899aa;
         width: 1fr;
     }
     """
@@ -200,8 +200,11 @@ class MarketDetailScreen(ModalScreen[None]):
             content += "\n" + _build_signals_section(self._aggregation)
             content += "\n" + _build_math_section(self._aggregation)
             content += "\n" + _build_frontier_section(self._aggregation)
+        elif self._market_data.get("_category"):
+            content += "\n\n[#ccaa44]Aggregation ran but returned no result (insufficient signals or low frontier confidence).[/]"
+            content += f"\n[#667788]Category: {self._market_data.get('_category', 'unknown')}[/]"
         else:
-            content += "\n\n[#007a20]No aggregation data available for this market. Run aggregate to see full signal details.[/]"
+            content += "\n\n[#667788]No aggregation data available for this market. Run aggregate to see full signal details.[/]"
 
         content += "\n\n[dim]Press Escape to close[/]"
 

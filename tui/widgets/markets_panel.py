@@ -17,7 +17,7 @@ class MarketsPanel(Vertical):
     DEFAULT_CSS = """
     MarketsPanel {
         height: 1fr;
-        background: #0a0a0a;
+        background: #0a1628;
     }
     MarketsPanel .controls {
         height: 3;
@@ -31,7 +31,7 @@ class MarketsPanel(Vertical):
     MarketsPanel .controls Static {
         margin: 0 1;
         content-align: center middle;
-        color: #00ff41;
+        color: #667788;
     }
     MarketsPanel DataTable {
         height: 1fr;

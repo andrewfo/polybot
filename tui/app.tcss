@@ -1,17 +1,17 @@
-/* Neon hacker theme — green, black, red */
+/* Navy / Grey / White theme */
 
 Screen {
-    background: #0a0a0a;
+    background: #0a1628;
 }
 
 Header {
-    background: #001a00;
-    color: #00ff41;
+    background: #0d1f3c;
+    color: #e0e8f0;
 }
 
 Footer {
-    background: #001a00;
-    color: #00ff41;
+    background: #0d1f3c;
+    color: #e0e8f0;
 }
 
 TabbedContent {
@@ -25,140 +25,140 @@ ContentSwitcher {
 TabPane {
     height: 1fr;
     padding: 0;
-    background: #0a0a0a;
+    background: #0a1628;
 }
 
 Tabs {
-    background: #0d0d0d;
+    background: #0d1f3c;
 }
 
 Tab {
-    color: #00ff41;
-    background: #0d0d0d;
+    color: #8899aa;
+    background: #0d1f3c;
 }
 
 Tab.-active {
-    color: #0a0a0a;
-    background: #00ff41;
+    color: #ffffff;
+    background: #1a2a4a;
     text-style: bold;
 }
 
 /* DataTable styling */
 DataTable {
     height: 1fr;
-    background: #0a0a0a;
+    background: #0a1628;
 }
 
 DataTable > .datatable--header {
     text-style: bold;
-    color: #00ff41;
-    background: #111111;
+    color: #e0e8f0;
+    background: #1a2a4a;
 }
 
 DataTable > .datatable--cursor {
-    background: #003300;
-    color: #00ff41;
+    background: #1a2a4a;
+    color: #ffffff;
 }
 
 DataTable > .datatable--even-row {
-    background: #0d0d0d;
+    background: #0d1f3c;
 }
 
 DataTable > .datatable--odd-row {
-    background: #0a0a0a;
+    background: #0a1628;
 }
 
 /* Progress bar */
 ProgressBar Bar > .bar--bar {
-    color: #00ff41;
+    color: #4488cc;
 }
 
 ProgressBar Bar > .bar--complete {
-    color: #00ff41;
+    color: #4488cc;
 }
 
 /* Button variants */
 Button {
     min-width: 8;
-    background: #1a1a1a;
-    color: #00ff41;
-    border: tall #00ff41;
+    background: #1a2a4a;
+    color: #e0e8f0;
+    border: tall #4488cc;
 }
 
 Button:hover {
-    background: #003300;
+    background: #2a3a5a;
 }
 
 Button.-primary {
-    background: #003300;
-    color: #00ff41;
-    border: tall #00ff41;
+    background: #1a2a4a;
+    color: #ffffff;
+    border: tall #4488cc;
 }
 
 Button.-success {
-    background: #002200;
-    color: #00ff41;
-    border: tall #00ff41;
+    background: #1a3a2a;
+    color: #44aa66;
+    border: tall #44aa66;
 }
 
 Button.-error {
-    background: #330000;
-    color: #ff0040;
-    border: tall #ff0040;
+    background: #3a1a1a;
+    color: #cc4444;
+    border: tall #cc4444;
 }
 
 /* Status indicators */
 .healthy {
-    color: #00ff41;
+    color: #44aa66;
 }
 
 .unhealthy {
-    color: #ff0040;
+    color: #cc4444;
 }
 
 /* Section titles */
 .section-title {
     text-style: bold;
-    color: #00ff41;
+    color: #e0e8f0;
     padding: 0 0 0 0;
     margin: 1 0 0 0;
 }
 
 /* Static text defaults */
 Static {
-    color: #00cc33;
+    color: #8899aa;
 }
 
 Label {
-    color: #00cc33;
+    color: #8899aa;
 }
 
 Input {
-    background: #111111;
-    color: #00ff41;
-    border: tall #00ff41;
+    background: #1a2a4a;
+    color: #e0e8f0;
+    border: tall #4488cc;
 }
 
 RichLog {
-    background: #0a0a0a;
-    border: solid #1a3a1a;
+    background: #0a1628;
+    border: solid #2a3a5a;
 }
 
 /* Detail screen modal */
 MarketDetailScreen {
     align: center middle;
-    background: rgba(0, 0, 0, 0.85);
+    background: rgba(10, 22, 40, 0.90);
 }
 
 MarketDetailScreen > VerticalScroll {
     width: 90%;
     height: 90%;
-    background: #0a0a0a;
-    border: solid #00ff41;
+    background: #0a1628;
+    border: solid #4488cc;
     padding: 1 2;
 }
 
 MarketDetailScreen Static {
-    color: #00cc33;
+    color: #8899aa;
     width: 1fr;
 }
