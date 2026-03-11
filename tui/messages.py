@@ -171,6 +171,14 @@ class BotProcessUpdate(Message):
         self.cycle = cycle      # which filter-aggregate cycle we're on
 
 
+class BetUpdate(Message):
+    """A Kelly-sized trade decision to display in the Bets tab."""
+    def __init__(self, decision: Any, market_data: dict[str, Any] | None = None) -> None:
+        super().__init__()
+        self.decision = decision      # TradeDecision
+        self.market_data = market_data
+
+
 class BatchUpdate(Message):
     """Update for the In Progress tab — current batch of markets being processed."""
     def __init__(

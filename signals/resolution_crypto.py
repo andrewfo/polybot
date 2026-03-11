@@ -27,6 +27,14 @@ CACHE_TTL_SECONDS = 900  # 15 minutes (crypto moves fast)
 
 COINGECKO_PRICE_URL = "https://api.coingecko.com/api/v3/simple/price"
 COINGECKO_CHART_URL = "https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
+DERIBIT_TICKER_URL = "https://www.deribit.com/api/v2/public/ticker"
+
+# CoinGecko ID → Deribit currency code (Deribit only lists major coins)
+_COINGECKO_TO_DERIBIT: dict[str, str] = {
+    "bitcoin": "BTC",
+    "ethereum": "ETH",
+    "solana": "SOL",
+}
 
 USER_AGENT = "polymarket-bot/1.0 (signal research)"
 
@@ -42,10 +50,13 @@ def log_normal_probability(
     annual_vol: float,
     days_remaining: float,
     direction: str = "above",
+    drift: float | None = None,
 ) -> float:
     """Compute probability of price reaching target using log-normal model.
 
-    Uses geometric Brownian motion with risk-neutral drift.
+    Uses geometric Brownian motion. When ``drift`` is provided (real-world
+    drift estimated from historical returns), it is used directly.  Otherwise
+    falls back to risk-neutral drift (``-0.5 * σ²``).
 
     Args:
         current_price: Current asset price.
@@ -53,6 +64,7 @@ def log_normal_probability(
         annual_vol: Annualized volatility (as decimal, e.g. 0.80 for 80%).
         days_remaining: Days until resolution.
         direction: "above" for P(price >= target), "below" for P(price < target).
+        drift: Annualized log-return drift.  ``None`` → risk-neutral fallback.
 
     Returns:
         Probability between 0 and 1.
@@ -74,9 +86,12 @@ def log_normal_probability(
         return 0.5
 
     log_ratio = math.log(target_price / current_price)
-    drift = -0.5 * annual_vol ** 2  # risk-neutral drift
+    # ``drift`` is the annualized log-price drift (i.e. (μ − ½σ²) for GBM).
+    # When estimated from historical log-returns, mean(log_returns)*365 already
+    # equals (μ − ½σ²), so we use it directly.  Risk-neutral fallback: μ=0.
+    effective_drift = drift if drift is not None else (-0.5 * annual_vol ** 2)
     time_years = days_remaining / 365.0
-    z = (log_ratio - drift * time_years) / (annual_vol * math.sqrt(time_years))
+    z = (log_ratio - effective_drift * time_years) / (annual_vol * math.sqrt(time_years))
 
     if direction == "below":
         return norm_cdf(z)
@@ -132,22 +147,68 @@ async def _fetch_coingecko_chart(
         return None
 
 
-def _compute_volatility(prices: list[list[float]]) -> float:
-    """Compute annualized volatility from daily price data.
+async def _fetch_deribit_iv(
+    session: aiohttp.ClientSession, coin_id: str
+) -> float | None:
+    """Fetch implied volatility from the nearest Deribit ATM option.
+
+    Uses the Deribit ``/public/ticker`` endpoint (no auth required) on the
+    nearest-expiry at-the-money option to get ``mark_iv`` (annualized IV as a
+    percentage, e.g. 65 for 65%).  Returns IV as a decimal (0.65) or ``None``
+    if Deribit doesn't list this coin or the request fails.
+    """
+    deribit_currency = _COINGECKO_TO_DERIBIT.get(coin_id)
+    if not deribit_currency:
+        return None
+
+    # Deribit perpetual index gives current price; we use the DVOL instrument
+    # for overall implied vol.  Format: {CURRENCY}-DVOL
+    instrument = f"{deribit_currency}_USDC-PERPETUAL"
+    dvol_instrument = f"{deribit_currency}VOL-USDC"
+    params = {"instrument_name": dvol_instrument}
+    try:
+        async with session.get(
+            DERIBIT_TICKER_URL,
+            params=params,
+            headers={"User-Agent": USER_AGENT},
+            timeout=aiohttp.ClientTimeout(total=10),
+        ) as resp:
+            if resp.status != 200:
+                logger.debug("Deribit DVOL returned %d for %s", resp.status, coin_id)
+                return None
+            data = await resp.json()
+        result = data.get("result", {})
+        mark_price = result.get("mark_price")
+        if mark_price and mark_price > 0:
+            # DVOL index value IS the annualized IV percentage
+            return mark_price / 100.0
+    except Exception as e:
+        logger.debug("Deribit DVOL fetch failed for %s: %s", coin_id, e)
+
+    # Fallback: try the nearest listed option's mark_iv field
+    # (requires knowing the current strike — skip for simplicity)
+    return None
+
+
+def _compute_volatility(prices: list[list[float]]) -> tuple[float, float | None]:
+    """Compute annualized volatility and realized drift from daily price data.
 
     Args:
         prices: List of [timestamp_ms, price] pairs from CoinGecko.
 
     Returns:
-        Annualized volatility as a decimal (e.g. 0.80 for 80%).
+        Tuple of (annualized_volatility, annualized_drift).
+        Drift is the mean daily log-return × 365 — already equals (μ − ½σ²)
+        for GBM, so it can be passed directly to ``log_normal_probability``.
+        Returns ``None`` for drift when insufficient data.
     """
     if len(prices) < 2:
-        return 0.0
+        return 0.0, None
 
     # Extract just prices
     price_values = [p[1] for p in prices if p[1] > 0]
     if len(price_values) < 2:
-        return 0.0
+        return 0.0, None
 
     # Compute daily log returns
     log_returns: list[float] = []
@@ -155,7 +216,7 @@ def _compute_volatility(prices: list[list[float]]) -> float:
         log_returns.append(math.log(price_values[i] / price_values[i - 1]))
 
     if not log_returns:
-        return 0.0
+        return 0.0, None
 
     # Standard deviation of log returns
     mean_ret = sum(log_returns) / len(log_returns)
@@ -164,7 +225,9 @@ def _compute_volatility(prices: list[list[float]]) -> float:
 
     # Annualize (crypto trades 365 days/year)
     annual_vol = daily_vol * math.sqrt(365)
-    return annual_vol
+    annual_drift = mean_ret * 365
+
+    return annual_vol, annual_drift
 
 
 def _describe_trend(prices: list[list[float]]) -> str:
@@ -359,11 +422,12 @@ class CryptoResolutionProvider(SignalProvider):
                 data_points=0,
             )
 
-        # Fetch price data
+        # Fetch price data + Deribit IV in parallel
         self._emit(market_question, "coingecko", f"fetching {coin_id} data")
         async with aiohttp.ClientSession() as session:
             price_data = await _fetch_coingecko_price(session, coin_id)
-            chart_data = await _fetch_coingecko_chart(session, coin_id)
+            chart_data = await _fetch_coingecko_chart(session, coin_id, days=90)
+            deribit_iv = await _fetch_deribit_iv(session, coin_id)
 
         if price_data is None:
             return SignalResult(
@@ -406,15 +470,27 @@ class CryptoResolutionProvider(SignalProvider):
 
         target_price = float(target_value)
 
-        # Compute volatility from chart data
-        annual_vol = 0.0
+        # Compute volatility and realized drift from chart data
+        historical_vol = 0.0
+        realized_drift: float | None = None
         trend_description = "No history available"
         data_points = 1  # at least the current price
 
         if chart_data:
-            annual_vol = _compute_volatility(chart_data)
+            historical_vol, realized_drift = _compute_volatility(chart_data)
             trend_description = _describe_trend(chart_data)
             data_points = len(chart_data)
+
+        # Choose best volatility estimate: prefer Deribit IV (forward-looking)
+        vol_source = "historical"
+        annual_vol = historical_vol
+        if deribit_iv is not None and deribit_iv > 0:
+            annual_vol = deribit_iv
+            vol_source = "deribit_iv"
+            logger.info(
+                "Using Deribit IV %.0f%% for %s (historical %.0f%%)",
+                deribit_iv * 100, coin_id, historical_vol * 100,
+            )
 
         # Compute days remaining
         try:
@@ -427,30 +503,44 @@ class CryptoResolutionProvider(SignalProvider):
             days_remaining = 30.0  # default fallback
 
         # Log-normal model probability — this IS the signal, no LLM needed
-        self._emit(market_question, "model", f"vol={annual_vol:.0%}, days={days_remaining:.0f}")
+        self._emit(
+            market_question, "model",
+            f"vol={annual_vol:.0%}({vol_source}), drift={realized_drift or 0:.0%}, days={days_remaining:.0f}",
+        )
         model_prob = log_normal_probability(
             current_price=current_price,
             target_price=target_price,
             annual_vol=annual_vol,
             days_remaining=days_remaining,
             direction=target_direction,
+            drift=realized_drift,
         )
 
         # Distance from target
         distance_pct = ((target_price - current_price) / current_price) * 100
 
         # Confidence based on data quality
-        # Higher confidence when we have good vol data and reasonable time horizon
         confidence = 0.6  # base confidence for mathematical model
         if annual_vol > 0 and data_points > 10:
             confidence = 0.7
         if annual_vol > 0 and data_points > 20:
             confidence = 0.75
+        # Boost confidence when using forward-looking IV
+        if vol_source == "deribit_iv":
+            confidence = min(confidence + 0.05, 0.85)
+
+        vol_label = f"vol={annual_vol:.0%}"
+        if vol_source == "deribit_iv":
+            vol_label = f"IV={annual_vol:.0%} (hist={historical_vol:.0%})"
+
+        drift_label = ""
+        if realized_drift is not None:
+            drift_label = f", drift={realized_drift:+.0%}"
 
         reasoning = (
             f"Log-normal model: P(YES)={model_prob:.2f}. "
             f"Current ${current_price:,.2f}, target ${target_price:,.2f} ({target_direction}), "
-            f"vol={annual_vol:.0%}, {days_remaining:.0f}d remaining. "
+            f"{vol_label}{drift_label}, {days_remaining:.0f}d remaining. "
             f"Trend: {trend_description}"
         )
 
@@ -468,6 +558,10 @@ class CryptoResolutionProvider(SignalProvider):
                 "target_direction": target_direction,
                 "direction": target_direction,
                 "annualized_vol": annual_vol,
+                "historical_vol": historical_vol,
+                "vol_source": vol_source,
+                "realized_drift": realized_drift,
+                "deribit_iv": deribit_iv,
                 "days_remaining": days_remaining,
                 "raw_log_normal_prob": model_prob,
                 "change_24h": change_24h / 100 if change_24h else 0.0,

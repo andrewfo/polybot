@@ -23,6 +23,7 @@ from tui.log_handler import TUILogHandler
 from tui.messages import (
     AggregationResult,
     BatchUpdate,
+    BetUpdate,
     BotProcessUpdate,
     BotStatusUpdate,
     BotToggle,
@@ -43,6 +44,7 @@ from tui.widgets.costs_panel import CostsPanel
 from tui.widgets.log_panel import LogPanel
 from tui.widgets.markets_panel import MarketsPanel
 from tui.widgets.pipeline_panel import PipelinePanel
+from tui.widgets.bets_panel import BetsPanel
 from tui.widgets.signals_panel import SignalsPanel
 from tui.widgets.status_panel import StatusPanel
 
@@ -66,7 +68,8 @@ class TUIApp(App):
         Binding("3", "switch_tab('progress')", "In Progress", show=True),
         Binding("4", "switch_tab('costs')", "Costs", show=True),
         Binding("5", "switch_tab('signals')", "Signals", show=True),
-        Binding("6", "switch_tab('logs')", "Logs", show=True),
+        Binding("6", "switch_tab('bets')", "Bets", show=True),
+        Binding("7", "switch_tab('logs')", "Logs", show=True),
         Binding("s", "toggle_bot", "Start/Stop"),
         Binding("a", "run_aggregate_default", "Aggregate"),
         Binding("r", "refresh", "Refresh"),
@@ -86,6 +89,8 @@ class TUIApp(App):
                 yield CostsPanel()
             with TabPane("Signals", id="signals"):
                 yield SignalsPanel()
+            with TabPane("Bets", id="bets"):
+                yield BetsPanel()
             with TabPane("Logs", id="logs"):
                 yield LogPanel()
         yield CommandBar()
@@ -624,6 +629,9 @@ class TUIApp(App):
                             question[:50], agg_result.final_probability,
                             agg_result.confidence, agg_result.market_efficiency,
                         )
+
+                        # Kelly bet sizing
+                        self._run_kelly(mkt, cond_id, question, agg_result, market_price)
                     else:
                         statuses[cond_id] = "skipped"
                         self.post_message(SignalUpdate(
@@ -650,6 +658,48 @@ class TUIApp(App):
 
                 # Update batch display
                 self.post_message(BatchUpdate(markets=batch, current_index=i, statuses=dict(statuses)))
+
+    # -----------------------------------------------------------------
+    # Kelly bet sizing helper
+    # -----------------------------------------------------------------
+
+    def _run_kelly(
+        self,
+        mkt: dict[str, Any],
+        cond_id: str,
+        question: str,
+        agg_result: Any,
+        market_price: float,
+    ) -> Any:
+        """Run Kelly criterion sizing and post BetUpdate. Returns the TradeDecision or None."""
+        from config.settings import TEST_BANKROLL
+        from strategy.kelly import calculate_kelly
+
+        try:
+            # Use TEST_BANKROLL as placeholder; swap for real wallet balance when live
+            available_bankroll = TEST_BANKROLL
+
+            # Get YES token ID from market data
+            token_id = ""
+            for tok in mkt.get("tokens", []):
+                if tok.get("outcome", "").upper() == "YES":
+                    token_id = tok.get("token_id", "")
+                    break
+
+            decision = calculate_kelly(
+                market_id=cond_id,
+                token_id=token_id,
+                market_question=question,
+                estimated_prob=agg_result.final_probability,
+                market_price=market_price,
+                confidence=agg_result.confidence,
+                available_bankroll=available_bankroll,
+            )
+            self.post_message(BetUpdate(decision=decision, market_data=mkt))
+            return decision
+        except Exception as e:
+            logger.warning("Kelly sizing failed for '%s': %s", question[:50], e)
+            return None
 
     # -----------------------------------------------------------------
     # Command bar workers
@@ -933,6 +983,28 @@ class TUIApp(App):
                             f"  [{sig.source}] P={sig.probability} C={sig.confidence} "
                             f"({sig.data_points} pts): {sig.reasoning[:80]}"
                         )
+
+                    # Kelly bet sizing for manual aggregate
+                    try:
+                        agg_market = {"condition_id": "manual", "question": question, "_category": category}
+                        decision = self._run_kelly(agg_market, "manual", question, result, market_price)
+
+                        output_lines.append("")
+                        if decision and decision.should_trade:
+                            output_lines.append(
+                                f"KELLY: {decision.side} | bet=${decision.bet_size_usd:.2f} "
+                                f"edge={decision.edge:.1%} EV=${decision.expected_value:.2f} "
+                                f"(kelly={decision.adjusted_fraction:.1%})"
+                            )
+                        elif decision:
+                            output_lines.append(
+                                f"KELLY: SKIP — {decision.skip_reason} "
+                                f"(edge={decision.edge:.3f})"
+                            )
+                    except Exception as e:
+                        logger.warning("Kelly sizing failed: %s", e)
+                        output_lines.append(f"\nKELLY: Error — {e}")
+
                     self.post_message(CommandResult(
                         command="aggregate",
                         success=True,
@@ -1057,5 +1129,12 @@ class TUIApp(App):
         """Route batch updates to the pipeline (In Progress) panel."""
         try:
             self.query_one(PipelinePanel).on_batch_update(event)
+        except Exception:
+            pass
+
+    def on_bet_update(self, event: BetUpdate) -> None:
+        """Route Kelly bet decisions to the bets panel."""
+        try:
+            self.query_one(BetsPanel).on_bet_update(event)
         except Exception:
             pass

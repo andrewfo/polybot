@@ -14,6 +14,7 @@ from signals.base import SignalResult
 from signals.resolution_crypto import (
     CACHE_TTL_SECONDS,
     CryptoResolutionProvider,
+    _compute_volatility,
     _signal_cache,
     clear_signal_cache,
     log_normal_probability,
@@ -104,7 +105,7 @@ class TestLogNormalProbability:
     """Test the log-normal price model."""
 
     def test_at_the_money(self):
-        """When current == target, probability should be ≈ 0.5."""
+        """When current == target, probability should be ≈ 0.5 (no drift)."""
         prob = log_normal_probability(
             current_price=100.0,
             target_price=100.0,
@@ -112,8 +113,7 @@ class TestLogNormalProbability:
             days_remaining=30,
             direction="above",
         )
-        # With drift = -0.5 * vol^2, at-the-money should be slightly above 0.5
-        # because drift is negative (risk-neutral), so P(stay above) > 0.5 when target == current
+        # With risk-neutral drift (no drift arg), at-the-money should be ≈ 0.5
         assert abs(prob - 0.5) < 0.15
 
     def test_deep_otm_above(self):
@@ -187,17 +187,62 @@ class TestLogNormalProbability:
         assert prob_long > prob_short
 
     def test_known_z_score(self):
-        """Verify with a hand-computed z-score scenario."""
-        # Setup: current=100, target=110, vol=0.50, 365 days
-        # log_ratio = ln(110/100) = ln(1.1) ≈ 0.09531
-        # drift = -0.5 * 0.25 = -0.125
-        # time_years = 1.0
-        # z = (0.09531 - (-0.125) * 1.0) / (0.50 * 1.0) = (0.09531 + 0.125) / 0.50 = 0.22031 / 0.50 = 0.44062
-        # P(above) = 1 - norm_cdf(0.44062) ≈ 1 - 0.6703 ≈ 0.3297
+        """Verify with a hand-computed z-score scenario (risk-neutral, no drift arg)."""
+        # Setup: current=100, target=110, vol=0.50, 365 days, no drift arg → risk-neutral
+        # effective_drift = -0.5 * 0.25 = -0.125
+        # log_ratio = ln(1.1) ≈ 0.09531
+        # z = (0.09531 - (-0.125)) / 0.50 = 0.44062
         prob = log_normal_probability(100.0, 110.0, 0.50, 365, "above")
         expected_z = 0.44063
         expected_prob = 1.0 - norm_cdf(expected_z)
         assert abs(prob - expected_prob) < 0.001
+
+    def test_positive_drift_increases_above_prob(self):
+        """Positive real-world drift should increase P(above target)."""
+        prob_no_drift = log_normal_probability(100.0, 150.0, 0.80, 180, "above")
+        prob_pos_drift = log_normal_probability(
+            100.0, 150.0, 0.80, 180, "above", drift=0.30
+        )
+        assert prob_pos_drift > prob_no_drift
+
+    def test_negative_drift_decreases_above_prob(self):
+        """Negative real-world drift should decrease P(above target)."""
+        prob_no_drift = log_normal_probability(100.0, 150.0, 0.80, 180, "above")
+        prob_neg_drift = log_normal_probability(
+            100.0, 150.0, 0.80, 180, "above", drift=-0.50
+        )
+        assert prob_neg_drift < prob_no_drift
+
+
+class TestComputeVolatility:
+    """Test _compute_volatility returns (vol, drift) tuple."""
+
+    def test_returns_tuple(self):
+        """Should return (vol, drift) tuple."""
+        prices = [[1000 + i * 86400000, 100 + i * 0.5] for i in range(30)]
+        vol, drift = _compute_volatility(prices)
+        assert vol > 0
+        assert drift is not None
+
+    def test_insufficient_data(self):
+        """Fewer than 2 prices returns (0.0, None)."""
+        vol, drift = _compute_volatility([[1000, 100.0]])
+        assert vol == 0.0
+        assert drift is None
+
+    def test_upward_prices_positive_drift(self):
+        """Steadily rising prices should produce positive drift."""
+        prices = [[i * 86400000, 100 * (1.001 ** i)] for i in range(90)]
+        vol, drift = _compute_volatility(prices)
+        assert drift is not None
+        assert drift > 0
+
+    def test_downward_prices_negative_drift(self):
+        """Steadily falling prices should produce negative drift."""
+        prices = [[i * 86400000, 100 * (0.999 ** i)] for i in range(90)]
+        vol, drift = _compute_volatility(prices)
+        assert drift is not None
+        assert drift < 0
 
 
 # ---------------------------------------------------------------
@@ -222,19 +267,19 @@ async def test_non_crypto_category_skipped(provider):
 @pytest.mark.asyncio
 @patch("signals.resolution_crypto.aiohttp.ClientSession")
 async def test_crypto_full_pipeline(mock_session_cls, mock_llm):
-    """Crypto category fetches CoinGecko, computes model, adjusts via LLM."""
+    """Crypto category fetches CoinGecko + Deribit, computes model with drift."""
     # Price response
     price_data = {"bitcoin": {"usd": 95000, "usd_24h_change": 2.5}}
     price_resp = MagicMock()
     price_resp.status = 200
     price_resp.json = AsyncMock(return_value=price_data)
 
-    # Chart response — 30 days of simulated prices
+    # Chart response — 90 days of simulated prices (now fetches 90d for drift)
     import random
     random.seed(42)
     base = 90000
     prices = []
-    for i in range(30):
+    for i in range(90):
         ts = 1700000000000 + i * 86400000
         price = base + random.gauss(0, 2000)
         prices.append([ts, price])
@@ -243,14 +288,19 @@ async def test_crypto_full_pipeline(mock_session_cls, mock_llm):
     chart_resp.status = 200
     chart_resp.json = AsyncMock(return_value=chart_data)
 
+    # Deribit IV response
+    deribit_data = {"result": {"mark_price": 72.5}}  # 72.5% IV
+    deribit_resp = MagicMock()
+    deribit_resp.status = 200
+    deribit_resp.json = AsyncMock(return_value=deribit_data)
+
     session_mock = MagicMock()
-    call_count = 0
 
     def side_effect_get(url, **kwargs):
-        nonlocal call_count
-        call_count += 1
         if "simple/price" in url:
             return _FakeAsyncCtx(price_resp)
+        elif "deribit" in url:
+            return _FakeAsyncCtx(deribit_resp)
         else:
             return _FakeAsyncCtx(chart_resp)
 
@@ -270,18 +320,21 @@ async def test_crypto_full_pipeline(mock_session_cls, mock_llm):
     )
 
     assert result.source == "resolution_crypto"
-    # Returns raw log-normal model probability (no LLM adjustment)
     assert result.probability is not None
     assert 0.0 <= result.probability <= 1.0
-    assert result.confidence >= 0.6  # Base confidence for math model
-    assert result.model_used == "none"  # No LLM used — pure math
+    assert result.confidence >= 0.6
+    assert result.model_used == "none"
     assert result.data_points > 0
-    # raw_data should contain model probability and market data
     assert "raw_log_normal_prob" in result.raw_data
     assert "current_price" in result.raw_data
     assert "target_price" in result.raw_data
+    # New fields from drift + IV improvements
+    assert "realized_drift" in result.raw_data
+    assert "vol_source" in result.raw_data
+    assert result.raw_data["vol_source"] == "deribit_iv"
+    assert result.raw_data["deribit_iv"] == pytest.approx(0.725)
+    assert result.raw_data["annualized_vol"] == pytest.approx(0.725)
 
-    # No LLM call should have been made (coin_id was provided directly)
     mock_llm.call_json.assert_not_called()
 
 
@@ -308,11 +361,18 @@ async def test_missing_coin_id_llm_maps_it(mock_session_cls, mock_db, mock_llm):
     chart_resp.status = 200
     chart_resp.json = AsyncMock(return_value=chart_data)
 
+    # Deribit response (ethereum is listed)
+    deribit_resp = MagicMock()
+    deribit_resp.status = 404  # no DVOL for this test
+    deribit_resp.json = AsyncMock(return_value={})
+
     session_mock = MagicMock()
 
     def side_effect_get(url, **kwargs):
         if "simple/price" in url:
             return _FakeAsyncCtx(price_resp)
+        elif "deribit" in url:
+            return _FakeAsyncCtx(deribit_resp)
         return _FakeAsyncCtx(chart_resp)
 
     session_mock.get = MagicMock(side_effect=side_effect_get)

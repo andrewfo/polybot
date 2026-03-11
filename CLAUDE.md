@@ -22,8 +22,8 @@ core/client.py           → Polymarket CLOB wrapper for ORDER EXECUTION ONLY (n
 core/wallet.py           → Wallet balance checks, gas monitoring
 core/db.py               → SQLite tables: trades, positions, signals, bankroll, llm_costs, market_cache
 strategy/market_filter.py→ Gamma API discovery, filtering, LLM categorization (crypto-only gate), ranking
-tui/app.py               → Textual TUI dashboard with 6 tabs (Home, Markets, In Progress, Costs, Signals, Logs), navy/grey/white theme
-tui/widgets/             → StatusPanel, MarketsPanel, PipelinePanel (In Progress), CostsPanel, SignalsPanel, LogPanel, CommandBar
+tui/app.py               → Textual TUI dashboard with 7 tabs (Home, Markets, In Progress, Costs, Signals, Bets, Logs), navy/grey/white theme
+tui/widgets/             → StatusPanel, MarketsPanel, PipelinePanel (In Progress), CostsPanel, SignalsPanel, BetsPanel, LogPanel, CommandBar
 scripts/setup_wallet.py  → Wallet setup helper
 scripts/dashboard.py     → Standalone dashboard launcher
 ```
@@ -38,14 +38,20 @@ signals/web_search.py        → Perplexity Sonar search-grounded LLM signal (un
 signals/prediction_markets.py→ Cross-platform consensus (Metaculus + Kalshi + PredictIt, no auth)
 ```
 
-### Not Yet Implemented (build plan sections 5-11)
+### Not Yet Implemented (build plan sections 6-11)
 ```
-strategy/kelly.py        → Kelly criterion sizing with safety caps
 strategy/executor.py     → Order placement, fill monitoring, position management (+ PaperExecutor)
 monitoring/pnl.py        → P&L tracking, bankroll snapshots, performance metrics
 monitoring/health.py     → Health checks while bot is running (TUI-driven)
 monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
 ```
+
+### Kelly Criterion (strategy/kelly.py) — Section 5 COMPLETE
+- `TradeDecision` dataclass with full audit trail (14 fields)
+- `calculate_kelly()` determines side, computes fractional Kelly (0.25x), applies 6 safety checks
+- Integrated into pipeline: every successful aggregation runs Kelly sizing
+- Results shown in TUI "Bets" tab with table + detail view
+- Safety checks: edge threshold, positive Kelly, min bet $1, max position 10%, bankroll reserve $20, existing exposure
 
 ## Market Discovery — Gamma API
 - Use Gamma API (`https://gamma-api.polymarket.com/markets`) for all market discovery — NOT the CLOB API
@@ -91,7 +97,7 @@ monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
 - `refresh` — Re-run health checks and market fetch
 
 ### TUI Keybindings
-- `1-6` — Switch tabs (Home, Markets, In Progress, Costs, Signals, Logs)
+- `1-7` — Switch tabs (Home, Markets, In Progress, Costs, Signals, Bets, Logs)
 - `s` — Start/Stop bot
 - `a` — Run aggregate on default test question
 - `r` — Refresh all
@@ -174,7 +180,7 @@ docker-compose logs -f              # Tail logs
 ## Build Sequence
 This project is built section by section from `POLYMARKET_BOT_PLAN (1).md`. Each section is self-contained. Build in order: 0 → 1 → 2 → 3 → 4A → 4B → 4C → 4D → 5 → 6 → 7 → 8 → 9 → 10 → 11. Do not skip ahead. Run tests after each section before proceeding.
 
-**Current progress:** Sections 0-4D complete (core infra, LLM, wallet, DB, market filtering, TUI, full signal engine with aggregator). Section 5+ (kelly, executor, monitoring, main loop) not yet implemented.
+**Current progress:** Sections 0-5 complete (core infra, LLM, wallet, DB, market filtering, TUI, full signal engine with aggregator, Kelly criterion). Section 6+ (executor, monitoring, main loop) not yet implemented.
 
 ## File Naming
 - All Python files use snake_case

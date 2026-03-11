@@ -106,17 +106,28 @@ def _format_raw_evidence(signal: SignalResult) -> str:
         change_24h = raw.get("change_24h")
         raw_prob = raw.get("raw_log_normal_prob")
         trend = raw.get("trend")
+        vol_source = raw.get("vol_source", "historical")
+        historical_vol = raw.get("historical_vol")
+        realized_drift = raw.get("realized_drift")
+        deribit_iv = raw.get("deribit_iv")
         if current is None and target is None:
             return ""
         lines = ["  Market data:"]
         if current is not None and target is not None:
             lines.append(f"  - Current: ${current:,.0f} | Target: ${target:,.0f} ({direction})")
         if change_24h is not None and vol is not None:
-            lines.append(f"  - 24h: {change_24h:+.1%} | Annual vol: {vol:.0%}")
+            vol_label = f"{vol:.0%}"
+            if vol_source == "deribit_iv" and historical_vol is not None:
+                vol_label = f"{vol:.0%} (Deribit IV, historical: {historical_vol:.0%})"
+            lines.append(f"  - 24h: {change_24h:+.1%} | Annual vol: {vol_label}")
+        if realized_drift is not None:
+            lines.append(f"  - Realized drift (90d): {realized_drift:+.1%}/yr")
+        if deribit_iv is not None:
+            lines.append(f"  - Deribit implied vol: {deribit_iv:.0%}")
         if raw_prob is not None:
             lines.append(f"  - Log-normal model probability: {raw_prob:.4f}")
         if trend:
-            lines.append(f"  - 30-day trend: {trend}")
+            lines.append(f"  - 90-day trend: {trend}")
         return "\n".join(lines)
 
     if source == "web_search":

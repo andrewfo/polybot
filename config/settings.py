@@ -17,6 +17,7 @@ KELLY_FRACTION = float(os.getenv("KELLY_FRACTION", "0.25"))           # Quarter 
 MIN_EDGE_THRESHOLD = float(os.getenv("MIN_EDGE_THRESHOLD", "0.05"))   # Only trade when edge > 5%
 MAX_POSITION_PCT = float(os.getenv("MAX_POSITION_PCT", "0.10"))       # Max 10% of bankroll per market
 MIN_BANKROLL_RESERVE = float(os.getenv("MIN_BANKROLL_RESERVE", "20")) # Always keep $20 USDC untouched
+TEST_BANKROLL = float(os.getenv("TEST_BANKROLL", "1000"))            # Placeholder bankroll for testing ($1000)
 
 # --- Market Filtering ---
 MIN_MARKET_LIQUIDITY = float(os.getenv("MIN_MARKET_LIQUIDITY", "500"))
