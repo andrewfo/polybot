@@ -231,14 +231,17 @@ class TestAggregatorWithNewProviders:
     async def test_weight_multipliers_include_new_sources(self):
         from signals.aggregator import SIGNAL_WEIGHT_MULTIPLIERS
 
-        # All 6 sources should have weight multipliers
-        assert len(SIGNAL_WEIGHT_MULTIPLIERS) == 6
+        # All 9 sources should have weight multipliers
+        assert len(SIGNAL_WEIGHT_MULTIPLIERS) == 9
         assert "web_search" in SIGNAL_WEIGHT_MULTIPLIERS
         assert "prediction_markets" in SIGNAL_WEIGHT_MULTIPLIERS
         assert "serper_search" in SIGNAL_WEIGHT_MULTIPLIERS
         assert "resolution_econ" in SIGNAL_WEIGHT_MULTIPLIERS
         assert "resolution_crypto" in SIGNAL_WEIGHT_MULTIPLIERS
         assert "news" in SIGNAL_WEIGHT_MULTIPLIERS
+        assert "monte_carlo" in SIGNAL_WEIGHT_MULTIPLIERS
+        assert "technical_analysis" in SIGNAL_WEIGHT_MULTIPLIERS
+        assert "historical_base_rate" in SIGNAL_WEIGHT_MULTIPLIERS
 
     @pytest.mark.asyncio
     async def test_new_evidence_formatting(self):

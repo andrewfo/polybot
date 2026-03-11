@@ -1,10 +1,10 @@
 """Signal aggregator with frontier model final probability call.
 
-Collects signals from 6 providers (news, resolution_econ, resolution_crypto,
-web_search, prediction_markets, serper_search), computes a weighted preliminary
-estimate, then makes the single FRONTIER MODEL call that determines the final
-probability. This is the only place the expensive frontier model is used in the
-signal pipeline.
+Collects signals from 9 providers (news, resolution_econ, resolution_crypto,
+web_search, prediction_markets, serper_search, monte_carlo, technical_analysis,
+historical_base_rate), computes a weighted preliminary estimate, then makes the
+single FRONTIER MODEL call that determines the final probability. This is the
+only place the expensive frontier model is used in the signal pipeline.
 """
 
 import asyncio
@@ -23,11 +23,14 @@ from config.settings import (
 from core import db
 from core.llm import LLMClient, LLMError
 from signals.base import SignalProvider, SignalResult
+from signals.historical_base_rate import HistoricalBaseRateProvider
+from signals.monte_carlo import MonteCarloProvider
 from signals.news import NewsSignalProvider
 from signals.prediction_markets import PredictionMarketsSignalProvider
 from signals.resolution_crypto import CryptoResolutionProvider
 from signals.resolution_econ import EconomicsResolutionProvider
 from signals.serper_search import SerperSearchSignalProvider
+from signals.technical_analysis import TechnicalAnalysisProvider
 from signals.web_search import WebSearchSignalProvider
 from signals.temporal import build_frontier_system_prompt
 
@@ -38,7 +41,10 @@ SIGNAL_WEIGHT_MULTIPLIERS: dict[str, float] = {
     "resolution_econ": RESOLUTION_SIGNAL_WEIGHT,     # Direct resolution source — data from FRED
     "resolution_crypto": RESOLUTION_SIGNAL_WEIGHT,   # Direct resolution source — data from CoinGecko
     "prediction_markets": 1.8,                       # Cross-platform market consensus (strong)
+    "monte_carlo": 1.6,                              # Quantitative simulation (GBM / bootstrap)
+    "historical_base_rate": 1.5,                     # Empirical historical frequency
     "web_search": 1.5,                               # Search-grounded LLM (Perplexity Sonar)
+    "technical_analysis": 1.2,                       # TA indicators (shorter-term, lower weight)
     "serper_search": 1.3,                            # Structured web search results
     "news": 1.0,                                     # Baseline (RSS scraping)
 }
@@ -165,6 +171,53 @@ def _format_raw_evidence(signal: SignalResult) -> str:
             return ""
         return f"  Search evidence:\n  {preview[:400]}"
 
+    if source == "monte_carlo":
+        sim_type = raw.get("simulation_type", "?")
+        mc_prob = raw.get("mc_probability")
+        n_sims = raw.get("n_simulations", 0)
+        if mc_prob is None:
+            return ""
+        lines = [f"  Monte Carlo ({sim_type}, {n_sims} paths):"]
+        lines.append(f"  - MC probability: {mc_prob:.3f}")
+        if "mean_final" in raw:
+            lines.append(f"  - Mean final: {raw['mean_final']:,.2f}")
+        if "pct_5" in raw and "pct_95" in raw:
+            lines.append(f"  - 90% CI: [{raw['pct_5']:,.2f}, {raw['pct_95']:,.2f}]")
+        return "\n".join(lines)
+
+    if source == "technical_analysis":
+        rsi = raw.get("rsi")
+        macd = raw.get("macd")
+        ma_trend = raw.get("ma_trend")
+        bb_pct = raw.get("bollinger_pct_b")
+        if rsi is None and macd is None:
+            return ""
+        lines = ["  Technical indicators:"]
+        if rsi is not None:
+            condition = "overbought" if rsi > 70 else ("oversold" if rsi < 30 else "neutral")
+            lines.append(f"  - RSI(14): {rsi:.1f} ({condition})")
+        if macd is not None and isinstance(macd, dict):
+            lines.append(f"  - MACD crossover: {macd.get('crossover', '?')}, histogram: {macd.get('histogram', 0):.2f}")
+        if bb_pct is not None:
+            lines.append(f"  - Bollinger %B: {bb_pct:.2f}")
+        if ma_trend is not None:
+            lines.append(f"  - MA trend: {ma_trend}")
+        return "\n".join(lines)
+
+    if source == "historical_base_rate":
+        base_rate = raw.get("base_rate")
+        sample = raw.get("sample_size", 0)
+        if base_rate is None:
+            return ""
+        lines = [f"  Historical base rate ({sample} periods):"]
+        lines.append(f"  - Level rate: {base_rate:.1%}")
+        transition = raw.get("transition_rate")
+        if transition is not None:
+            lines.append(f"  - Transition rate: {transition:.1%} ({raw.get('transition_hits', 0)}/{raw.get('transition_total', 0)})")
+        if "mean_move_pct" in raw:
+            lines.append(f"  - Mean move: {raw['mean_move_pct']:+.1f}%, target move: {raw.get('target_move_pct', 0):+.1f}%")
+        return "\n".join(lines)
+
     return ""
 
 
@@ -271,6 +324,9 @@ class SignalAggregator:
                 WebSearchSignalProvider(llm=llm),
                 PredictionMarketsSignalProvider(llm=llm),
                 SerperSearchSignalProvider(llm=llm),
+                MonteCarloProvider(llm=llm),
+                TechnicalAnalysisProvider(llm=llm),
+                HistoricalBaseRateProvider(llm=llm),
             ]
 
     def _emit(self, question: str, stage: str, detail: str = "") -> None:

@@ -40,6 +40,9 @@ signals/temporal.py          → Date context injection, urgency tiers, frontier
 signals/web_search.py        → Perplexity Sonar search-grounded LLM signal (universal, all categories)
 signals/prediction_markets.py→ Cross-platform consensus (Metaculus + Kalshi + PredictIt, no auth)
 signals/serper_search.py     → Serper.dev structured Google search signal (requires SERPER_API_KEY)
+signals/monte_carlo.py       → GBM simulation (crypto) + bootstrap simulation (economics) → cheap LLM
+signals/technical_analysis.py→ RSI, MACD, Bollinger Bands, MA crossovers from CoinGecko (crypto only)
+signals/historical_base_rate.py → Empirical frequency analysis from FRED/CoinGecko historical data
 ```
 
 ### Not Yet Implemented (build plan sections 5-11)
