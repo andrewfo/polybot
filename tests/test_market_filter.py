@@ -250,35 +250,11 @@ class TestCategorizeMarket:
 
 class TestExtractResolutionParams:
     @pytest.mark.asyncio
-    async def test_skip_non_econ_crypto(self) -> None:
+    async def test_skip_non_crypto(self) -> None:
         llm = AsyncMock(spec=LLMClient)
-        result = await extract_resolution_params("Will X win?", "politics", llm)
+        result = await extract_resolution_params("Will X win?", "other", llm)
         assert result is None
         llm.call_json.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_extract_economics_params(self) -> None:
-        llm = AsyncMock(spec=LLMClient)
-        llm.call_json = AsyncMock(return_value={
-            "indicator_type": "rate",
-            "metric_name": "federal_funds_rate",
-            "target_value": None,
-            "target_direction": "cut",
-            "target_date": "2026-06-01",
-            "coin_id": None,
-            "resolution_source": "FOMC announcement",
-        })
-        with patch("strategy.market_filter.db") as mock_db:
-            mock_db.get_cached_market.return_value = None
-            result = await extract_resolution_params(
-                "Will the Fed cut rates in June 2026?",
-                "economics",
-                llm,
-                condition_id="cond_fed",
-            )
-        assert result is not None
-        assert result["indicator_type"] == "rate"
-        assert result["target_direction"] == "cut"
 
     @pytest.mark.asyncio
     async def test_extract_crypto_params(self) -> None:
@@ -307,14 +283,14 @@ class TestExtractResolutionParams:
     @pytest.mark.asyncio
     async def test_extract_uses_cache(self) -> None:
         llm = AsyncMock(spec=LLMClient)
-        cached_params = {"indicator_type": "rate", "target_direction": "hike"}
+        cached_params = {"indicator_type": "price", "target_direction": "above", "coin_id": "bitcoin"}
         with patch("strategy.market_filter.db") as mock_db:
             mock_db.get_cached_market.return_value = {
                 "data": {"_resolution_params": cached_params},
-                "category": "economics",
+                "category": "crypto",
             }
             result = await extract_resolution_params(
-                "Will the Fed hike?", "economics", llm, condition_id="cond_x"
+                "Will BTC reach $200k?", "crypto", llm, condition_id="cond_x"
             )
         assert result == cached_params
         llm.call_json.assert_not_called()
@@ -337,12 +313,12 @@ class TestExtractResolutionParams:
 
 class TestRankCandidates:
     def test_ranking_order(self) -> None:
-        """Economics/crypto markets with good timing and liquidity score highest."""
+        """Crypto markets with good timing and liquidity score highest."""
         markets = [
             _make_market(
                 condition_id="best",
                 days_until_end=14, liquidity=5000, volume_24h=600,
-                category="economics",
+                category="crypto",
             ),
             _make_market(
                 condition_id="mid",
@@ -362,9 +338,9 @@ class TestRankCandidates:
 
     def test_scoring_components(self) -> None:
         """Verify individual scoring components."""
-        # Resolution 1-4 weeks (+3), liquidity $1k-$10k (+2), economics (+2), vol>500 (+1) = 8
+        # Resolution 1-4 weeks (+3), liquidity $1k-$10k (+2), crypto (+2), vol>500 (+1) = 8
         market = _make_market(
-            days_until_end=14, liquidity=5000, volume_24h=600, category="economics",
+            days_until_end=14, liquidity=5000, volume_24h=600, category="crypto",
         )
         ranked = rank_candidates([market])
         assert ranked[0]["_score"] == 8

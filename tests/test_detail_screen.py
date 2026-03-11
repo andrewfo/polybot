@@ -20,7 +20,7 @@ from tui.widgets.detail_screen import (
 # ---------------------------------------------------------------------------
 
 def _make_signal(
-    source: str = "news",
+    source: str = "web_search",
     probability: float = 0.6,
     confidence: float = 0.7,
     reasoning: str = "Test reasoning",
@@ -70,36 +70,6 @@ def _make_aggregation(
 class TestFormatRawEvidence:
     """Tests for _format_raw_evidence()."""
 
-    def test_news_with_articles(self) -> None:
-        signal = _make_signal(source="news", raw_data={
-            "articles": [
-                {"title": "Bitcoin surges past $140k", "direction": "yes", "source": "Reuters"},
-                {"title": "Crypto crash feared", "direction": "no", "source": "Bloomberg"},
-            ]
-        })
-        result = _format_raw_evidence(signal)
-        assert "Key evidence:" in result
-        assert '[YES] "Bitcoin surges past $140k" (Reuters)' in result
-        assert '[NO] "Crypto crash feared" (Bloomberg)' in result
-
-    def test_news_empty_articles(self) -> None:
-        signal = _make_signal(source="news", raw_data={"articles": []})
-        assert _format_raw_evidence(signal) == ""
-
-    def test_news_no_raw_data(self) -> None:
-        signal = _make_signal(source="news")
-        assert _format_raw_evidence(signal) == ""
-
-    def test_news_caps_at_8_articles(self) -> None:
-        articles = [
-            {"title": f"Article {i}", "direction": "yes", "source": "src"}
-            for i in range(12)
-        ]
-        signal = _make_signal(source="news", raw_data={"articles": articles})
-        result = _format_raw_evidence(signal)
-        assert "Article 7" in result
-        assert "Article 8" not in result
-
     def test_crypto_full_data(self) -> None:
         signal = _make_signal(source="resolution_crypto", raw_data={
             "current_price": 142300,
@@ -108,14 +78,15 @@ class TestFormatRawEvidence:
             "annualized_vol": 0.78,
             "change_24h": 0.021,
             "raw_log_normal_prob": 0.38,
-            "adjusted_prob": 0.42,
+            "trend": "upward (+5.2% over 30 data points)",
         })
         result = _format_raw_evidence(signal)
         assert "Market data:" in result
         assert "$142,300" in result
         assert "$150,000" in result
         assert "above" in result
-        assert "Log-normal model" in result
+        assert "Log-normal model probability" in result
+        assert "trend" in result.lower()
 
     def test_crypto_missing_fields(self) -> None:
         signal = _make_signal(source="resolution_crypto", raw_data={
@@ -131,17 +102,23 @@ class TestFormatRawEvidence:
         signal = _make_signal(source="resolution_crypto", raw_data={})
         assert _format_raw_evidence(signal) == ""
 
-    def test_econ_formatted_data(self) -> None:
-        signal = _make_signal(source="resolution_econ", raw_data={
-            "formatted_data": "CPI: 3.2% (2026-02), 3.1% (2026-01), trend: rising"
+    def test_web_search_evidence(self) -> None:
+        signal = _make_signal(source="web_search", raw_data={
+            "key_evidence": ["BTC hit $140k", "Analyst predicts $160k"]
         })
         result = _format_raw_evidence(signal)
-        assert "FRED data:" in result
-        assert "CPI: 3.2%" in result
+        assert "Web search evidence" in result
+        assert "BTC hit $140k" in result
 
-    def test_econ_no_data(self) -> None:
-        signal = _make_signal(source="resolution_econ", raw_data={})
-        assert _format_raw_evidence(signal) == ""
+    def test_prediction_markets(self) -> None:
+        signal = _make_signal(source="prediction_markets", raw_data={
+            "matched_markets": [
+                {"platform": "Metaculus", "title": "BTC $150k", "probability": 0.42},
+            ]
+        })
+        result = _format_raw_evidence(signal)
+        assert "Cross-platform" in result
+        assert "Metaculus" in result
 
     def test_unknown_source(self) -> None:
         signal = _make_signal(source="unknown_source")
@@ -185,20 +162,20 @@ class TestBuildSignalsSection:
 
     def test_with_resolution_source(self) -> None:
         signals = [
-            _make_signal(source="resolution_econ", probability=0.7, confidence=0.8),
-            _make_signal(source="news", probability=0.6, confidence=0.5),
+            _make_signal(source="resolution_crypto", probability=0.7, confidence=0.8),
+            _make_signal(source="web_search", probability=0.6, confidence=0.5),
         ]
         agg = _make_aggregation(signals=signals)
         result = _build_signals_section(agg)
-        assert "RESOLUTION_ECON" in result
+        assert "RESOLUTION_CRYPTO" in result
         assert "DIRECT RESOLUTION SOURCE" in result
-        assert "NEWS" in result
+        assert "WEB_SEARCH" in result
 
     def test_shows_weights(self) -> None:
-        signals = [_make_signal(source="news", confidence=0.7)]
+        signals = [_make_signal(source="web_search", confidence=0.7)]
         agg = _make_aggregation(signals=signals)
         result = _build_signals_section(agg)
-        assert "0.70 × 1.0x = 0.70" in result
+        assert "0.70 \u00d7 1.5x = 1.05" in result
 
 
 class TestBuildMathSection:
@@ -206,13 +183,13 @@ class TestBuildMathSection:
 
     def test_shows_multipliers(self) -> None:
         signals = [
-            _make_signal(source="news", probability=0.6, confidence=0.7),
-            _make_signal(source="resolution_econ", probability=0.8, confidence=0.9),
+            _make_signal(source="web_search", probability=0.6, confidence=0.7),
+            _make_signal(source="resolution_crypto", probability=0.8, confidence=0.9),
         ]
         agg = _make_aggregation(signals=signals)
         result = _build_math_section(agg)
-        assert "news: 1.0x" in result
-        assert "econ: 2.0x" in result
+        assert "crypto: 2.0x" in result
+        assert "web_search: 1.5x" in result
         assert "Weighted Sum:" in result
         assert "Total Weight:" in result
         assert "Preliminary Estimate:" in result

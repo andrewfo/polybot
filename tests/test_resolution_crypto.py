@@ -210,7 +210,7 @@ async def test_non_crypto_category_skipped(provider):
     """Non-crypto category returns confidence=0 immediately."""
     result = await provider.get_signal(
         market_question="Will the Fed raise rates?",
-        market_category="economics",
+        market_category="other",
         market_end_date="2026-06-01",
     )
     assert result.confidence == 0.0
@@ -257,13 +257,6 @@ async def test_crypto_full_pipeline(mock_session_cls, mock_llm):
     session_mock.get = MagicMock(side_effect=side_effect_get)
     mock_session_cls.return_value = _FakeSessionCtx(session_mock)
 
-    # LLM adjustment response
-    mock_llm.call_json = AsyncMock(return_value={
-        "probability": 0.42,
-        "confidence": 0.75,
-        "reasoning": "Model shows moderate probability, upward trend supports slight increase",
-    })
-
     provider = CryptoResolutionProvider(llm=mock_llm)
     result = await provider.get_signal(
         market_question="Will Bitcoin reach $150,000 by end of 2026?",
@@ -277,18 +270,19 @@ async def test_crypto_full_pipeline(mock_session_cls, mock_llm):
     )
 
     assert result.source == "resolution_crypto"
-    assert result.probability == 0.42
-    assert result.confidence == 0.75
-    assert result.model_used == "cheap"
+    # Returns raw log-normal model probability (no LLM adjustment)
+    assert result.probability is not None
+    assert 0.0 <= result.probability <= 1.0
+    assert result.confidence >= 0.6  # Base confidence for math model
+    assert result.model_used == "none"  # No LLM used — pure math
     assert result.data_points > 0
-    # raw_data should contain both model_prob and adjusted_prob
-    assert "model_prob" in result.raw_data
-    assert "adjusted_prob" in result.raw_data
+    # raw_data should contain model probability and market data
+    assert "raw_log_normal_prob" in result.raw_data
+    assert "current_price" in result.raw_data
+    assert "target_price" in result.raw_data
 
-    # Verify LLM called with cheap tier
-    mock_llm.call_json.assert_called_once()
-    call_args = mock_llm.call_json.call_args
-    assert call_args[1].get("task_type") == "classify"
+    # No LLM call should have been made (coin_id was provided directly)
+    mock_llm.call_json.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -324,11 +318,8 @@ async def test_missing_coin_id_llm_maps_it(mock_session_cls, mock_db, mock_llm):
     session_mock.get = MagicMock(side_effect=side_effect_get)
     mock_session_cls.return_value = _FakeSessionCtx(session_mock)
 
-    # First LLM call: map name → ID. Second: adjust probability.
-    mock_llm.call_json = AsyncMock(side_effect=[
-        {"coin_id": "ethereum"},
-        {"probability": 0.30, "confidence": 0.6, "reasoning": "ETH unlikely to reach target"},
-    ])
+    # Only LLM call: map name → ID (no adjustment call)
+    mock_llm.call_json = AsyncMock(return_value={"coin_id": "ethereum"})
 
     provider = CryptoResolutionProvider(llm=mock_llm)
     result = await provider.get_signal(
@@ -342,9 +333,11 @@ async def test_missing_coin_id_llm_maps_it(mock_session_cls, mock_db, mock_llm):
     )
 
     assert result.source == "resolution_crypto"
-    assert result.probability == 0.30
-    # Verify LLM was called twice: extract (map) + classify (adjust)
-    assert mock_llm.call_json.call_count == 2
+    assert result.probability is not None
+    assert 0.0 <= result.probability <= 1.0
+    assert result.model_used == "none"  # Pure math, no LLM adjustment
+    # Verify LLM was called once: extract (map coin_id only)
+    assert mock_llm.call_json.call_count == 1
     first_call = mock_llm.call_json.call_args_list[0]
     assert first_call[1].get("task_type") == "extract"
 

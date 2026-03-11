@@ -126,7 +126,7 @@ def _build_math_section(agg: AggregatedSignal) -> str:
         "[bold #e0e8f0]\u2550\u2550\u2550 AGGREGATION MATH \u2550\u2550\u2550[/]",
         "",
         "[#4488cc]Source Multipliers:[/]",
-        "  news: 1.0x  |  polling: 1.5x  |  econ: 2.0x  |  crypto: 2.0x",
+        "  crypto: 2.0x  |  pred_mkts: 1.8x  |  web_search: 1.5x",
         "",
         "[#4488cc]Per-Signal Weight Calculation:[/]",
     ]

@@ -22,7 +22,7 @@ from signals.aggregator import (
 # ---------------------------------------------------------------------------
 
 def _make_signal(
-    source: str = "news",
+    source: str = "web_search",
     probability: float | None = 0.6,
     confidence: float = 0.7,
     reasoning: str = "Test reasoning",
@@ -75,14 +75,14 @@ def mock_llm():
 
 class TestPreliminaryProbability:
     def test_single_signal(self):
-        signals = [_make_signal(source="news", probability=0.6, confidence=0.8)]
+        signals = [_make_signal(source="web_search", probability=0.6, confidence=0.8)]
         result = compute_preliminary_probability(signals)
         assert abs(result - 0.6) < 1e-6
 
     def test_multiple_signals_equal_weight(self):
         signals = [
-            _make_signal(source="news", probability=0.4, confidence=1.0),
-            _make_signal(source="news", probability=0.8, confidence=1.0),
+            _make_signal(source="web_search", probability=0.4, confidence=1.0),
+            _make_signal(source="web_search", probability=0.8, confidence=1.0),
         ]
         result = compute_preliminary_probability(signals)
         assert abs(result - 0.6) < 1e-6
@@ -90,17 +90,17 @@ class TestPreliminaryProbability:
     def test_confidence_weighted(self):
         """Higher confidence signal should have more influence."""
         signals = [
-            _make_signal(source="news", probability=0.3, confidence=0.1),
-            _make_signal(source="news", probability=0.9, confidence=0.9),
+            _make_signal(source="web_search", probability=0.3, confidence=0.1),
+            _make_signal(source="web_search", probability=0.9, confidence=0.9),
         ]
         result = compute_preliminary_probability(signals)
-        # Weight: 0.1*1.0=0.1 for first, 0.9*1.0=0.9 for second
-        expected = (0.3 * 0.1 + 0.9 * 0.9) / (0.1 + 0.9)
+        # Weight: 0.1*1.5=0.15 for first, 0.9*1.5=1.35 for second
+        expected = (0.3 * 0.15 + 0.9 * 1.35) / (0.15 + 1.35)
         assert abs(result - expected) < 1e-6
 
     def test_no_usable_signals_returns_default(self):
         signals = [
-            _make_signal(source="news", probability=None, confidence=0.0),
+            _make_signal(source="web_search", probability=None, confidence=0.0),
         ]
         result = compute_preliminary_probability(signals)
         assert result == 0.5
@@ -115,39 +115,25 @@ class TestPreliminaryProbability:
 # ---------------------------------------------------------------------------
 
 class TestResolutionSourceWeight:
-    def test_resolution_econ_2x(self):
-        signals = [
-            _make_signal(source="news", probability=0.3, confidence=1.0),
-            _make_signal(source="resolution_econ", probability=0.7, confidence=1.0),
-        ]
-        result = compute_preliminary_probability(signals)
-        # news weight: 1.0 * 1.0 = 1.0
-        # econ weight: 1.0 * 2.0 = 2.0
-        expected = (0.3 * 1.0 + 0.7 * 2.0) / (1.0 + 2.0)
-        assert abs(result - expected) < 1e-6
-
     def test_resolution_crypto_2x(self):
         signals = [
-            _make_signal(source="news", probability=0.4, confidence=1.0),
+            _make_signal(source="web_search", probability=0.4, confidence=1.0),
             _make_signal(source="resolution_crypto", probability=0.8, confidence=1.0),
         ]
         result = compute_preliminary_probability(signals)
-        expected = (0.4 * 1.0 + 0.8 * 2.0) / (1.0 + 2.0)
+        expected = (0.4 * 1.5 + 0.8 * 2.0) / (1.5 + 2.0)
         assert abs(result - expected) < 1e-6
 
-    def test_web_search_1_5x(self):
+    def test_prediction_markets_1_8x(self):
         signals = [
-            _make_signal(source="news", probability=0.4, confidence=1.0),
-            _make_signal(source="web_search", probability=0.6, confidence=1.0),
+            _make_signal(source="web_search", probability=0.4, confidence=1.0),
+            _make_signal(source="prediction_markets", probability=0.6, confidence=1.0),
         ]
         result = compute_preliminary_probability(signals)
-        expected = (0.4 * 1.0 + 0.6 * 1.5) / (1.0 + 1.5)
+        expected = (0.4 * 1.5 + 0.6 * 1.8) / (1.5 + 1.8)
         assert abs(result - expected) < 1e-6
 
     def test_effective_weight_multipliers(self):
-        assert _compute_effective_weight(
-            _make_signal(source="resolution_econ", confidence=1.0)
-        ) == SIGNAL_WEIGHT_MULTIPLIERS["resolution_econ"]
         assert _compute_effective_weight(
             _make_signal(source="resolution_crypto", confidence=1.0)
         ) == SIGNAL_WEIGHT_MULTIPLIERS["resolution_crypto"]
@@ -155,8 +141,8 @@ class TestResolutionSourceWeight:
             _make_signal(source="web_search", confidence=1.0)
         ) == SIGNAL_WEIGHT_MULTIPLIERS["web_search"]
         assert _compute_effective_weight(
-            _make_signal(source="news", confidence=1.0)
-        ) == SIGNAL_WEIGHT_MULTIPLIERS["news"]
+            _make_signal(source="prediction_markets", confidence=1.0)
+        ) == SIGNAL_WEIGHT_MULTIPLIERS["prediction_markets"]
 
     def test_unknown_source_1x(self):
         assert _compute_effective_weight(
@@ -224,14 +210,14 @@ class TestZeroUsableSignals:
 
 
 # ---------------------------------------------------------------------------
-# Test: frontier model confidence < 0.4 → skip market
+# Test: frontier model confidence < 0.25 → skip market
 # ---------------------------------------------------------------------------
 
 class TestLowFrontierConfidence:
     @pytest.mark.asyncio
     async def test_low_confidence_skip(self, mock_llm):
         mock_llm.call_json = AsyncMock(return_value=_make_frontier_response(
-            confidence=0.3,
+            confidence=0.15,
             final_probability=0.6,
         ))
         providers = [
@@ -252,9 +238,9 @@ class TestLowFrontierConfidence:
 
     @pytest.mark.asyncio
     async def test_exactly_at_threshold_skips(self, mock_llm):
-        """Confidence exactly equal to threshold should still skip (< not <=)."""
+        """Confidence just below threshold should skip (< not <=)."""
         mock_llm.call_json = AsyncMock(return_value=_make_frontier_response(
-            confidence=0.39,
+            confidence=0.24,
         ))
         providers = [
             _make_mock_provider(_make_signal(probability=0.6, confidence=0.8)),
@@ -276,7 +262,7 @@ class TestLowFrontierConfidence:
     async def test_at_threshold_passes(self, mock_llm):
         """Confidence exactly at threshold should pass."""
         mock_llm.call_json = AsyncMock(return_value=_make_frontier_response(
-            confidence=0.4,
+            confidence=0.25,
         ))
         providers = [
             _make_mock_provider(_make_signal(probability=0.6, confidence=0.8)),
@@ -339,16 +325,13 @@ class TestFullPipeline:
 
         providers = [
             _make_mock_provider(_make_signal(
-                source="news", probability=0.55, confidence=0.6, data_points=10,
+                source="web_search", probability=0.55, confidence=0.6, data_points=10,
             )),
             _make_mock_provider(_make_signal(
-                source="web_search", probability=None, confidence=0.0, data_points=0,
+                source="prediction_markets", probability=None, confidence=0.0, data_points=0,
             )),
             _make_mock_provider(_make_signal(
-                source="resolution_econ", probability=0.75, confidence=0.9, data_points=24,
-            )),
-            _make_mock_provider(_make_signal(
-                source="resolution_crypto", probability=None, confidence=0.0, data_points=0,
+                source="resolution_crypto", probability=0.75, confidence=0.9, data_points=24,
             )),
         ]
 
@@ -356,8 +339,8 @@ class TestFullPipeline:
 
         with patch("signals.aggregator.db"):
             result = await aggregator.aggregate(
-                market_question="Will the Fed raise rates?",
-                market_category="economics",
+                market_question="Will Bitcoin reach $150,000?",
+                market_category="crypto",
                 market_end_date="2026-06-30",
                 market_price=0.45,
             )
@@ -368,20 +351,20 @@ class TestFullPipeline:
         assert result.confidence == 0.85
         assert result.signals_agreement == "mixed"
         assert result.market_efficiency == "underpriced"
-        assert result.market_question == "Will the Fed raise rates?"
-        assert result.market_category == "economics"
+        assert result.market_question == "Will Bitcoin reach $150,000?"
+        assert result.market_category == "crypto"
         assert result.market_price == 0.45
 
-        # Only 2 usable signals (news + resolution_econ)
+        # Only 2 usable signals (web_search + resolution_crypto)
         assert len(result.individual_signals) == 2
         assert result.total_data_points == 34  # 10 + 24
 
         # Verify preliminary probability was computed with weights
-        # news: 0.55 * (0.6 * 1.0) = 0.33
-        # econ: 0.75 * (0.9 * 2.0) = 1.35
-        # total weight: 0.6 + 1.8 = 2.4
-        # preliminary = (0.33 + 1.35) / 2.4 = 0.7
-        expected_prelim = (0.55 * 0.6 + 0.75 * 1.8) / (0.6 + 1.8)
+        # web_search: 0.55 * (0.6 * 1.5) = 0.495
+        # crypto: 0.75 * (0.9 * 2.0) = 1.35
+        # total weight: 0.9 + 1.8 = 2.7
+        # preliminary = (0.495 + 1.35) / 2.7
+        expected_prelim = (0.55 * 0.9 + 0.75 * 1.8) / (0.9 + 1.8)
         assert abs(result.preliminary_probability - expected_prelim) < 1e-6
 
         # Frontier was called exactly once
@@ -390,16 +373,15 @@ class TestFullPipeline:
         assert call_args[1]["task_type"] == "estimate_probability"
 
     @pytest.mark.asyncio
-    async def test_all_four_providers_usable(self, mock_llm):
+    async def test_all_three_providers_usable(self, mock_llm):
         mock_llm.call_json = AsyncMock(return_value=_make_frontier_response(
             final_probability=0.60,
             confidence=0.75,
         ))
 
         providers = [
-            _make_mock_provider(_make_signal(source="news", probability=0.5, confidence=0.7)),
+            _make_mock_provider(_make_signal(source="prediction_markets", probability=0.5, confidence=0.7)),
             _make_mock_provider(_make_signal(source="web_search", probability=0.55, confidence=0.8)),
-            _make_mock_provider(_make_signal(source="resolution_econ", probability=0.65, confidence=0.9)),
             _make_mock_provider(_make_signal(source="resolution_crypto", probability=0.70, confidence=0.85)),
         ]
 
@@ -408,13 +390,13 @@ class TestFullPipeline:
         with patch("signals.aggregator.db"):
             result = await aggregator.aggregate(
                 market_question="Test all providers",
-                market_category="economics",
+                market_category="crypto",
                 market_end_date="2026-12-31",
                 market_price=0.50,
             )
 
         assert result is not None
-        assert len(result.individual_signals) == 4
+        assert len(result.individual_signals) == 3
         assert result.final_probability == 0.60
 
 
@@ -430,8 +412,8 @@ class TestSignalStorage:
         ))
 
         providers = [
-            _make_mock_provider(_make_signal(source="news", probability=0.6, confidence=0.7)),
-            _make_mock_provider(_make_signal(source="resolution_econ", probability=0.7, confidence=0.9)),
+            _make_mock_provider(_make_signal(source="web_search", probability=0.6, confidence=0.7)),
+            _make_mock_provider(_make_signal(source="resolution_crypto", probability=0.7, confidence=0.9)),
         ]
 
         aggregator = SignalAggregator(llm=mock_llm, providers=providers)
@@ -439,7 +421,7 @@ class TestSignalStorage:
         with patch("signals.aggregator.db") as mock_db:
             result = await aggregator.aggregate(
                 market_question="Test DB logging",
-                market_category="economics",
+                market_category="crypto",
                 market_end_date="2026-12-31",
                 market_price=0.50,
             )
@@ -452,8 +434,8 @@ class TestSignalStorage:
         calls = mock_db.record_signal.call_args_list
         sources_logged = [call.kwargs["signal_source"] for call in calls]
         assert "aggregator" in sources_logged
-        assert "aggregator_input_news" in sources_logged
-        assert "aggregator_input_resolution_econ" in sources_logged
+        assert "aggregator_input_web_search" in sources_logged
+        assert "aggregator_input_resolution_crypto" in sources_logged
 
     @pytest.mark.asyncio
     async def test_skip_signal_logged_to_db(self, mock_llm):
@@ -480,7 +462,7 @@ class TestSignalStorage:
     @pytest.mark.asyncio
     async def test_low_confidence_skip_logged(self, mock_llm):
         mock_llm.call_json = AsyncMock(return_value=_make_frontier_response(
-            confidence=0.2,
+            confidence=0.15,
         ))
         providers = [
             _make_mock_provider(_make_signal(probability=0.6, confidence=0.8)),
@@ -513,15 +495,15 @@ class TestFrontierPrompt:
         mock_llm.call_json = AsyncMock(return_value=_make_frontier_response(confidence=0.8))
 
         providers = [
-            _make_mock_provider(_make_signal(source="news", probability=0.5, confidence=0.7)),
-            _make_mock_provider(_make_signal(source="resolution_econ", probability=0.7, confidence=0.9)),
+            _make_mock_provider(_make_signal(source="web_search", probability=0.5, confidence=0.7)),
+            _make_mock_provider(_make_signal(source="resolution_crypto", probability=0.7, confidence=0.9)),
         ]
         aggregator = SignalAggregator(llm=mock_llm, providers=providers)
 
         with patch("signals.aggregator.db"):
             await aggregator.aggregate(
                 market_question="Test prompt",
-                market_category="economics",
+                market_category="crypto",
                 market_end_date="2026-12-31",
                 market_price=0.50,
             )
@@ -532,8 +514,8 @@ class TestFrontierPrompt:
 
         # Resolution source should be labeled
         assert "(DIRECT RESOLUTION SOURCE)" in prompt
-        assert "resolution_econ" in prompt
-        assert "news" in prompt
+        assert "resolution_crypto" in prompt
+        assert "web_search" in prompt
 
         # Resolution criteria mismatch warning should be present
         assert "resolution criteria" in prompt.lower()

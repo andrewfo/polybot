@@ -31,9 +31,6 @@ Set up the entire project from scratch in an empty folder. This includes the rep
    ├── signals/
    │   ├── __init__.py
    │   ├── base.py              # Abstract signal provider interface
-   │   ├── news.py              # News/sentiment signal
-   │   ├── polling.py           # Polling/structured data signal (political markets)
-   │   ├── resolution_econ.py   # Economics resolution source watcher (FRED data)
    │   ├── resolution_crypto.py # Crypto resolution source watcher (CoinGecko + log-normal model)
    │   └── aggregator.py        # Combines signals into probability estimates, calls frontier model for final estimate
    ├── strategy/
@@ -56,7 +53,6 @@ Set up the entire project from scratch in an empty folder. This includes the rep
    │   ├── test_kelly.py        # Unit tests for Kelly sizing
    │   ├── test_market_filter.py
    │   ├── test_signals.py
-   │   ├── test_resolution_econ.py   # Mock FRED responses, verify parsing + signal output
    │   └── test_resolution_crypto.py # Mock CoinGecko responses, verify log-normal math + signal output
    ├── main.py                  # Entry point / orchestrator loop
    ├── requirements.txt
@@ -125,7 +121,7 @@ Set up the entire project from scratch in an empty folder. This includes the rep
 
    # --- Resolution Source Monitoring ---
    RESOLUTION_SIGNAL_WEIGHT = float(os.getenv("RESOLUTION_SIGNAL_WEIGHT", "2.0"))
-   FRED_API_KEY = os.getenv("FRED_API_KEY", "DEMO_KEY")
+   # FRED_API_KEY removed — economics provider removed, crypto-only focus
 
    # --- Notifications ---
    NOTIFICATIONS_ENABLED = os.getenv("NOTIFICATIONS_ENABLED", "true").lower() == "true"
@@ -161,11 +157,6 @@ Set up the entire project from scratch in an empty folder. This includes the rep
    TELEGRAM_ENABLED=false
    TELEGRAM_BOT_TOKEN=
    TELEGRAM_CHAT_ID=
-
-   # === OPTIONAL: FRED API Key ===
-   # Free API key from https://fred.stlouisfed.org/docs/api/api_key.html
-   # Default DEMO_KEY works for low-volume reads but has stricter rate limits
-   # FRED_API_KEY=DEMO_KEY
 
    # === OPTIONAL: Model Overrides ===
    # Cheap model for routine tasks (default: Gemini Flash Lite)
@@ -431,22 +422,19 @@ The bot's edge lives in mid-to-low liquidity markets where fewer sophisticated p
      - Use the CHEAP LLM model to classify the market question into one of:
        - `politics` (elections, legislation, government)
        - `crypto` (token prices, blockchain events, protocol governance)
-       - `sports` (game outcomes, player stats)
-       - `science_tech` (space launches, FDA approvals, tech releases)
-       - `entertainment` (awards, box office, celebrity)
-       - `economics` (fed rates, employment, inflation)
-       - `other`
+       - `other` (everything non-crypto)
      - Cache category in `market_cache` table (don't re-classify)
+     - **Category gate**: only `crypto` markets pass through; all others are dropped
      - Prompt template:
        ```
        Classify this prediction market question into exactly one category.
        Question: "{market_question}"
-       Categories: politics, crypto, sports, science_tech, entertainment, economics, other
+       Categories: crypto, other
        Respond with only the category name, nothing else.
        ```
 
    - `extract_resolution_params(market_question, category)`:
-     - Only runs for `economics` and `crypto` categories — skip all others
+     - Only runs for `crypto` category — skip all others
      - Uses CHEAP model to extract structured resolution metadata from the question
      - Cached in `market_cache` data blob (no schema change needed — store as JSON in existing blob column)
      - Prompt template:
@@ -454,14 +442,13 @@ The bot's edge lives in mid-to-low liquidity markets where fewer sophisticated p
        Market question: "{question}"
        Category: {category}
 
-       Extract the key resolution parameters from this market question.
-       For economics markets, identify: indicator type (rate, inflation, employment, gdp, other), specific metric if known, target value or direction, target date.
-       For crypto markets, identify: coin/token name, target price or metric, direction (above/below), target date.
+       Extract the key resolution parameters from this crypto market question.
+       Identify: coin/token name, target price or metric, direction (above/below), target date.
 
        Also identify any specific resolution methodology mentioned (e.g., specific exchange, TWAP, specific data source, snapshot time).
 
        Respond as JSON only:
-       {"indicator_type": "...", "metric_name": "...", "target_value": null, "target_direction": "above"|"below"|"cut"|"hike"|"other", "target_date": "YYYY-MM-DD or null", "coin_id": "coingecko_id or null", "resolution_source": "specific exchange/source mentioned or null"}
+       {"indicator_type": "price", "metric_name": "...", "target_value": null, "target_direction": "above"|"below"|"other", "target_date": "YYYY-MM-DD or null", "coin_id": "coingecko_id or null", "resolution_source": "specific exchange/source mentioned or null"}
        ```
 
    - `rank_candidates(filtered_markets)`:
@@ -470,8 +457,7 @@ The bot's edge lives in mid-to-low liquidity markets where fewer sophisticated p
        - Resolution in 4-8 weeks: +1 point
        - Liquidity $1k-$10k: +2 points (enough to trade, not too efficient)
        - Liquidity $500-$1k: +1 point
-       - Category is `economics` or `crypto`: +2 points (dedicated resolution source monitoring available)
-       - Category is `politics`: +1 point (good signal source coverage via polling)
+       - Category is `crypto`: +2 points (dedicated resolution source monitoring available)
        - 24h volume > $500: +1 point (active interest)
      - Return sorted by score descending
      - Target: 10-50 candidate markets per cycle
@@ -479,9 +465,9 @@ The bot's edge lives in mid-to-low liquidity markets where fewer sophisticated p
 ### Acceptance Criteria
 - Filter pipeline runs end-to-end and returns a manageable candidate list
 - Each filter step is logged with elimination count
-- Markets are categorized using the cheap LLM (verify with a few examples)
-- Resolution params are extracted and cached for economics/crypto markets
-- Ranking produces a sensible ordering (economics/crypto markets get +2 due to resolution source monitoring)
+- Markets are categorized using the cheap LLM (only crypto passes category gate)
+- Resolution params are extracted and cached for crypto markets
+- Ranking produces a sensible ordering (crypto markets get +2 due to resolution source monitoring)
 - Market cache prevents redundant API calls and LLM classifications
 - All settings are configurable in `settings.py`
 
@@ -521,7 +507,7 @@ The architecture across all of Section 4: cheap models do the grunt work (fetchi
        async def get_signal(self, market_question: str, market_category: str, market_end_date: str, **kwargs) -> SignalResult:
            """
            kwargs may include:
-           - resolution_keywords: dict from extract_resolution_params() for economics/crypto markets
+           - resolution_keywords: dict from extract_resolution_params() for crypto markets
            """
            raise NotImplementedError
    ```
@@ -593,12 +579,12 @@ The polling/structured data signal for politics and general categories. Handles 
 
 ### Tasks
 1. **`signals/polling.py`** — Structured data signal (politics and general categories):
-   - **Scope**: This provider handles `politics` and other general categories. Skip `economics` and `crypto` categories (return confidence=0, probability=None) — those are now handled by dedicated resolution source providers (`resolution_econ.py`, `resolution_crypto.py`).
+   - **Scope**: This provider handles `politics` and other general categories. Skip `crypto` category (return confidence=0, probability=None) — handled by dedicated resolution source provider (`resolution_crypto.py`).
    - **Data sources** (all free, no API keys):
      - FiveThirtyEight / Silver Bulletin: RSS feeds for polling averages
      - RealClearPolitics: Scrape polling average tables with BeautifulSoup
    - **Pipeline**:
-     1. If category is `economics` or `crypto` → return confidence=0, probability=None immediately
+     1. If category is `crypto` → return confidence=0, probability=None immediately
      2. Based on market category, select relevant data source
      3. Fetch and parse structured data
      4. Use CHEAP model to interpret data in context of market question:
@@ -616,13 +602,13 @@ The polling/structured data signal for politics and general categories. Handles 
    - Mock RSS and HTML responses from polling sources
    - Mock cheap LLM calls
    - Test: politics category → returns probability from polling data
-   - Test: economics category → immediately returns confidence=0, probability=None
+   - Test: non-crypto category → immediately returns confidence=0, probability=None
    - Test: crypto category → immediately returns confidence=0, probability=None
    - Test: no structured data available → returns confidence=0, probability=None
    - Test: fetch failure → graceful degradation
 
 ### Acceptance Criteria
-- Polling provider correctly skips economics/crypto categories (returns confidence=0)
+- Polling provider correctly skips crypto category (returns confidence=0)
 - Politics markets produce probability estimates from polling data
 - Categories with no data source return confidence=0 gracefully
 - All LLM calls use cheap tier only
@@ -633,51 +619,14 @@ The polling/structured data signal for politics and general categories. Handles 
 ## Section 4C: Resolution Source Signals (Economics + Crypto)
 
 ### Context
-These are the highest-value signal providers — they fetch data directly from the sources that would be used to resolve the market (FRED for economics, CoinGecko for crypto). The crypto provider includes a log-normal price model for a mathematically grounded baseline before LLM adjustment.
+This is the highest-value signal provider — it fetches data directly from the source that would be used to resolve crypto markets (CoinGecko). The crypto provider includes a log-normal price model for a mathematically grounded baseline before LLM adjustment.
 
 ### Dependencies
 - Section 4A complete (signals/base.py with SignalResult + SignalProvider)
-- `FRED_API_KEY` in config/settings.py (already exists, defaults to `DEMO_KEY`)
+- Economics provider (resolution_econ.py) removed — bot is now crypto-only
 
 ### Tasks
-1. **`signals/resolution_econ.py`** — Economics resolution source watcher:
-   - `EconomicsResolutionProvider(SignalProvider)` with `name = "resolution_econ"`
-   - **Data sources** (all free, no API key required beyond DEMO_KEY):
-
-     | Source | Endpoint | Data |
-     |--------|----------|------|
-     | FRED API | `https://api.stlouisfed.org/fred/series/observations?series_id={ID}&file_type=json&api_key={FRED_API_KEY}&sort_order=desc&limit=12` | Fed funds rate (`FEDFUNDS`), CPI (`CPIAUCSL`), unemployment (`UNRATE`), GDP (`GDP`), 10Y treasury (`DGS10`) |
-     | FRED yield curve | Series `T10Y2Y`, `DFF` | Yield curve shape, effective fed funds rate |
-
-   - **Pipeline**:
-     1. If category != `economics` → return confidence=0, probability=None
-     2. Map `resolution_keywords["indicator_type"]` from kwargs to FRED series IDs:
-        - `rate` → `FEDFUNDS`, `DFF`
-        - `inflation` → `CPIAUCSL`
-        - `employment` → `UNRATE`
-        - `gdp` → `GDP`
-        - `other` → `DGS10`, `T10Y2Y` (general economic indicators)
-     3. Fetch latest observations via aiohttp (use `FRED_API_KEY` from settings, defaults to `DEMO_KEY` — works for low-volume reads)
-     4. Parse: extract latest value, 3-6 month trend (direction, magnitude), rate of change
-     5. CHEAP model interprets data:
-        ```
-        Market question: "{question}"
-        Resolution date: {end_date}
-
-        Current economic data from Federal Reserve (FRED):
-        {formatted_data_points}
-
-        Based on this official economic data, estimate the probability of YES (0.0 to 1.0).
-        This data comes directly from the resolution source (Federal Reserve / government statistics).
-        Weight it heavily.
-
-        Respond as JSON: {"probability": 0.XX, "confidence": 0.XX, "reasoning": "..."}
-        ```
-     6. Return SignalResult with source="resolution_econ"
-   - Cache results per market for 30 minutes (same as news signal)
-   - Use `FRED_API_KEY` from `config/settings.py` (defaults to `DEMO_KEY`)
-
-2. **`signals/resolution_crypto.py`** — Crypto resolution source watcher:
+1. **`signals/resolution_crypto.py`** — Crypto resolution source watcher:
    - `CryptoResolutionProvider(SignalProvider)` with `name = "resolution_crypto"`
    - **Data sources** (all free, no API key):
 
@@ -732,18 +681,10 @@ These are the highest-value signal providers — they fetch data directly from t
         Respond as JSON: {"probability": 0.XX, "confidence": 0.XX, "reasoning": "..."}
         ```
      7. Return SignalResult with source="resolution_crypto". Store both `model_prob` and LLM-adjusted prob in `raw_data` dict for audit.
-   - Cache results per market for 15 minutes (crypto moves faster than economics data)
+   - Cache results per market for 15 minutes (crypto moves fast)
    - **No scipy dependency**: Use the `norm_cdf` helper via `math.erf` as shown above
 
-3. **`tests/test_resolution_econ.py`** — Unit tests:
-   - Mock FRED API responses with known data
-   - Mock cheap LLM interpretation calls
-   - Test: economics category with rate indicator → fetches FEDFUNDS, produces SignalResult
-   - Test: non-economics category → immediately returns confidence=0
-   - Test: FRED API failure → graceful degradation
-   - Test: cache prevents redundant FRED fetches
-
-4. **`tests/test_resolution_crypto.py`** — Unit tests:
+2. **`tests/test_resolution_crypto.py`** — Unit tests:
    - Mock CoinGecko price + history responses
    - Mock cheap LLM adjustment calls
    - Test: crypto category → fetches price data, computes log-normal model, returns SignalResult
@@ -753,7 +694,6 @@ These are the highest-value signal providers — they fetch data directly from t
    - Test: CoinGecko API failure → graceful degradation
 
 ### Acceptance Criteria
-- Economics provider fetches real FRED data and produces probability estimates
 - Crypto provider computes log-normal model probability, then uses cheap LLM to adjust for trend
 - Log-normal model unit tests: known inputs produce correct mathematical outputs (no LLM needed to verify)
 - Non-matching categories immediately return confidence=0 (no wasted API calls)
@@ -781,10 +721,9 @@ This is the most important module in the entire bot. The aggregator collects sig
    - **Step 4**: If 1+ usable signals → weighted average as a preliminary estimate, with source-based weight multipliers:
      ```python
      SIGNAL_WEIGHT_MULTIPLIERS = {
-         "resolution_econ": 2.0,   # Direct resolution source — data from FRED
          "resolution_crypto": 2.0, # Direct resolution source — data from CoinGecko
-         "polling": 1.5,           # Structured data
-         "news": 1.0,              # Baseline
+         "prediction_markets": 1.8, # Cross-platform market consensus
+         "web_search": 1.5,        # Search-grounded LLM (Perplexity Sonar)
      }
      # Use RESOLUTION_SIGNAL_WEIGHT from settings.py for resolution_* multipliers
 
@@ -812,7 +751,7 @@ This is the most important module in the entire bot. The aggregator collects sig
 
      Instructions:
      1. Critically evaluate each signal source. Are any likely biased or unreliable?
-     2. Signals marked as "DIRECT RESOLUTION SOURCE" come from the actual data providers (FRED, CoinGecko) whose data would be used to resolve this market. Weight these more heavily than news or sentiment signals.
+     2. Signals marked as "DIRECT RESOLUTION SOURCE" come from the actual data providers (CoinGecko) whose data would be used to resolve this market. Weight these more heavily than news or sentiment signals.
      3. IMPORTANT: Check whether the market's resolution criteria specifies a particular data source, exchange, timestamp methodology, or TWAP that might differ from the signal data provided. If the resolution source differs from our data source (e.g., market resolves on Binance spot price but our data is from CoinGecko aggregated price), adjust your confidence downward accordingly.
      4. Consider base rates for this type of event.
      5. Consider what information the market might have that our signals don't.
@@ -1073,7 +1012,6 @@ Health checks and P&L tracking run while the bot is active (Start pressed in TUI
      - **Wallet funds**: USDC balance matches expected? (detect unauthorized transfers)
      - **Stale orders**: Any orders PENDING > 30 minutes? (may indicate API issue)
      - **LLM availability**: Can we reach OpenRouter? (simple /models endpoint call)
-     - **FRED API connectivity**: Can we fetch from FRED? (simple series observation fetch for `DGS10` with `FRED_API_KEY`)
      - **CoinGecko API connectivity**: Can we reach CoinGecko? (simple `/api/v3/ping` endpoint)
      - **Cost runaway**: Daily LLM cost < $20? (hard cap to prevent billing surprises)
    - Each check returns: `{check_name, status: "ok"|"warning"|"critical", message}`
@@ -1120,7 +1058,7 @@ The TUI already has worker groups for `pipeline-loop`, `pipeline`, `health-loop`
      2. Filter and rank candidate markets
      3. For each candidate (up to MAX_NEW_TRADES_PER_HOUR remaining):
         a. Skip if we already hold max position in this market
-        a2. If market category is `economics` or `crypto`, call `extract_resolution_params()` (cached) and pass the resulting `resolution_keywords` dict through to signal providers via kwargs
+        a2. Call `extract_resolution_params()` (cached, crypto-only) and pass the resulting `resolution_keywords` dict through to signal providers via kwargs
         b. Fetch/refresh signals for this market (pass resolution_keywords to providers)
         c. Aggregate signals → get final probability estimate (frontier model call)
         d. Calculate Kelly sizing
@@ -1266,7 +1204,7 @@ The bot runs locally via `python main.py --tui`. No Docker, no VPS, no 24/7 daem
 | Google News RSS | https://news.google.com/rss/search?q={query} | No |
 | Reddit search | https://www.reddit.com/search.json?q={query}&sort=relevance&t=week | No |
 | CoinGecko API | https://api.coingecko.com/api/v3/ | No |
-| FRED API | https://fred.stlouisfed.org/docs/api/ | Free key |
+| ~~FRED API~~ | ~~removed — crypto-only focus~~ | ~~N/A~~ |
 | ~~Telegram Bot API~~ | ~~removed — TUI-only~~ | — |
 
 ## Appendix B: LLM Task Routing Reference

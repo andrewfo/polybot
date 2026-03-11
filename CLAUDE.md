@@ -1,7 +1,7 @@
 # Polymarket Signal-Based Trading Bot
 
 ## Project Overview
-Autonomous Polymarket trading bot. Signal-based trading with Kelly criterion sizing on mid-to-low liquidity binary markets. Runs 24/7, uses tiered LLM routing (cheap models for grunt work, frontier model for trade decisions).
+Autonomous Polymarket trading bot focused exclusively on crypto markets. Signal-based trading with Kelly criterion sizing on mid-to-low liquidity binary markets. Runs 24/7, uses tiered LLM routing (cheap models for grunt work, frontier model for trade decisions).
 
 ## Tech Stack
 - Python 3.11+, asyncio throughout (no sync blocking in async paths)
@@ -21,28 +21,21 @@ core/llm.py              → OpenRouter client, tiered routing (cheap vs frontie
 core/client.py           → Polymarket CLOB wrapper for ORDER EXECUTION ONLY (no market reading methods)
 core/wallet.py           → Wallet balance checks, gas monitoring
 core/db.py               → SQLite tables: trades, positions, signals, bankroll, llm_costs, market_cache
-strategy/market_filter.py→ Gamma API discovery, filtering, LLM categorization, ranking
+strategy/market_filter.py→ Gamma API discovery, filtering, LLM categorization (crypto-only gate), ranking
 tui/app.py               → Textual TUI dashboard with 6 tabs (Home, Markets, In Progress, Costs, Signals, Logs), navy/grey/white theme
 tui/widgets/             → StatusPanel, MarketsPanel, PipelinePanel (In Progress), CostsPanel, SignalsPanel, LogPanel, CommandBar
 scripts/setup_wallet.py  → Wallet setup helper
 scripts/dashboard.py     → Standalone dashboard launcher
 ```
 
-### Implemented Signal Engine (Sections 4A-4D)
+### Implemented Signal Engine (3 providers, crypto-focused)
 ```
-signals/base.py              → SignalResult dataclass + SignalProvider ABC (Section 4A)
-signals/news.py              → Google News RSS + Reddit scraping → cheap LLM summarization (Section 4A)
-signals/polling.py           → Structured data (polls, RCP) → cheap LLM interpretation (Section 4B)
-signals/resolution_econ.py   → FRED API economics data → cheap LLM probability (Section 4C)
-signals/resolution_crypto.py → CoinGecko + log-normal model → cheap LLM adjustment (Section 4C)
-signals/aggregator.py        → Weighted signal merge → FRONTIER model final probability call (Section 4D)
+signals/base.py              → SignalResult dataclass + SignalProvider ABC
+signals/resolution_crypto.py → CoinGecko + log-normal model → returns math probability directly (NO LLM)
+signals/aggregator.py        → Weighted signal merge → FRONTIER model final probability call
 signals/temporal.py          → Date context injection, urgency tiers, frontier system prompt builder
 signals/web_search.py        → Perplexity Sonar search-grounded LLM signal (universal, all categories)
 signals/prediction_markets.py→ Cross-platform consensus (Metaculus + Kalshi + PredictIt, no auth)
-signals/serper_search.py     → Serper.dev structured Google search signal (requires SERPER_API_KEY)
-signals/monte_carlo.py       → GBM simulation (crypto) + bootstrap simulation (economics) → cheap LLM
-signals/technical_analysis.py→ RSI, MACD, Bollinger Bands, MA crossovers from CoinGecko (crypto only)
-signals/historical_base_rate.py → Empirical frequency analysis from FRED/CoinGecko historical data
 ```
 
 ### Not Yet Implemented (build plan sections 5-11)
@@ -76,19 +69,16 @@ monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
 7. Sort survivors by `volume_24hr` descending
 
 ## Signal Aggregator (signals/aggregator.py)
-- Collects signals from 6 providers (news, resolution_econ, resolution_crypto, web_search, prediction_markets, serper_search)
+- Collects signals from 3 providers (resolution_crypto, web_search, prediction_markets)
 - Filters out signals with confidence=0 or probability=None
 - If 0 usable signals → returns None (skip market)
 - Computes weighted preliminary estimate using source multipliers:
-  - `resolution_econ`: 2.0x (direct FRED data)
-  - `resolution_crypto`: 2.0x (direct CoinGecko data)
+  - `resolution_crypto`: 2.0x (direct CoinGecko data, log-normal model — NO LLM)
   - `prediction_markets`: 1.8x (cross-platform market consensus)
   - `web_search`: 1.5x (Perplexity Sonar search-grounded)
-  - `serper_search`: 1.3x (structured Google search)
-  - `news`: 1.0x (baseline)
   - Weight = `signal.confidence * source_multiplier`
 - Makes single FRONTIER MODEL call with superforecaster prompt
-- If frontier confidence < 0.4 → skip market (returns None)
+- If frontier confidence < 0.25 → skip market (returns None)
 - Frontier failure RAISES — never falls back to cheap model
 - All signals logged to `signals` SQLite table with full audit trail
 - `AggregatedSignal` dataclass holds final result with all metadata

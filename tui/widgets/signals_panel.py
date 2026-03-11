@@ -18,7 +18,6 @@ STAGE_ICONS = {
     "done": "\u2714",       # checkmark — finished
     "error": "\u2718",      # X — error
     "cache": "\u29d7",      # hourglass — cache hit
-    "fred": "\U0001f3e6",   # bank — FRED data fetch
     "coingecko": "\U0001f98e",  # lizard — CoinGecko data fetch
     "model": "\U0001f4ca",  # bar chart — log-normal model
     "adjust": "\U0001f504",  # arrows — LLM adjustment

@@ -1,8 +1,9 @@
 """Crypto resolution source signal provider.
 
 Fetches data from CoinGecko (free, no API key) and computes a log-normal
-price model probability before cheap LLM adjustment. No scipy dependency —
-uses math.erf for the normal CDF.
+price model probability. Returns the mathematical result directly — no
+cheap LLM adjustment. The frontier model receives the raw data and can
+make its own adjustments.
 """
 
 import logging
@@ -188,11 +189,11 @@ class CryptoResolutionProvider(SignalProvider):
     """Resolution source signal provider for crypto markets.
 
     Pipeline:
-    1. If category != crypto → return confidence=0 immediately
+    1. If category != crypto -> return confidence=0 immediately
     2. Resolve CoinGecko coin_id (from kwargs or via cheap LLM mapping)
     3. Fetch current price + 30-day history
     4. Compute log-normal model probability (no LLM cost)
-    5. Cheap LLM adjusts model probability based on trend/context
+    5. Return mathematical probability directly with raw data for frontier model
     """
 
     name: str = "resolution_crypto"
@@ -309,7 +310,7 @@ class CryptoResolutionProvider(SignalProvider):
             if mapped_id:
                 return mapped_id
 
-        # Use cheap LLM to map coin name → CoinGecko ID
+        # Use cheap LLM to map coin name -> CoinGecko ID
         prompt = (
             f'What is the CoinGecko API coin ID for the cryptocurrency mentioned in this text?\n'
             f'Text: "{coin_name}"\n'
@@ -338,7 +339,11 @@ class CryptoResolutionProvider(SignalProvider):
         market_end_date: str,
         kwargs: dict[str, Any],
     ) -> SignalResult:
-        """Execute the full crypto signal pipeline."""
+        """Execute the full crypto signal pipeline.
+
+        Returns the log-normal model probability directly without LLM adjustment.
+        All raw data is included so the frontier model can make its own assessment.
+        """
         resolution_keywords = kwargs.get("resolution_keywords", {})
 
         # Resolve coin ID
@@ -421,7 +426,7 @@ class CryptoResolutionProvider(SignalProvider):
         except (ValueError, TypeError):
             days_remaining = 30.0  # default fallback
 
-        # Log-normal model probability
+        # Log-normal model probability — this IS the signal, no LLM needed
         self._emit(market_question, "model", f"vol={annual_vol:.0%}, days={days_remaining:.0f}")
         model_prob = log_normal_probability(
             current_price=current_price,
@@ -434,82 +439,40 @@ class CryptoResolutionProvider(SignalProvider):
         # Distance from target
         distance_pct = ((target_price - current_price) / current_price) * 100
 
-        # Cheap LLM adjusts model probability
-        self._emit(market_question, "adjust", f"model_prob={model_prob:.2f}")
-        from signals.temporal import format_date_context_line
-        date_ctx = format_date_context_line(market_end_date)
-        prompt = (
-            f'Market question: "{market_question}"\n'
-            f"{date_ctx}\n"
-            f"\n"
-            f"Current market data from CoinGecko:\n"
-            f"- Current price: ${current_price:,.2f}\n"
-            f"- 24h change: {change_24h:.1f}%\n"
-            f"- 30-day trend: {trend_description}\n"
-            f"- Distance from target: {distance_pct:+.1f}%\n"
-            f"- 30-day annualized volatility: {annual_vol:.0%}\n"
-            f"- Days until resolution: {days_remaining:.0f}\n"
-            f"\n"
-            f"Log-normal price model estimate: {model_prob:.2f} probability of YES\n"
-            f"(Based on current price, volatility, and time remaining assuming random walk)\n"
-            f"\n"
-            f"Adjust this probability based on the trend data and any momentum factors.\n"
-            f"The model estimate is mathematically derived — only adjust if trend/context warrants it.\n"
-            f"Adjustments should typically be small (\u00b10.05-0.15).\n"
-            f"\n"
-            f'Respond as JSON: {{"probability": 0.XX, "confidence": 0.XX, "reasoning": "..."}}'
+        # Confidence based on data quality
+        # Higher confidence when we have good vol data and reasonable time horizon
+        confidence = 0.6  # base confidence for mathematical model
+        if annual_vol > 0 and data_points > 10:
+            confidence = 0.7
+        if annual_vol > 0 and data_points > 20:
+            confidence = 0.75
+
+        reasoning = (
+            f"Log-normal model: P(YES)={model_prob:.2f}. "
+            f"Current ${current_price:,.2f}, target ${target_price:,.2f} ({target_direction}), "
+            f"vol={annual_vol:.0%}, {days_remaining:.0f}d remaining. "
+            f"Trend: {trend_description}"
         )
 
-        try:
-            result = await self._llm.call_json(prompt, task_type="classify")
-            if isinstance(result, dict):
-                prob = result.get("probability")
-                conf = float(result.get("confidence", 0.0))
-                reasoning = str(result.get("reasoning", ""))
-
-                if prob is not None:
-                    prob = float(prob)
-                    if not (0.0 <= prob <= 1.0):
-                        prob = max(0.0, min(1.0, prob))
-
-                conf = max(0.0, min(1.0, conf))
-
-                return SignalResult(
-                    source="resolution_crypto",
-                    probability=prob,
-                    confidence=conf,
-                    reasoning=reasoning,
-                    model_used="cheap",
-                    data_points=data_points,
-                    raw_data={
-                        "coin_id": coin_id,
-                        "current_price": current_price,
-                        "target_price": target_price,
-                        "target_direction": target_direction,
-                        "annual_vol": annual_vol,
-                        "days_remaining": days_remaining,
-                        "model_prob": model_prob,
-                        "adjusted_prob": prob,
-                        "change_24h": change_24h,
-                        "trend": trend_description,
-                    },
-                )
-        except Exception as e:
-            logger.error("Failed to adjust crypto model probability: %s", e)
-
-        # Fall back to raw model probability if LLM fails
         return SignalResult(
             source="resolution_crypto",
             probability=model_prob,
-            confidence=0.3,
-            reasoning=f"Log-normal model estimate (LLM adjustment failed). Current ${current_price:,.2f}, target ${target_price:,.2f}",
-            model_used="none",
+            confidence=confidence,
+            reasoning=reasoning,
+            model_used="none",  # No LLM used — pure math
             data_points=data_points,
             raw_data={
                 "coin_id": coin_id,
-                "model_prob": model_prob,
                 "current_price": current_price,
                 "target_price": target_price,
+                "target_direction": target_direction,
+                "direction": target_direction,
+                "annualized_vol": annual_vol,
+                "days_remaining": days_remaining,
+                "raw_log_normal_prob": model_prob,
+                "change_24h": change_24h / 100 if change_24h else 0.0,
+                "trend": trend_description,
+                "distance_pct": distance_pct,
             },
         )
 

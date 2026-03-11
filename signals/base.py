@@ -36,6 +36,6 @@ class SignalProvider:
 
         kwargs may include:
         - resolution_keywords: dict from extract_resolution_params()
-          for economics/crypto markets
+          for crypto markets
         """
         raise NotImplementedError

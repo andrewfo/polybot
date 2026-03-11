@@ -41,7 +41,6 @@ MAX_DAILY_LOSS_PCT = float(os.getenv("MAX_DAILY_LOSS_PCT", "0.15"))   # Stop for
 
 # --- Resolution Source Monitoring ---
 RESOLUTION_SIGNAL_WEIGHT = float(os.getenv("RESOLUTION_SIGNAL_WEIGHT", "2.0"))
-FRED_API_KEY = os.getenv("FRED_API_KEY", "DEMO_KEY")
 
 # --- New Signal Source API Keys ---
 # Serper.dev: 2,500 free searches/month (https://serper.dev)

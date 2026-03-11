@@ -30,7 +30,7 @@ GAMMA_MAX_PAGES = 5      # up to 1000 markets total
 
 logger = logging.getLogger(__name__)
 
-VALID_CATEGORIES = frozenset({"crypto", "economics", "other"})
+VALID_CATEGORIES = frozenset({"crypto", "other"})
 
 
 async def discover_markets(max_pages: int = 0) -> list[dict[str, Any]]:
@@ -303,7 +303,7 @@ async def filter_markets(
 async def categorize_market(market: dict[str, Any], llm: LLMClient) -> str:
     """Classify a market question into a category using the cheap LLM.
 
-    Returns one of: politics, crypto, sports, science_tech, entertainment, economics, other.
+    Returns one of: crypto, other.
     Caches the result in market_cache to avoid re-classification.
     """
     condition_id = market.get("condition_id", "")
@@ -321,7 +321,7 @@ async def categorize_market(market: dict[str, Any], llm: LLMClient) -> str:
     prompt = (
         'Classify this prediction market question into exactly one category.\n'
         f'Question: "{question}"\n'
-        'Categories: crypto, economics, other\n'
+        'Categories: crypto, other\n'
         'Respond with only the category name, nothing else.'
     )
 
@@ -389,7 +389,7 @@ async def batch_categorize_markets(
 
         prompt = (
             'Classify each prediction market question into exactly one category.\n'
-            f'Categories: crypto, economics, other\n\n'
+            f'Categories: crypto, other\n\n'
             f'{numbered_list}\n\n'
             'Respond with ONLY a numbered list of categories, one per line, like:\n'
             '1. politics\n'
@@ -459,12 +459,12 @@ async def extract_resolution_params(
     llm: LLMClient,
     condition_id: str = "",
 ) -> dict[str, Any] | None:
-    """Extract structured resolution parameters for economics/crypto markets.
+    """Extract structured resolution parameters for crypto markets.
 
-    Only runs for 'economics' and 'crypto' categories — returns None for all others.
+    Only runs for 'crypto' category — returns None for all others.
     Results are cached in the market_cache data blob.
     """
-    if category not in ("economics", "crypto"):
+    if category != "crypto":
         return None
 
     # Check cache for existing resolution params
@@ -479,18 +479,16 @@ async def extract_resolution_params(
         f'Market question: "{market_question}"\n'
         f'Category: {category}\n'
         '\n'
-        'Extract the key resolution parameters from this market question.\n'
-        'For economics markets, identify: indicator type (rate, inflation, employment, gdp, other), '
-        'specific metric if known, target value or direction, target date.\n'
-        'For crypto markets, identify: coin/token name, target price or metric, '
+        'Extract the key resolution parameters from this crypto market question.\n'
+        'Identify: coin/token name, target price or metric, '
         'direction (above/below), target date.\n'
         '\n'
         'Also identify any specific resolution methodology mentioned '
         '(e.g., specific exchange, TWAP, specific data source, snapshot time).\n'
         '\n'
         'Respond as JSON only:\n'
-        '{"indicator_type": "...", "metric_name": "...", "target_value": null, '
-        '"target_direction": "above"|"below"|"cut"|"hike"|"other", '
+        '{"indicator_type": "price", "metric_name": "...", "target_value": null, '
+        '"target_direction": "above"|"below"|"other", '
         '"target_date": "YYYY-MM-DD or null", "coin_id": "coingecko_id or null", '
         '"resolution_source": "specific exchange/source mentioned or null"}'
     )
@@ -539,7 +537,7 @@ def rank_candidates(filtered_markets: list[dict[str, Any]]) -> list[dict[str, An
     - Resolution in 4-8 weeks: +1 point
     - Liquidity $1k-$10k: +2 points
     - Liquidity $500-$1k: +1 point
-    - Category is economics or crypto: +2 points
+    - Category is crypto: +2 points
     - 24h volume > $500: +1 point
 
     Returns sorted list (highest score first) with _score attached.
@@ -568,7 +566,7 @@ def rank_candidates(filtered_markets: list[dict[str, Any]]) -> list[dict[str, An
 
         # Category scoring
         category = market.get("_category", "")
-        if category in ("economics", "crypto"):
+        if category == "crypto":
             score += 2
 
         # Volume scoring
