@@ -6,6 +6,7 @@ Economics and crypto categories are skipped — they have dedicated resolution p
 
 import logging
 import time
+from collections.abc import Callable
 from typing import Any, Optional
 
 import aiohttp
@@ -156,8 +157,23 @@ class PollingSignalProvider(SignalProvider):
 
     name: str = "polling"
 
-    def __init__(self, llm: LLMClient) -> None:
+    ProgressCallback = Callable[[str, str, str], None]
+
+    def __init__(
+        self,
+        llm: LLMClient,
+        on_progress: ProgressCallback | None = None,
+    ) -> None:
         self._llm = llm
+        self._on_progress = on_progress
+
+    def _emit(self, question: str, stage: str, detail: str = "") -> None:
+        """Emit a progress update if a callback is registered."""
+        if self._on_progress:
+            try:
+                self._on_progress(question, stage, detail)
+            except Exception:
+                pass
 
     async def get_signal(
         self,
@@ -196,6 +212,7 @@ class PollingSignalProvider(SignalProvider):
             cached_result, cached_time = _signal_cache[cache_key]
             if time.monotonic() - cached_time < CACHE_TTL_SECONDS:
                 logger.debug("Cache hit for polling signal: %s", market_question[:60])
+                self._emit(market_question, "cache")
                 return cached_result
 
         try:
@@ -207,6 +224,7 @@ class PollingSignalProvider(SignalProvider):
                 "Polling signal pipeline failed for '%s': %s",
                 market_question[:60], e,
             )
+            self._emit(market_question, "error", str(e)[:100])
             result = SignalResult(
                 source="polling",
                 probability=None,
@@ -222,6 +240,8 @@ class PollingSignalProvider(SignalProvider):
 
         # Log to DB
         self._log_signal(market_question, result)
+
+        self._emit(market_question, "done", result.reasoning[:100])
 
         return result
 
@@ -249,6 +269,7 @@ class PollingSignalProvider(SignalProvider):
         sources = POLLING_SOURCES.get(category, [])
         all_entries: list[dict[str, str]] = []
 
+        self._emit(market_question, "polling", f"fetching {len(sources)} sources")
         async with aiohttp.ClientSession() as session:
             for source in sources:
                 source_type = source["type"]

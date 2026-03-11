@@ -36,8 +36,8 @@ class CommandBar(Horizontal):
     """
 
     def compose(self) -> ComposeResult:
-        yield Input(placeholder=":command (categorize, llm-test, refresh)", id="cmd-input")
-        yield Static("categorize <q> | llm-test <p> | refresh", classes="cmd-hint")
+        yield Input(placeholder=":command (signal-test, categorize, llm-test, refresh)", id="cmd-input")
+        yield Static("signal-test [q] | categorize <q> | llm-test <p> | refresh", classes="cmd-hint")
 
     def toggle(self) -> None:
         """Show/hide the command bar."""
@@ -65,7 +65,9 @@ class CommandBar(Horizontal):
         cmd = parts[0].lower()
         arg = parts[1] if len(parts) > 1 else ""
 
-        if cmd == "categorize" and arg:
+        if cmd in ("signal-test", "signaltest", "signal_test"):
+            self.app.run_signal_test(arg)
+        elif cmd == "categorize" and arg:
             self.app.run_categorize(arg)
         elif cmd in ("llm-test", "llmtest", "llm_test") and arg:
             self.app.run_llm_test(arg)

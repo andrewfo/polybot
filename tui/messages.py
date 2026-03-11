@@ -113,7 +113,7 @@ class CommandResult(Message):
 
 
 class SignalUpdate(Message):
-    """Live update from the news signal pipeline."""
+    """Live update from a signal pipeline."""
     def __init__(
         self,
         market_question: str,
@@ -123,6 +123,7 @@ class SignalUpdate(Message):
         confidence: float = 0.0,
         data_points: int = 0,
         done: bool = False,
+        source: str = "",
     ) -> None:
         super().__init__()
         self.market_question = market_question
@@ -132,3 +133,4 @@ class SignalUpdate(Message):
         self.confidence = confidence
         self.data_points = data_points
         self.done = done
+        self.source = source

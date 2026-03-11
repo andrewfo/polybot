@@ -18,6 +18,12 @@ STAGE_ICONS = {
     "done": "\u2714",       # checkmark — finished
     "error": "\u2718",      # X — error
     "cache": "\u29d7",      # hourglass — cache hit
+    "fred": "\U0001f3e6",   # bank — FRED data fetch
+    "coingecko": "\U0001f98e",  # lizard — CoinGecko data fetch
+    "model": "\U0001f4ca",  # bar chart — log-normal model
+    "adjust": "\U0001f504",  # arrows — LLM adjustment
+    "interpret": "\U0001f9e0",  # brain — LLM interpretation
+    "polling": "\U0001f4ca",  # bar chart — polling data
 }
 
 
@@ -97,7 +103,7 @@ class SignalsPanel(Vertical):
 
     def on_mount(self) -> None:
         table = self.query_one("#signal-results", DataTable)
-        table.add_columns("Market", "Prob", "Conf", "Articles", "Reasoning")
+        table.add_columns("Market", "Source", "Prob", "Conf", "Points", "Reasoning")
         table.cursor_type = "row"
 
     def on_signal_update(self, event: SignalUpdate) -> None:
@@ -110,26 +116,28 @@ class SignalsPanel(Vertical):
         if len(event.market_question) > 55:
             question_short += "..."
 
+        source_prefix = f"[{event.source}] " if event.source else ""
+
         # Color by stage
         if event.stage == "done":
             if event.probability is not None:
                 prob_str = f"{event.probability:.0%}"
                 conf_str = f"{event.confidence:.0%}"
                 color = "#00ff41"
-                line = f"{icon} {question_short}  =>  P={prob_str} C={conf_str} ({event.data_points} articles)"
+                line = f"{icon} {source_prefix}{question_short}  =>  P={prob_str} C={conf_str} ({event.data_points} pts)"
             else:
                 color = "#ffaa00"
-                line = f"{icon} {question_short}  =>  insufficient data ({event.data_points} articles)"
+                line = f"{icon} {source_prefix}{question_short}  =>  insufficient data ({event.data_points} pts)"
         elif event.stage == "error":
             color = "#ff0040"
-            line = f"{icon} {question_short}  {event.detail}"
+            line = f"{icon} {source_prefix}{question_short}  {event.detail}"
         elif event.stage == "cache":
             color = "#007a20"
-            line = f"{icon} {question_short}  cache hit"
+            line = f"{icon} {source_prefix}{question_short}  cache hit"
         else:
             color = "#00cc33"
             detail_str = f"  {event.detail}" if event.detail else ""
-            line = f"{icon} [{event.stage}] {question_short}{detail_str}"
+            line = f"{icon} {source_prefix}[{event.stage}] {question_short}{detail_str}"
 
         activity.write(Text(line, style=color))
 
@@ -154,9 +162,10 @@ class SignalsPanel(Vertical):
         if len(event.market_question) > 40:
             question_short += "..."
 
+        source_str = event.source if event.source else "news"
         prob_str = f"{event.probability:.0%}" if event.probability is not None else "---"
         conf_str = f"{event.confidence:.0%}"
-        articles_str = str(event.data_points)
+        points_str = str(event.data_points)
         reasoning = event.detail[:60] if event.detail else ""
 
-        table.add_row(question_short, prob_str, conf_str, articles_str, reasoning)
+        table.add_row(question_short, source_str, prob_str, conf_str, points_str, reasoning)

@@ -515,6 +515,110 @@ class TUIApp(App):
             ))
 
     # -----------------------------------------------------------------
+    # Signal test worker
+    # -----------------------------------------------------------------
+
+    DEFAULT_SIGNAL_TEST_QUESTION = "Will Bitcoin reach $150,000 by end of 2026?"
+
+    def run_signal_test(self, question: str = "") -> None:
+        q = question or self.DEFAULT_SIGNAL_TEST_QUESTION
+        self.run_worker(self._do_signal_test(q), group="signal-test")
+        # Switch to signals tab
+        tc = self.query_one(TabbedContent)
+        tc.active = "signals"
+
+    async def _do_signal_test(self, question: str) -> None:
+        """Run all signal providers on a question and emit live updates."""
+        from core.llm import LLMClient
+        from signals.news import NewsSignalProvider
+        from signals.polling import PollingSignalProvider
+        from signals.resolution_crypto import CryptoResolutionProvider
+        from signals.resolution_econ import EconomicsResolutionProvider
+        from strategy.market_filter import categorize_market, extract_resolution_params
+
+        def _make_progress_cb(source_name: str):
+            def on_progress(mkt_question: str, stage: str, detail: str = "") -> None:
+                self.post_message(SignalUpdate(
+                    market_question=mkt_question,
+                    stage=stage,
+                    detail=detail,
+                    source=source_name,
+                ))
+            return on_progress
+
+        try:
+            async with LLMClient() as llm:
+                # Auto-detect category
+                market = {"condition_id": "", "question": question}
+                category = await categorize_market(market, llm)
+
+                # Extract resolution params for econ/crypto
+                resolution_kwargs: dict = {}
+                if category in ("economics", "crypto"):
+                    params = await extract_resolution_params(question, category, llm)
+                    if params:
+                        resolution_kwargs["resolution_keywords"] = params
+
+                # Create all 4 providers with source-tagged progress callbacks
+                news_provider = NewsSignalProvider(llm=llm, on_progress=_make_progress_cb("news"))
+                polling_provider = PollingSignalProvider(llm=llm, on_progress=_make_progress_cb("polling"))
+                econ_provider = EconomicsResolutionProvider(llm=llm, on_progress=_make_progress_cb("econ"))
+                crypto_provider = CryptoResolutionProvider(llm=llm, on_progress=_make_progress_cb("crypto"))
+
+                # Run all providers in parallel
+                results = await asyncio.gather(
+                    news_provider.get_signal(question, category, "2026-12-31", **resolution_kwargs),
+                    polling_provider.get_signal(question, category, "2026-12-31", **resolution_kwargs),
+                    econ_provider.get_signal(question, category, "2026-12-31", **resolution_kwargs),
+                    crypto_provider.get_signal(question, category, "2026-12-31", **resolution_kwargs),
+                    return_exceptions=True,
+                )
+
+                provider_names = ["news", "polling", "resolution_econ", "resolution_crypto"]
+                output_lines = [f"Question: {question}", f"Category: {category}"]
+
+                for name, result in zip(provider_names, results):
+                    if isinstance(result, Exception):
+                        logger.warning("Signal provider %s failed: %s", name, result)
+                        continue
+                    # Skip providers that returned confidence=0 (category mismatch)
+                    if result.confidence <= 0:
+                        continue
+                    self.post_message(SignalUpdate(
+                        market_question=question,
+                        stage="done",
+                        detail=result.reasoning[:100] if result.reasoning else "",
+                        probability=result.probability,
+                        confidence=result.confidence,
+                        data_points=result.data_points,
+                        done=True,
+                        source=name,
+                    ))
+                    output_lines.append(
+                        f"\n[{name}] P={result.probability} C={result.confidence} "
+                        f"({result.data_points} pts): {result.reasoning}"
+                    )
+
+            self.post_message(CommandResult(
+                command="signal-test",
+                success=True,
+                output="\n".join(output_lines),
+            ))
+            self.refresh_costs()
+        except Exception as e:
+            self.post_message(SignalUpdate(
+                market_question=question,
+                stage="error",
+                detail=str(e)[:100],
+                done=True,
+            ))
+            self.post_message(CommandResult(
+                command="signal-test",
+                success=False,
+                output=f"Error: {e}",
+            ))
+
+    # -----------------------------------------------------------------
     # Message routing — forward app-level messages to widgets
     # -----------------------------------------------------------------
 
