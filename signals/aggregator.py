@@ -308,12 +308,9 @@ class SignalAggregator:
             f"{len(usable_signals)} usable of {len(all_signals)} total signals",
         )
 
-        # Step 3: If fewer than 2 usable signals -> skip this market
-        if len(usable_signals) < 2:
-            reason = (
-                "no usable signals" if len(usable_signals) == 0
-                else f"only {len(usable_signals)} usable signal (minimum 2 required)"
-            )
+        # Step 3: If no usable signals -> skip this market
+        if len(usable_signals) < 1:
+            reason = "no usable signals"
             logger.info("Insufficient signals for '%s': %s, skipping", market_question[:60], reason)
             self._emit(market_question, "skip", reason)
             self._log_aggregated_signal(

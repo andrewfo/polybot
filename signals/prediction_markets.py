@@ -25,9 +25,9 @@ CACHE_TTL_SECONDS = 1800  # 30 minutes
 USER_AGENT = "polymarket-bot/1.0 (signal research)"
 
 # API endpoints
-METACULUS_API = "https://www.metaculus.com/api2/questions/"
+METACULUS_API = "https://www.metaculus.com/api/questions/"
 KALSHI_API = "https://api.elections.kalshi.com/trade-api/v2"
-PREDICTIT_API = "https://www.predictit.org/api/marketdata/all/"
+POLYMARKET_GAMMA_API = "https://gamma-api.polymarket.com/markets"
 
 
 async def _search_metaculus(
@@ -128,44 +128,70 @@ async def _search_kalshi(
     return matches[:max_results]
 
 
-async def _search_predictit(
+async def _search_polymarket_gamma(
     session: aiohttp.ClientSession, query: str, max_results: int = 5
 ) -> list[dict[str, Any]]:
-    """Search PredictIt for markets matching the query."""
+    """Search Polymarket Gamma API for related markets (cross-market consensus).
+
+    Finds other Polymarket markets on similar topics to compare prices.
+    This helps identify if our target market is mispriced relative to
+    related markets on the same platform.
+    """
     matches: list[dict[str, Any]] = []
     try:
+        # Use Gamma's text_query parameter to search
+        params = {
+            "closed": "false",
+            "active": "true",
+            "limit": str(max_results * 3),  # fetch extra to filter
+            "order": "volume24hr",
+            "ascending": "false",
+        }
         async with session.get(
-            PREDICTIT_API,
+            POLYMARKET_GAMMA_API,
+            params=params,
             headers={"User-Agent": USER_AGENT},
             timeout=aiohttp.ClientTimeout(total=15),
         ) as resp:
             if resp.status != 200:
-                logger.warning("PredictIt API returned %d", resp.status)
+                logger.warning("Polymarket Gamma API returned %d", resp.status)
                 return []
-            data = await resp.json()
+            markets = await resp.json()
 
-        markets = data.get("markets", [])
+        if not isinstance(markets, list):
+            return []
+
         query_lower = query.lower()
         query_words = set(query_lower.split())
 
         for market in markets:
-            name = market.get("name", "")
-            name_lower = name.lower()
-            name_words = set(name_lower.split())
-            overlap = len(query_words & name_words)
+            question = market.get("question", "")
+            question_lower = question.lower()
+            question_words = set(question_lower.split())
+            overlap = len(query_words & question_words)
             if overlap >= min(2, len(query_words)):
-                contracts = market.get("contracts", [])
-                for contract in contracts:
-                    last_price = contract.get("lastTradePrice")
-                    if last_price is not None and last_price > 0:
-                        matches.append({
-                            "platform": "predictit",
-                            "title": f"{name} — {contract.get('name', '')}",
-                            "probability": float(last_price),
-                            "contract_name": contract.get("name", ""),
-                        })
+                # Parse outcome prices
+                outcome_prices = market.get("outcomePrices", "[]")
+                if isinstance(outcome_prices, str):
+                    import json
+                    try:
+                        outcome_prices = json.loads(outcome_prices)
+                    except (json.JSONDecodeError, TypeError):
+                        outcome_prices = []
+                if outcome_prices and len(outcome_prices) >= 1:
+                    try:
+                        prob = float(outcome_prices[0])
+                    except (ValueError, TypeError, IndexError):
+                        continue
+                    matches.append({
+                        "platform": "polymarket",
+                        "title": question,
+                        "probability": max(0.0, min(1.0, prob)),
+                        "volume": float(market.get("volume24hr", 0) or 0),
+                        "liquidity": float(market.get("liquidityNum", 0) or 0),
+                    })
     except Exception as e:
-        logger.warning("Error searching PredictIt: %s", e)
+        logger.warning("Error searching Polymarket Gamma: %s", e)
     return matches[:max_results]
 
 
@@ -258,14 +284,14 @@ class PredictionMarketsSignalProvider(SignalProvider):
         search_query = await self._generate_search_query(market_question)
 
         # Step 2: Search all platforms in parallel
-        self._emit(market_question, "searching", "Metaculus + Kalshi + PredictIt")
+        self._emit(market_question, "searching", "Metaculus + Kalshi + Polymarket Gamma")
         async with aiohttp.ClientSession() as session:
             metaculus_task = _search_metaculus(session, search_query)
             kalshi_task = _search_kalshi(session, search_query)
-            predictit_task = _search_predictit(session, search_query)
+            polymarket_task = _search_polymarket_gamma(session, search_query)
 
             metaculus_results, kalshi_results, predictit_results = await asyncio.gather(
-                metaculus_task, kalshi_task, predictit_task,
+                metaculus_task, kalshi_task, polymarket_task,
                 return_exceptions=True,
             )
 
@@ -282,7 +308,7 @@ class PredictionMarketsSignalProvider(SignalProvider):
                 source="prediction_markets",
                 probability=None,
                 confidence=0.0,
-                reasoning="No matching markets found on Metaculus, Kalshi, or PredictIt",
+                reasoning="No matching markets found on Metaculus, Kalshi, or Polymarket Gamma",
                 model_used="none",
                 data_points=0,
                 raw_data={"search_query": search_query},
@@ -401,7 +427,7 @@ class PredictionMarketsSignalProvider(SignalProvider):
             raw_data={
                 "matched_markets": matched_markets,
                 "all_candidates": len(matches),
-                "platforms_searched": ["metaculus", "kalshi", "predictit"],
+                "platforms_searched": ["metaculus", "kalshi", "polymarket_gamma"],
             },
         )
 

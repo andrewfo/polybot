@@ -25,6 +25,12 @@ logger = logging.getLogger(__name__)
 _signal_cache: dict[str, tuple[SignalResult, float]] = {}
 CACHE_TTL_SECONDS = 900  # 15 minutes (crypto moves fast)
 
+# Coin-level data cache to avoid CoinGecko rate limits (429s).
+# Multiple markets about the same coin share the same API responses.
+# Key: coin_id, Value: (price_data, chart_data, deribit_iv, timestamp)
+_coin_data_cache: dict[str, tuple[dict | None, list | None, float | None, float]] = {}
+COIN_DATA_CACHE_TTL = 300  # 5 minutes
+
 COINGECKO_PRICE_URL = "https://api.coingecko.com/api/v3/simple/price"
 COINGECKO_CHART_URL = "https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
 DERIBIT_TICKER_URL = "https://www.deribit.com/api/v2/public/ticker"
@@ -396,6 +402,31 @@ class CryptoResolutionProvider(SignalProvider):
 
         return None
 
+    async def _fetch_coin_data(
+        self, coin_id: str
+    ) -> tuple[dict[str, Any] | None, list[list[float]] | None, float | None]:
+        """Fetch price, chart, and IV data with coin-level caching.
+
+        Multiple markets about the same coin (e.g. "Will BTC hit $100k",
+        "Will BTC hit $120k") share the same CoinGecko/Deribit responses
+        to avoid 429 rate limits.
+        """
+        now = time.monotonic()
+        cached = _coin_data_cache.get(coin_id)
+        if cached is not None:
+            price_data, chart_data, deribit_iv, cached_at = cached
+            if now - cached_at < COIN_DATA_CACHE_TTL:
+                logger.debug("Coin data cache hit for %s", coin_id)
+                return price_data, chart_data, deribit_iv
+
+        async with aiohttp.ClientSession() as session:
+            price_data = await _fetch_coingecko_price(session, coin_id)
+            chart_data = await _fetch_coingecko_chart(session, coin_id, days=90)
+            deribit_iv = await _fetch_deribit_iv(session, coin_id)
+
+        _coin_data_cache[coin_id] = (price_data, chart_data, deribit_iv, now)
+        return price_data, chart_data, deribit_iv
+
     async def _run_pipeline(
         self,
         market_question: str,
@@ -422,12 +453,9 @@ class CryptoResolutionProvider(SignalProvider):
                 data_points=0,
             )
 
-        # Fetch price data + Deribit IV in parallel
+        # Fetch price data + Deribit IV (with coin-level caching to avoid 429s)
         self._emit(market_question, "coingecko", f"fetching {coin_id} data")
-        async with aiohttp.ClientSession() as session:
-            price_data = await _fetch_coingecko_price(session, coin_id)
-            chart_data = await _fetch_coingecko_chart(session, coin_id, days=90)
-            deribit_iv = await _fetch_deribit_iv(session, coin_id)
+        price_data, chart_data, deribit_iv = await self._fetch_coin_data(coin_id)
 
         if price_data is None:
             return SignalResult(
@@ -572,5 +600,6 @@ class CryptoResolutionProvider(SignalProvider):
 
 
 def clear_signal_cache() -> None:
-    """Clear the in-memory signal cache."""
+    """Clear the in-memory signal cache and coin data cache."""
     _signal_cache.clear()
+    _coin_data_cache.clear()
