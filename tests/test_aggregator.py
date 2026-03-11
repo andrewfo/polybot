@@ -236,6 +236,7 @@ class TestLowFrontierConfidence:
         ))
         providers = [
             _make_mock_provider(_make_signal(probability=0.6, confidence=0.8)),
+            _make_mock_provider(_make_signal(source="polling", probability=0.55, confidence=0.6)),
         ]
         aggregator = SignalAggregator(llm=mock_llm, providers=providers)
 
@@ -257,6 +258,7 @@ class TestLowFrontierConfidence:
         ))
         providers = [
             _make_mock_provider(_make_signal(probability=0.6, confidence=0.8)),
+            _make_mock_provider(_make_signal(source="polling", probability=0.55, confidence=0.6)),
         ]
         aggregator = SignalAggregator(llm=mock_llm, providers=providers)
 
@@ -278,6 +280,7 @@ class TestLowFrontierConfidence:
         ))
         providers = [
             _make_mock_provider(_make_signal(probability=0.6, confidence=0.8)),
+            _make_mock_provider(_make_signal(source="polling", probability=0.55, confidence=0.6)),
         ]
         aggregator = SignalAggregator(llm=mock_llm, providers=providers)
 
@@ -305,6 +308,7 @@ class TestFrontierFailure:
         mock_llm.call_json = AsyncMock(side_effect=LLMError("Frontier model failed"))
         providers = [
             _make_mock_provider(_make_signal(probability=0.6, confidence=0.8)),
+            _make_mock_provider(_make_signal(source="polling", probability=0.55, confidence=0.6)),
         ]
         aggregator = SignalAggregator(llm=mock_llm, providers=providers)
 
@@ -480,6 +484,7 @@ class TestSignalStorage:
         ))
         providers = [
             _make_mock_provider(_make_signal(probability=0.6, confidence=0.8)),
+            _make_mock_provider(_make_signal(source="polling", probability=0.55, confidence=0.6)),
         ]
         aggregator = SignalAggregator(llm=mock_llm, providers=providers)
 
@@ -539,6 +544,7 @@ class TestFrontierPrompt:
         mock_llm.call_json = AsyncMock(return_value=_make_frontier_response(confidence=0.8))
         providers = [
             _make_mock_provider(_make_signal(probability=0.6, confidence=0.8)),
+            _make_mock_provider(_make_signal(source="polling", probability=0.55, confidence=0.6)),
         ]
         aggregator = SignalAggregator(llm=mock_llm, providers=providers)
 

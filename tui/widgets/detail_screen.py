@@ -35,15 +35,32 @@ def _build_market_info(market: dict[str, Any]) -> str:
     condition_id = market.get("conditionId", market.get("condition_id", "???"))
     category = market.get("_category", "unknown")
 
-    # Prices
+    # Prices — try outcomePrices first (raw Gamma), then tokens list (normalized)
+    yes_p = "---"
+    no_p = "---"
     prices_raw = market.get("outcomePrices", "[]")
     prices = _safe_json_loads(prices_raw)
     if isinstance(prices, list) and len(prices) >= 2:
-        yes_p = f"{float(prices[0]):.1%}"
-        no_p = f"{float(prices[1]):.1%}"
-    else:
-        yes_p = "---"
-        no_p = "---"
+        try:
+            yes_p = f"{float(prices[0]):.1%}"
+            no_p = f"{float(prices[1]):.1%}"
+        except (TypeError, ValueError):
+            pass
+    if yes_p == "---":
+        # Fall back to tokens list from normalized market format
+        tokens = market.get("tokens", [])
+        for tok in tokens:
+            outcome = str(tok.get("outcome", "")).upper()
+            price = tok.get("price")
+            if price is not None:
+                try:
+                    price_str = f"{float(price):.1%}"
+                    if outcome == "YES":
+                        yes_p = price_str
+                    elif outcome == "NO":
+                        no_p = price_str
+                except (TypeError, ValueError):
+                    pass
 
     liq = float(market.get("liquidityNum", market.get("liquidity", 0)) or 0)
     vol = float(market.get("volume24hr", 0) or 0)

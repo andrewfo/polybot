@@ -69,8 +69,15 @@ def ensure_tables() -> None:
             "reasoning": str,
             "model_used": str,
             "timestamp": str,
+            "raw_data": str,
         }, pk="id", if_not_exists=True)
         logger.info("Created signals table")
+    else:
+        # Migrate: add raw_data column if missing
+        columns = {col.name for col in db["signals"].columns}
+        if "raw_data" not in columns:
+            db.execute("ALTER TABLE signals ADD COLUMN raw_data TEXT")
+            logger.info("Added raw_data column to signals table")
 
     if "bankroll" not in db.table_names():
         db["bankroll"].create({
