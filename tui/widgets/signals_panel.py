@@ -24,6 +24,13 @@ STAGE_ICONS = {
     "adjust": "\U0001f504",  # arrows — LLM adjustment
     "interpret": "\U0001f9e0",  # brain — LLM interpretation
     "polling": "\U0001f4ca",  # bar chart — polling data
+    # Aggregator stages
+    "collecting": "\U0001f4e1",  # satellite — collecting signals
+    "filtering": "\U0001f50d",   # magnifying glass — filtering signals
+    "preliminary": "\u2696",     # scales — computing preliminary estimate
+    "frontier": "\U0001f680",    # rocket — frontier model call
+    "frontier_done": "\u2705",   # green check — frontier model done
+    "skip": "\u23ed",            # skip — market skipped
 }
 
 

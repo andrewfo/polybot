@@ -63,6 +63,7 @@ class TUIApp(App):
         Binding("6", "switch_tab('logs')", "Logs", show=True),
         Binding("s", "toggle_bot", "Start/Stop"),
         Binding("f", "run_pipeline", "Run Filter"),
+        Binding("a", "run_aggregate_default", "Aggregate"),
         Binding("r", "refresh", "Refresh"),
         Binding("colon", "toggle_command_bar", "Command", show=False),
     ]
@@ -154,6 +155,9 @@ class TUIApp(App):
 
     def action_run_pipeline(self) -> None:
         self.run_filter_pipeline()
+
+    def action_run_aggregate_default(self) -> None:
+        self.run_aggregate()
 
     def action_refresh(self) -> None:
         self.run_health_check()
@@ -397,7 +401,11 @@ class TUIApp(App):
         )))
 
     async def _run_filter_pipeline(self) -> None:
-        """Execute the full filter pipeline with progress updates."""
+        """Execute the full filter pipeline with progress updates.
+
+        Stages 0-4: Market discovery, filtering, categorization, extraction, ranking.
+        Stage 5 (if bot is running): Signal aggregation on top-ranked markets.
+        """
         from core.llm import LLMClient
         from strategy.market_filter import (
             batch_categorize_markets,
@@ -447,6 +455,107 @@ class TUIApp(App):
                     discovered=len(markets),
                     filtered=len(filtered),
                 ))
+
+                # Stage 5: Signal aggregation (only when bot is running)
+                if self._bot_running and ranked:
+                    from signals.aggregator import SignalAggregator
+                    from signals.news import NewsSignalProvider
+                    from signals.polling import PollingSignalProvider
+                    from signals.resolution_crypto import CryptoResolutionProvider
+                    from signals.resolution_econ import EconomicsResolutionProvider
+
+                    def _agg_progress(mkt_question: str, stage: str, detail: str = "") -> None:
+                        self.post_message(SignalUpdate(
+                            market_question=mkt_question,
+                            stage=stage,
+                            detail=detail,
+                            source="aggregator",
+                        ))
+
+                    top_markets = ranked[:5]  # Analyze top 5
+                    logger.info("Running signal aggregation on %d top markets", len(top_markets))
+
+                    for i, mkt in enumerate(top_markets):
+                        if not self._bot_running:
+                            break
+
+                        question = mkt.get("question", "")
+                        category = mkt.get("_category", "")
+                        end_date = mkt.get("endDate", "2026-12-31")
+
+                        # Get market price from outcome prices
+                        outcome_prices = mkt.get("outcomePrices", "[]")
+                        if isinstance(outcome_prices, str):
+                            import json as _json
+                            try:
+                                prices = _json.loads(outcome_prices)
+                            except (ValueError, TypeError):
+                                prices = []
+                        else:
+                            prices = outcome_prices
+                        market_price = float(prices[0]) if prices else 0.50
+
+                        # Build resolution kwargs
+                        resolution_kwargs: dict = {}
+                        res_params = mkt.get("_resolution_params")
+                        if res_params:
+                            resolution_kwargs["resolution_keywords"] = res_params
+
+                        providers = [
+                            NewsSignalProvider(llm=llm),
+                            PollingSignalProvider(llm=llm),
+                            EconomicsResolutionProvider(llm=llm),
+                            CryptoResolutionProvider(llm=llm),
+                        ]
+
+                        aggregator = SignalAggregator(
+                            llm=llm,
+                            providers=providers,
+                            on_progress=_agg_progress,
+                        )
+
+                        try:
+                            agg_result = await aggregator.aggregate(
+                                market_question=question,
+                                market_category=category,
+                                market_end_date=end_date,
+                                market_price=market_price,
+                                **resolution_kwargs,
+                            )
+
+                            if agg_result is not None:
+                                self.post_message(SignalUpdate(
+                                    market_question=question,
+                                    stage="done",
+                                    detail=agg_result.reasoning[:100],
+                                    probability=agg_result.final_probability,
+                                    confidence=agg_result.confidence,
+                                    data_points=agg_result.total_data_points,
+                                    done=True,
+                                    source="aggregator",
+                                ))
+                                logger.info(
+                                    "Aggregated: %s => P=%.2f C=%.2f (%s)",
+                                    question[:50], agg_result.final_probability,
+                                    agg_result.confidence, agg_result.market_efficiency,
+                                )
+                            else:
+                                self.post_message(SignalUpdate(
+                                    market_question=question,
+                                    stage="skip",
+                                    detail="Market skipped by aggregator",
+                                    source="aggregator",
+                                    done=True,
+                                ))
+                        except Exception as e:
+                            logger.warning("Aggregation failed for '%s': %s", question[:50], e)
+                            self.post_message(SignalUpdate(
+                                market_question=question,
+                                stage="error",
+                                detail=str(e)[:100],
+                                source="aggregator",
+                                done=True,
+                            ))
 
                 # Refresh costs after pipeline (it made LLM calls)
                 self.refresh_costs()
@@ -614,6 +723,146 @@ class TUIApp(App):
             ))
             self.post_message(CommandResult(
                 command="signal-test",
+                success=False,
+                output=f"Error: {e}",
+            ))
+
+    # -----------------------------------------------------------------
+    # Aggregate worker — full signal pipeline with frontier model
+    # -----------------------------------------------------------------
+
+    def run_aggregate(self, question: str = "", market_price: str = "0.50") -> None:
+        q = question or self.DEFAULT_SIGNAL_TEST_QUESTION
+        try:
+            price = float(market_price)
+        except ValueError:
+            price = 0.50
+        self.run_worker(self._do_aggregate(q, price), group="aggregate")
+        tc = self.query_one(TabbedContent)
+        tc.active = "signals"
+
+    async def _do_aggregate(self, question: str, market_price: float) -> None:
+        """Run full aggregation pipeline: all signals + frontier model."""
+        from core.llm import LLMClient
+        from signals.aggregator import SignalAggregator
+        from signals.news import NewsSignalProvider
+        from signals.polling import PollingSignalProvider
+        from signals.resolution_crypto import CryptoResolutionProvider
+        from signals.resolution_econ import EconomicsResolutionProvider
+        from strategy.market_filter import categorize_market, extract_resolution_params
+
+        def _make_progress_cb(source_name: str):
+            def on_progress(mkt_question: str, stage: str, detail: str = "") -> None:
+                self.post_message(SignalUpdate(
+                    market_question=mkt_question,
+                    stage=stage,
+                    detail=detail,
+                    source=source_name,
+                ))
+            return on_progress
+
+        try:
+            async with LLMClient() as llm:
+                # Auto-detect category
+                market = {"condition_id": "", "question": question}
+                category = await categorize_market(market, llm)
+                self.post_message(SignalUpdate(
+                    market_question=question,
+                    stage="collecting",
+                    detail=f"category={category}",
+                    source="aggregator",
+                ))
+
+                # Extract resolution params for econ/crypto
+                resolution_kwargs: dict = {}
+                if category in ("economics", "crypto"):
+                    params = await extract_resolution_params(question, category, llm)
+                    if params:
+                        resolution_kwargs["resolution_keywords"] = params
+
+                # Build providers with progress callbacks
+                providers = [
+                    NewsSignalProvider(llm=llm, on_progress=_make_progress_cb("news")),
+                    PollingSignalProvider(llm=llm, on_progress=_make_progress_cb("polling")),
+                    EconomicsResolutionProvider(llm=llm, on_progress=_make_progress_cb("econ")),
+                    CryptoResolutionProvider(llm=llm, on_progress=_make_progress_cb("crypto")),
+                ]
+
+                aggregator = SignalAggregator(
+                    llm=llm,
+                    providers=providers,
+                    on_progress=_make_progress_cb("aggregator"),
+                )
+
+                result = await aggregator.aggregate(
+                    market_question=question,
+                    market_category=category,
+                    market_end_date="2026-12-31",
+                    market_price=market_price,
+                    **resolution_kwargs,
+                )
+
+                if result is None:
+                    self.post_message(SignalUpdate(
+                        market_question=question,
+                        stage="skip",
+                        detail="Market skipped (insufficient signals or low confidence)",
+                        source="aggregator",
+                        done=True,
+                    ))
+                    self.post_message(CommandResult(
+                        command="aggregate",
+                        success=True,
+                        output=f"Question: {question}\nResult: SKIPPED (insufficient signals or low frontier confidence)",
+                    ))
+                else:
+                    self.post_message(SignalUpdate(
+                        market_question=question,
+                        stage="done",
+                        detail=result.reasoning[:100],
+                        probability=result.final_probability,
+                        confidence=result.confidence,
+                        data_points=result.total_data_points,
+                        done=True,
+                        source="aggregator",
+                    ))
+                    output_lines = [
+                        f"Question: {question}",
+                        f"Category: {category}",
+                        f"Market price: {market_price}",
+                        f"",
+                        f"FINAL PROBABILITY: {result.final_probability:.2%}",
+                        f"Confidence: {result.confidence:.2%}",
+                        f"Preliminary estimate: {result.preliminary_probability:.2%}",
+                        f"Signals agreement: {result.signals_agreement}",
+                        f"Market assessment: {result.market_efficiency}",
+                        f"Reasoning: {result.reasoning}",
+                        f"",
+                        f"Individual signals ({len(result.individual_signals)}):",
+                    ]
+                    for sig in result.individual_signals:
+                        output_lines.append(
+                            f"  [{sig.source}] P={sig.probability} C={sig.confidence} "
+                            f"({sig.data_points} pts): {sig.reasoning[:80]}"
+                        )
+                    self.post_message(CommandResult(
+                        command="aggregate",
+                        success=True,
+                        output="\n".join(output_lines),
+                    ))
+
+            self.refresh_costs()
+        except Exception as e:
+            logger.error("Aggregate failed: %s", e, exc_info=True)
+            self.post_message(SignalUpdate(
+                market_question=question,
+                stage="error",
+                detail=str(e)[:100],
+                done=True,
+                source="aggregator",
+            ))
+            self.post_message(CommandResult(
+                command="aggregate",
                 success=False,
                 output=f"Error: {e}",
             ))

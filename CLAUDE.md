@@ -22,20 +22,24 @@ core/client.py           → Polymarket CLOB wrapper for ORDER EXECUTION ONLY (n
 core/wallet.py           → Wallet balance checks, gas monitoring
 core/db.py               → SQLite tables: trades, positions, signals, bankroll, llm_costs, market_cache
 strategy/market_filter.py→ Gamma API discovery, filtering, LLM categorization, ranking
-tui/app.py               → Textual TUI dashboard with 5 tabs (Home, Markets, Filter, Costs, Logs), neon green/black/red theme
-tui/widgets/             → StatusPanel, MarketsPanel, PipelinePanel, CostsPanel, LogPanel, CommandBar
+tui/app.py               → Textual TUI dashboard with 6 tabs (Home, Markets, Filter, Costs, Signals, Logs), neon green/black/red theme
+tui/widgets/             → StatusPanel, MarketsPanel, PipelinePanel, CostsPanel, SignalsPanel, LogPanel, CommandBar
 scripts/setup_wallet.py  → Wallet setup helper
 scripts/dashboard.py     → Standalone dashboard launcher
 ```
 
-### Not Yet Implemented (build plan sections 4A-11)
+### Implemented Signal Engine (Sections 4A-4D)
 ```
-signals/base.py          → SignalResult dataclass + SignalProvider ABC (Section 4A)
-signals/news.py          → Google News RSS + Reddit scraping → cheap LLM summarization (Section 4A)
-signals/polling.py       → Structured data (polls, RCP) → cheap LLM interpretation (Section 4B)
-signals/resolution_econ.py → FRED API economics data → cheap LLM probability (Section 4C)
+signals/base.py              → SignalResult dataclass + SignalProvider ABC (Section 4A)
+signals/news.py              → Google News RSS + Reddit scraping → cheap LLM summarization (Section 4A)
+signals/polling.py           → Structured data (polls, RCP) → cheap LLM interpretation (Section 4B)
+signals/resolution_econ.py   → FRED API economics data → cheap LLM probability (Section 4C)
 signals/resolution_crypto.py → CoinGecko + log-normal model → cheap LLM adjustment (Section 4C)
-signals/aggregator.py    → Weighted signal merge → FRONTIER model final probability call (Section 4D)
+signals/aggregator.py        → Weighted signal merge → FRONTIER model final probability call (Section 4D)
+```
+
+### Not Yet Implemented (build plan sections 5-11)
+```
 strategy/kelly.py        → Kelly criterion sizing with safety caps
 strategy/executor.py     → Order placement, fill monitoring, position management
 monitoring/pnl.py        → P&L tracking, bankroll snapshots, performance metrics
@@ -63,6 +67,37 @@ monitoring/notifications.py → Telegram (optional) or stdout notifications + co
 5. Spread: drop if spread > `MAX_SPREAD` (0.10) — Gamma data only
 6. Skip markets with existing positions
 7. Sort survivors by `volume_24hr` descending
+
+## Signal Aggregator (signals/aggregator.py)
+- Collects signals from all 4 providers (news, polling, resolution_econ, resolution_crypto)
+- Filters out signals with confidence=0 or probability=None
+- If 0 usable signals → returns None (skip market)
+- Computes weighted preliminary estimate using source multipliers:
+  - `resolution_econ`: 2.0x (direct FRED data)
+  - `resolution_crypto`: 2.0x (direct CoinGecko data)
+  - `polling`: 1.5x (structured data)
+  - `news`: 1.0x (baseline)
+  - Weight = `signal.confidence * source_multiplier`
+- Makes single FRONTIER MODEL call with superforecaster prompt
+- If frontier confidence < 0.4 → skip market (returns None)
+- Frontier failure RAISES — never falls back to cheap model
+- All signals logged to `signals` SQLite table with full audit trail
+- `AggregatedSignal` dataclass holds final result with all metadata
+
+### TUI Commands (command bar via ':' key)
+- `aggregate [question] [market_price]` — Full aggregation pipeline (signals + frontier model)
+- `signal-test [question]` — Run individual signal providers without aggregation
+- `categorize <question>` — Categorize a market question via cheap LLM
+- `llm-test <prompt>` — Send a prompt to the cheap model
+- `refresh` — Re-run health checks and market fetch
+
+### TUI Keybindings
+- `1-6` — Switch tabs (Home, Markets, Filter, Costs, Signals, Logs)
+- `s` — Start/Stop bot
+- `f` — Run filter pipeline
+- `a` — Run aggregate on default test question
+- `r` — Refresh all
+- `:` — Toggle command bar
 
 ## Critical Design Rules
 
@@ -116,6 +151,7 @@ python main.py                   # Live trading (NOT YET IMPLEMENTED)
 
 # Test
 pytest tests/ -v
+pytest tests/test_aggregator.py -v     # Signal aggregator tests
 pytest tests/test_market_filter.py -v  # Market filter tests
 pytest tests/test_llm.py -v            # LLM client tests
 pytest tests/test_db.py -v             # Database tests
@@ -128,7 +164,7 @@ docker-compose logs -f              # Tail logs
 ## Build Sequence
 This project is built section by section from `POLYMARKET_BOT_PLAN (1).md`. Each section is self-contained. Build in order: 0 → 1 → 2 → 3 → 4A → 4B → 4C → 4D → 5 → 6 → 7 → 8 → 9 → 10 → 11. Do not skip ahead. Run tests after each section before proceeding.
 
-**Current progress:** Sections 0-3 complete (core infra, LLM, wallet, DB, market filtering, TUI). Sections 4A+ (signals, kelly, executor, monitoring, main loop) not yet implemented.
+**Current progress:** Sections 0-4D complete (core infra, LLM, wallet, DB, market filtering, TUI, full signal engine with aggregator). Section 5+ (kelly, executor, monitoring, main loop) not yet implemented.
 
 ## File Naming
 - All Python files use snake_case

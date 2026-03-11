@@ -36,8 +36,8 @@ class CommandBar(Horizontal):
     """
 
     def compose(self) -> ComposeResult:
-        yield Input(placeholder=":command (signal-test, categorize, llm-test, refresh)", id="cmd-input")
-        yield Static("signal-test [q] | categorize <q> | llm-test <p> | refresh", classes="cmd-hint")
+        yield Input(placeholder=":command (aggregate, signal-test, categorize, llm-test, refresh)", id="cmd-input")
+        yield Static("aggregate [q] [price] | signal-test [q] | categorize <q> | llm-test <p> | refresh", classes="cmd-hint")
 
     def toggle(self) -> None:
         """Show/hide the command bar."""
@@ -65,7 +65,19 @@ class CommandBar(Horizontal):
         cmd = parts[0].lower()
         arg = parts[1] if len(parts) > 1 else ""
 
-        if cmd in ("signal-test", "signaltest", "signal_test"):
+        if cmd in ("aggregate", "agg"):
+            # aggregate [question] [market_price]
+            # Parse: if last arg looks like a float, treat it as market_price
+            agg_parts = arg.rsplit(None, 1) if arg else ["", ""]
+            if len(agg_parts) == 2:
+                try:
+                    float(agg_parts[1])
+                    self.app.run_aggregate(agg_parts[0], agg_parts[1])
+                except ValueError:
+                    self.app.run_aggregate(arg)
+            else:
+                self.app.run_aggregate(arg)
+        elif cmd in ("signal-test", "signaltest", "signal_test"):
             self.app.run_signal_test(arg)
         elif cmd == "categorize" and arg:
             self.app.run_categorize(arg)
@@ -79,7 +91,7 @@ class CommandBar(Horizontal):
             self.app.post_message(CommandResult(
                 command=raw,
                 success=False,
-                output=f"Unknown command: '{cmd}'. Available: categorize <question>, llm-test <prompt>, refresh",
+                output=f"Unknown command: '{cmd}'. Available: aggregate [q] [price], signal-test [q], categorize <q>, llm-test <p>, refresh",
             ))
 
         # Hide bar after submission
