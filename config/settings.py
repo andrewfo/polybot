@@ -43,6 +43,20 @@ MAX_DAILY_LOSS_PCT = float(os.getenv("MAX_DAILY_LOSS_PCT", "0.15"))   # Stop for
 RESOLUTION_SIGNAL_WEIGHT = float(os.getenv("RESOLUTION_SIGNAL_WEIGHT", "2.0"))
 FRED_API_KEY = os.getenv("FRED_API_KEY", "DEMO_KEY")
 
+# --- New Signal Source API Keys ---
+# Serper.dev: 2,500 free searches/month (https://serper.dev)
+SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
+
+# The Odds API: 500 free requests/month (https://the-odds-api.com)
+ODDS_API_KEY = os.getenv("ODDS_API_KEY", "")
+
+# Congress.gov API: free, 5000 req/hr (https://api.congress.gov)
+CONGRESS_API_KEY = os.getenv("CONGRESS_API_KEY", "")
+
+# Perplexity Sonar model via OpenRouter (search-grounded LLM)
+SONAR_MODEL = os.getenv("SONAR_MODEL", "perplexity/sonar")
+SONAR_RATE_LIMIT = int(os.getenv("SONAR_RATE_LIMIT", "20"))
+
 # --- Frontier Divergence Guardrails ---
 # Skip trade if frontier estimate diverges too far from market price
 MAX_DIVERGENCE_LOW_CONFIDENCE = float(os.getenv("MAX_DIVERGENCE_LOW_CONFIDENCE", "0.30"))   # max divergence when confidence < 0.7

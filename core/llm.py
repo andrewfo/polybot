@@ -17,7 +17,7 @@ from typing import Any
 
 import aiohttp
 
-from config.settings import CHEAP_MODEL, FRONTIER_MODEL, OPENROUTER_BASE_URL
+from config.settings import CHEAP_MODEL, FRONTIER_MODEL, OPENROUTER_BASE_URL, SONAR_MODEL, SONAR_RATE_LIMIT
 from core import db
 
 logger = logging.getLogger(__name__)
@@ -40,6 +40,7 @@ TASK_ROUTING: dict[str, str] = {
 FALLBACK_CHEAP_MODEL = "z-ai/glm-4.5-air:free"
 
 CHEAP_TIMEOUT = 30
+SONAR_TIMEOUT = 45
 FRONTIER_TIMEOUT = 120
 MAX_RETRIES = 3
 
@@ -91,6 +92,7 @@ class LLMClient:
 
         # Rate limiting: sliding window of call timestamps
         self._cheap_call_times: list[float] = []
+        self._sonar_call_times: list[float] = []
         self._frontier_call_times: list[float] = []
 
         # Lazy-initialized session
@@ -113,6 +115,9 @@ class LLMClient:
         if tier == "frontier":
             call_times = self._frontier_call_times
             limit = FRONTIER_RATE_LIMIT
+        elif tier == "sonar":
+            call_times = self._sonar_call_times
+            limit = SONAR_RATE_LIMIT
         else:
             call_times = self._cheap_call_times
             limit = CHEAP_RATE_LIMIT
@@ -154,7 +159,12 @@ class LLMClient:
         payload = {"model": model, "messages": messages}
 
         # Determine tier for rate limiting
-        tier = "frontier" if model == FRONTIER_MODEL else "cheap"
+        if model == FRONTIER_MODEL:
+            tier = "frontier"
+        elif model == SONAR_MODEL:
+            tier = "sonar"
+        else:
+            tier = "cheap"
         await self._wait_for_rate_limit(tier)
 
         session = await self._get_session()
@@ -280,6 +290,21 @@ class LLMClient:
                 "FRONTIER MODEL FAILED — not falling back to cheap model. Error: %s", e
             )
             raise
+
+    async def sonar(self, prompt: str, system: str | None = None) -> str:
+        """Call Perplexity Sonar model for search-grounded responses.
+
+        Sonar performs live web searches and synthesizes results with citations.
+        Falls back to cheap model if Sonar fails.
+        """
+        try:
+            response = await self._call_openrouter(
+                prompt, SONAR_MODEL, system, SONAR_TIMEOUT, "sonar_search"
+            )
+            return response.text
+        except LLMError as e:
+            logger.warning("Sonar model %s failed: %s. Falling back to cheap.", SONAR_MODEL, e)
+            return await self.cheap(prompt, system)
 
     async def call(self, prompt: str, task_type: str, system: str | None = None) -> str:
         """Auto-route to cheap or frontier based on task type."""
