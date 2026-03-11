@@ -400,7 +400,8 @@ async def test_rate_limiting(llm: LLMClient) -> None:
     # Fill up the cheap call times to trigger rate limiting
     import time
     now = time.monotonic()
-    llm._cheap_call_times = [now - i for i in range(20)]  # 20 calls just made
+    from core.llm import CHEAP_RATE_LIMIT
+    llm._cheap_call_times = [now - i for i in range(CHEAP_RATE_LIMIT)]  # fill to limit
 
     resp = MockResponse(200, make_openrouter_response(content="delayed"))
     session = make_mock_session([resp])

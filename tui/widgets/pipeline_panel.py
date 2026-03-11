@@ -1,6 +1,5 @@
 """In Progress tab — shows top 20 filtered markets and aggregation progress."""
 
-import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -179,16 +178,16 @@ class PipelinePanel(Vertical):
 
             cat = m.get("_category", "?")[:11]
 
-            # Get YES price
-            prices_raw = m.get("outcomePrices", "[]")
-            if isinstance(prices_raw, str):
-                try:
-                    prices = json.loads(prices_raw)
-                except (ValueError, TypeError):
-                    prices = []
-            else:
-                prices = prices_raw
-            yes_p = f"{float(prices[0]):.1%}" if prices else "---"
+            # Get YES price from tokens list (normalized market format)
+            yes_p = "---"
+            tokens = m.get("tokens", [])
+            for tok in tokens:
+                if tok.get("outcome", "").upper() == "YES":
+                    try:
+                        yes_p = f"{float(tok.get('price', 0)):.1%}"
+                    except (TypeError, ValueError):
+                        pass
+                    break
 
             liq = float(m.get("liquidityNum", m.get("liquidity", 0)) or 0)
 

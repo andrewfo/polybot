@@ -43,9 +43,9 @@ CHEAP_TIMEOUT = 30
 FRONTIER_TIMEOUT = 120
 MAX_RETRIES = 3
 
-# Rate limits (calls per minute)
-CHEAP_RATE_LIMIT = 20
-FRONTIER_RATE_LIMIT = 5
+# Rate limits (calls per minute) — override via env vars
+CHEAP_RATE_LIMIT = int(os.environ.get("CHEAP_RATE_LIMIT", "60"))
+FRONTIER_RATE_LIMIT = int(os.environ.get("FRONTIER_RATE_LIMIT", "5"))
 RATE_WINDOW_SECONDS = 60.0
 
 

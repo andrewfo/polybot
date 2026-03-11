@@ -527,7 +527,6 @@ class TUIApp(App):
         cycle: int,
     ) -> None:
         """Aggregate signals for each market in the batch."""
-        import json as _json
         from core.llm import LLMClient
         from signals.aggregator import SignalAggregator
         from signals.news import NewsSignalProvider
@@ -554,16 +553,15 @@ class TUIApp(App):
                 statuses[cond_id] = "processing"
                 self.post_message(BatchUpdate(markets=batch, current_index=i, statuses=dict(statuses)))
 
-                # Get market price
-                outcome_prices = mkt.get("outcomePrices", "[]")
-                if isinstance(outcome_prices, str):
-                    try:
-                        prices = _json.loads(outcome_prices)
-                    except (ValueError, TypeError):
-                        prices = []
-                else:
-                    prices = outcome_prices
-                market_price = float(prices[0]) if prices else 0.50
+                # Get market price from tokens list (normalized market format)
+                market_price = 0.50
+                for tok in mkt.get("tokens", []):
+                    if tok.get("outcome", "").upper() == "YES":
+                        try:
+                            market_price = float(tok.get("price", 0.50))
+                        except (TypeError, ValueError):
+                            pass
+                        break
 
                 # Build resolution kwargs
                 resolution_kwargs: dict = {}
