@@ -299,8 +299,12 @@ class PollingSignalProvider(SignalProvider):
         structured_data = _format_structured_data(all_entries)
 
         # Use cheap LLM to interpret data
+        from signals.temporal import format_date_context_line
+        date_ctx = format_date_context_line(market_end_date)
+        date_line = f"{date_ctx}\n" if date_ctx else ""
         prompt = (
             f'Market question: "{market_question}"\n'
+            f'{date_line}'
             f"Relevant data:\n{structured_data}\n"
             f'Based on this data, estimate the probability of YES (0.0 to 1.0).\n'
             f'Respond as JSON: {{"probability": 0.XX, "confidence": 0.XX, "reasoning": "..."}}'

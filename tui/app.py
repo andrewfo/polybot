@@ -22,11 +22,13 @@ if _project_root not in sys.path:
 
 from tui.log_handler import TUILogHandler
 from tui.messages import (
+    AggregationResult,
     BotStatusUpdate,
     BotToggle,
     CommandResult,
     ConnectionUpdate,
     CostUpdate,
+    DrillDownRequest,
     LogMessage,
     MarketsUpdate,
     PipelineComplete,
@@ -523,6 +525,13 @@ class TUIApp(App):
                                 **resolution_kwargs,
                             )
 
+                            # Post aggregation result for drill-down storage
+                            self.post_message(AggregationResult(
+                                market_data=mkt,
+                                aggregation=agg_result,
+                                market_question=question,
+                            ))
+
                             if agg_result is not None:
                                 self.post_message(SignalUpdate(
                                     market_question=question,
@@ -802,6 +811,14 @@ class TUIApp(App):
                     **resolution_kwargs,
                 )
 
+                # Post aggregation result for drill-down storage
+                agg_market = {"condition_id": "", "question": question, "_category": category}
+                self.post_message(AggregationResult(
+                    market_data=agg_market,
+                    aggregation=result,
+                    market_question=question,
+                ))
+
                 if result is None:
                     self.post_message(SignalUpdate(
                         market_question=question,
@@ -933,6 +950,21 @@ class TUIApp(App):
             self.query_one(StatusPanel).on_bot_status_update(event)
         except Exception:
             pass
+
+    def on_aggregation_result(self, event: AggregationResult) -> None:
+        """Route aggregation results to the signals panel for drill-down storage."""
+        try:
+            self.query_one(SignalsPanel).on_aggregation_result(event)
+        except Exception:
+            pass
+
+    def on_drill_down_request(self, event: DrillDownRequest) -> None:
+        """Push a detail screen when a row is selected."""
+        from tui.widgets.detail_screen import MarketDetailScreen
+        self.push_screen(MarketDetailScreen(
+            market_data=event.market_data,
+            aggregation=event.aggregation,
+        ))
 
     def on_command_result(self, event: CommandResult) -> None:
         """Route command results to the log panel and switch to logs tab."""

@@ -272,7 +272,7 @@ class NewsSignalProvider(SignalProvider):
         # Step 5: Compile evidence and estimate probability
         self._emit(market_question, "estimate", f"{len(summaries)} summaries compiled")
         compiled = self._compile_summaries(summaries)
-        result = await self._estimate_probability(market_question, compiled, len(unique_articles))
+        result = await self._estimate_probability(market_question, compiled, len(unique_articles), market_end_date)
 
         result.raw_data = {
             "queries": queries,
@@ -347,10 +347,15 @@ class NewsSignalProvider(SignalProvider):
         market_question: str,
         compiled_summaries: str,
         data_points: int,
+        market_end_date: str = "",
     ) -> SignalResult:
         """Use cheap LLM to estimate probability from compiled evidence."""
+        from signals.temporal import format_date_context_line
+        date_ctx = format_date_context_line(market_end_date) if market_end_date else ""
+        date_line = f"{date_ctx}\n" if date_ctx else ""
         prompt = (
             f'Market question: "{market_question}"\n'
+            f'{date_line}'
             f"Evidence summaries:\n{compiled_summaries}\n"
             f"Based on this evidence, estimate the probability of YES (0.0 to 1.0).\n"
             f'Respond as JSON: {{"probability": 0.XX, "confidence": 0.XX, "reasoning": "..."}}\n'

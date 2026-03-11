@@ -143,3 +143,22 @@ RichLog {
     background: #0a0a0a;
     border: solid #1a3a1a;
 }
+
+/* Detail screen modal */
+MarketDetailScreen {
+    align: center middle;
+    background: rgba(0, 0, 0, 0.85);
+}
+
+MarketDetailScreen > VerticalScroll {
+    width: 90%;
+    height: 90%;
+    background: #0a0a0a;
+    border: solid #00ff41;
+    padding: 1 2;
+}
+
+MarketDetailScreen Static {
+    color: #00cc33;
+    width: 1fr;
+}

@@ -8,7 +8,7 @@ from textual.app import ComposeResult
 from textual.containers import Vertical, Horizontal
 from textual.widgets import DataTable, Button, Static, ProgressBar, Label
 
-from tui.messages import PipelineStageUpdate, PipelineComplete
+from tui.messages import DrillDownRequest, PipelineStageUpdate, PipelineComplete
 
 STAGE_NAMES = ["discover", "filter", "categorize", "extract", "rank"]
 STAGE_WEIGHTS = [0.10, 0.20, 0.35, 0.15, 0.20]  # Weighted progress per stage
@@ -61,6 +61,7 @@ class PipelinePanel(Vertical):
         super().__init__()
         self._started_at: datetime | None = None
         self._stage_started_at: datetime | None = None
+        self._result_data: list[dict[str, Any]] = []
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="progress-area"):
@@ -126,7 +127,16 @@ class PipelinePanel(Vertical):
         else:
             eta_label.update("")
 
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Drill down into a pipeline result row."""
+        row_index = event.cursor_row
+        if 0 <= row_index < len(self._result_data):
+            self.post_message(DrillDownRequest(
+                market_data=self._result_data[row_index],
+            ))
+
     def on_pipeline_complete(self, event: PipelineComplete) -> None:
+        self._result_data = list(event.results)
         label = self.query_one("#stage-label", Label)
         bar = self.query_one("#pipeline-progress", ProgressBar)
         eta_label = self.query_one("#eta-label", Label)

@@ -36,15 +36,16 @@ signals/polling.py           → Structured data (polls, RCP) → cheap LLM inte
 signals/resolution_econ.py   → FRED API economics data → cheap LLM probability (Section 4C)
 signals/resolution_crypto.py → CoinGecko + log-normal model → cheap LLM adjustment (Section 4C)
 signals/aggregator.py        → Weighted signal merge → FRONTIER model final probability call (Section 4D)
+signals/temporal.py          → Date context injection, urgency tiers, frontier system prompt builder
 ```
 
 ### Not Yet Implemented (build plan sections 5-11)
 ```
 strategy/kelly.py        → Kelly criterion sizing with safety caps
-strategy/executor.py     → Order placement, fill monitoring, position management
+strategy/executor.py     → Order placement, fill monitoring, position management (+ PaperExecutor)
 monitoring/pnl.py        → P&L tracking, bankroll snapshots, performance metrics
-monitoring/health.py     → Automated health checks every 5 min
-monitoring/notifications.py → Telegram (optional) or stdout notifications + command handler
+monitoring/health.py     → Health checks while bot is running (TUI-driven)
+monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
 ```
 
 ## Market Discovery — Gamma API

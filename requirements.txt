@@ -14,3 +14,4 @@ python-telegram-bot
 textual>=0.85.0
 pytest
 pytest-asyncio
+python-dateutil

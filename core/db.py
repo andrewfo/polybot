@@ -214,10 +214,11 @@ def record_signal(
     confidence: float,
     reasoning: str,
     model_used: str,
+    raw_data: str | None = None,
 ) -> None:
     """Insert a signal record."""
     db = get_db()
-    db["signals"].insert({
+    row: dict[str, Any] = {
         "market_id": market_id,
         "signal_source": signal_source,
         "probability": probability,
@@ -225,7 +226,10 @@ def record_signal(
         "reasoning": reasoning,
         "model_used": model_used,
         "timestamp": datetime.now(timezone.utc).isoformat(),
-    })
+    }
+    if raw_data is not None:
+        row["raw_data"] = raw_data
+    db["signals"].insert(row)
 
 
 def get_latest_signals(market_id: str, limit: int = 10) -> list[dict[str, Any]]:

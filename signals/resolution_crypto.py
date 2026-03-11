@@ -436,9 +436,11 @@ class CryptoResolutionProvider(SignalProvider):
 
         # Cheap LLM adjusts model probability
         self._emit(market_question, "adjust", f"model_prob={model_prob:.2f}")
+        from signals.temporal import format_date_context_line
+        date_ctx = format_date_context_line(market_end_date)
         prompt = (
             f'Market question: "{market_question}"\n'
-            f"Resolution date: {market_end_date}\n"
+            f"{date_ctx}\n"
             f"\n"
             f"Current market data from CoinGecko:\n"
             f"- Current price: ${current_price:,.2f}\n"

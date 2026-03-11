@@ -2,7 +2,7 @@
 
 > **Purpose**: This document is a sectioned build plan for Claude Code. Feed one section at a time into a fresh project folder. Each section is self-contained with full context, acceptance criteria, and implementation notes. Do not assume anything is pre-existing.
 >
-> **Goal**: A fully autonomous Polymarket trading bot that runs 24/7, uses signal-based trading with Kelly criterion sizing on mid-to-low liquidity markets, and generates enough profit to cover its own API/compute costs and then some.
+> **Goal**: A TUI-driven Polymarket trading bot controlled via Start/Stop in the dashboard. Uses signal-based trading with Kelly criterion sizing on mid-to-low liquidity markets. Runs only when actively started by the user — no 24/7 daemon, no Docker required.
 >
 > **Tech Stack**: Python 3.11+, py-clob-client, asyncio, SQLite, OpenRouter (tiered model routing), Docker.
 >
@@ -932,7 +932,7 @@ Kelly criterion converts our probability edge into optimal bet sizes. We use fra
 ## Section 6: Order Execution & Position Management
 
 ### Context
-Convert Kelly-sized trade decisions into actual Polymarket orders. Always use limit orders to avoid slippage. Handle the full order lifecycle: place, monitor, cancel stale orders, track positions, enforce risk guardrails.
+Convert Kelly-sized trade decisions into actual Polymarket orders. Always use limit orders to avoid slippage. Handle the full order lifecycle: place, monitor, cancel stale orders, track positions, enforce risk guardrails. All execution happens while the bot is running (user pressed Start in TUI). When the user presses Stop, the executor finishes its current cycle and halts — open orders and positions persist in SQLite and are picked up on next Start.
 
 ### Tasks
 1. **`strategy/executor.py`** — Order execution engine:
@@ -948,7 +948,7 @@ Convert Kelly-sized trade decisions into actual Polymarket orders. Always use li
      - Log full details: market question, side, price, size, reasoning
      - Return order ID
 
-   - `monitor_orders()` — call every POLL_INTERVAL:
+   - `monitor_orders()` — called each pipeline cycle while bot is running:
      - Fetch all open orders from Polymarket
      - For each PENDING trade in our DB:
        - If filled → update status "FILLED", update `positions` table, log
@@ -960,7 +960,7 @@ Convert Kelly-sized trade decisions into actual Polymarket orders. Always use li
          - If edge gone → mark as "EXPIRED", move on
        - If cancelled externally → update status "CANCELLED"
 
-   - `manage_positions()` — call every POLL_INTERVAL:
+   - `manage_positions()` — called each pipeline cycle while bot is running:
      - For each open position:
        - Fetch current market price
        - Update `unrealized_pnl` in positions table
@@ -980,102 +980,78 @@ Convert Kelly-sized trade decisions into actual Polymarket orders. Always use li
      - `check_trade_rate()`: New trades this hour < MAX_NEW_TRADES_PER_HOUR
      - `check_drawdown()`: Total unrealized + realized loss < MAX_DRAWDOWN_PCT of starting bankroll
      - `check_daily_loss()`: Today's realized loss < MAX_DAILY_LOSS_PCT of bankroll
-     - If ANY guardrail fails → block the trade, log the reason, send notification
-     - If drawdown guardrail fires → STOP ALL TRADING until manual resume
-     - If daily loss guardrail fires → pause for 24 hours automatically
+     - If ANY guardrail fails → block the trade, log the reason, log to TUI
+     - If drawdown guardrail fires → auto-stop the bot (equivalent to pressing Stop)
+     - If daily loss guardrail fires → auto-stop the bot, log reason
 
 ### Acceptance Criteria
 - Limit orders are placed with correct slippage buffer
 - Order monitoring correctly handles fills, partial fills, stale orders, external cancellations
 - Position management updates P&L and handles profit-taking / loss evaluation
 - All risk guardrails are enforced and logged
-- Notifications are sent on guardrail triggers
+- Guardrail triggers auto-stop the bot via TUI
 - No trade ever bypasses the guardrail checks
+- Open orders/positions survive Stop and are resumed on next Start
 
 ---
 
-## Section 7: Notifications System
+## Section 7: TUI Notifications & Event Log
 
 ### Context
-The bot needs to be observable remotely. Build a notification system from scratch that supports Telegram (with a setup script) or falls back to stdout logging. Nothing is pre-configured.
+The bot is controlled entirely through the TUI. All notifications go to the TUI's Logs tab and are also written to the Python `logging` module (which writes to `data/bot.log`). No Telegram, no remote monitoring — the user is watching the dashboard when the bot is running.
 
 ### Tasks
-1. **`scripts/setup_telegram.py`** — Interactive Telegram bot setup:
-   - Print step-by-step instructions:
-     1. Open Telegram app, search for @BotFather
-     2. Send `/newbot`, follow prompts to create and name the bot
-     3. Copy the bot token that BotFather gives you
-     4. Start a chat with your new bot (search for it by name) and send any message
-     5. Script waits for user to confirm they've sent a message
-     6. Script calls `https://api.telegram.org/bot{token}/getUpdates` to fetch chat_id
-     7. Script sends a test message to verify everything works
-   - On success: print the TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID values to add to `.env`
-   - On failure: print what went wrong and how to fix it
-   - This is a standalone one-time script
-
-2. **`monitoring/notifications.py`** — Unified notification system:
+1. **`monitoring/notifications.py`** — TUI-integrated notification system:
    ```python
    class Notifier:
-       """Sends notifications via Telegram (if configured) or stdout."""
+       """Sends notifications to TUI log panel and Python logging."""
+
+       def __init__(self, app=None):
+           """app is the Textual App instance (optional — works without TUI for testing)."""
 
        async def send(self, message: str, level: str = "info"):
-           """level: 'info', 'warning', 'alert', 'critical'"""
+           """level: 'info', 'warning', 'alert', 'critical'
+           Logs via Python logging and posts to TUI log panel if app is set."""
 
        async def send_trade(self, trade_decision):
-           """Format and send trade execution notification."""
+           """Format and log trade execution notification."""
 
        async def send_position_closed(self, position, pnl):
-           """Format and send position closure with P&L."""
-
-       async def send_daily_summary(self, pnl_data, cost_data):
-           """Format and send end-of-day summary."""
+           """Format and log position closure with P&L."""
 
        async def send_health_alert(self, issue):
-           """Format and send health check failure."""
+           """Format and log health check failure."""
    ```
 
-   - If `TELEGRAM_ENABLED=true` and bot token + chat ID are set → send via Telegram HTTP API
-   - If Telegram is not configured → print to stdout with timestamp and level prefix
-   - The bot must work perfectly fine with Telegram disabled (no import errors, no crashes)
+   - All notifications go to Python `logging` (which writes to `data/bot.log` and TUI LogPanel)
+   - If a Textual app reference is set, also post messages to the TUI via `app.post_message()`
+   - Works without TUI for testing (just logs to Python logging)
    - Message formatting:
      - Trade executed: market question, side, size, price, edge, abbreviated reasoning
      - Position closed: market question, entry vs exit, P&L dollars and percent
-     - Daily summary: total P&L, win rate, open positions count, LLM costs today, bankroll value
      - Health alert: what failed, severity, recommended action
-   - Rate limit Telegram messages: max 20 per minute (Telegram API limit is 30)
-
-3. **Telegram command handler** (only runs if Telegram is enabled):
-   - `/status` → Current bankroll, number of open positions, bot state (running/paused)
-   - `/pnl` → Today's P&L, this week's P&L, all-time P&L, LLM costs
-   - `/positions` → List open positions with current prices and unrealized P&L
-   - `/trades` → Last 10 trades with outcomes
-   - `/costs` → LLM spending breakdown by model tier (daily, monthly)
-   - `/pause` → Pause trading (no new trades, keep monitoring existing positions)
-   - `/resume` → Resume trading
-   - `/kill` → Emergency: cancel all open orders, pause trading, send confirmation
-   - Commands read from SQLite and respond quickly
+   - No Telegram dependency. No `python-telegram-bot` in requirements.
+   - No `scripts/setup_telegram.py` needed.
 
 ### Acceptance Criteria
-- `setup_telegram.py` walks a new user through creating a Telegram bot from scratch
-- Notifications work via Telegram when configured
-- Notifications gracefully fall back to stdout when Telegram is not configured
-- Bot starts and runs without errors when `TELEGRAM_ENABLED=false`
+- Notifications appear in TUI Logs tab in real time
+- All notifications also written to `data/bot.log` via Python logging
+- Works without TUI app reference (for unit testing)
 - All notification types are properly formatted and readable
-- Telegram commands respond correctly
-- Rate limiting prevents Telegram API throttling
+- No external notification dependencies (no Telegram, no email)
 
 ---
 
 ## Section 8: Monitoring & Health Checks
 
 ### Context
-The bot runs 24/7 unattended. We need automated health monitoring that catches problems before they cost money.
+Health checks and P&L tracking run while the bot is active (Start pressed in TUI). When the bot is stopped, no monitoring runs. Health check results display on the TUI Home tab. P&L data is always available in SQLite for review even when the bot is stopped.
 
 ### Tasks
 1. **`monitoring/pnl.py`** — P&L tracking:
-   - `snapshot_bankroll()` — call every hour:
+   - `snapshot_bankroll()` — called each pipeline cycle while bot is running:
      - Calculate: available cash + sum of all position values at current market prices
-     - Store in `bankroll` table
+     - Store in `bankroll` table (skip if last snapshot was < 1 hour ago)
    - `get_daily_pnl()` → realized + unrealized P&L since midnight UTC
    - `get_weekly_pnl()` → same but last 7 days
    - `get_total_pnl()` → all-time
@@ -1090,60 +1066,59 @@ The bot runs 24/7 unattended. We need automated health monitoring that catches p
      - ROI on initial bankroll
    - `get_cost_breakdown()` → LLM costs by model tier, per day/month
 
-2. **`monitoring/health.py`** — Automated health checks:
-   - `run_health_checks()` — call every 5 minutes:
+2. **`monitoring/health.py`** — Health checks (run while bot is active):
+   - `run_health_checks()` — called by the TUI health-loop worker (already exists, runs every 5 min while bot is running):
      - **API connectivity**: Can we reach Polymarket CLOB API? (simple market list fetch)
      - **Wallet gas**: MATIC balance > 0.05? (warn at 0.1, critical at 0.05)
      - **Wallet funds**: USDC balance matches expected? (detect unauthorized transfers)
      - **Stale orders**: Any orders PENDING > 30 minutes? (may indicate API issue)
-     - **Process health**: Main loop last completed within 2x POLL_INTERVAL? (detect hangs)
      - **LLM availability**: Can we reach OpenRouter? (simple /models endpoint call)
      - **FRED API connectivity**: Can we fetch from FRED? (simple series observation fetch for `DGS10` with `FRED_API_KEY`)
      - **CoinGecko API connectivity**: Can we reach CoinGecko? (simple `/api/v3/ping` endpoint)
      - **Cost runaway**: Daily LLM cost < $20? (hard cap to prevent billing surprises)
-     - **Disk space**: SQLite DB < 500MB? (prevent disk issues on small VPS)
    - Each check returns: `{check_name, status: "ok"|"warning"|"critical", message}`
-   - On "warning" → log + send notification
-   - On "critical" → log + send notification + pause trading if relevant
+   - Results displayed on TUI Home tab (StatusPanel already shows health)
+   - On "warning" → log via Notifier
+   - On "critical" → log via Notifier + auto-stop the bot
    - Store health check history in SQLite for debugging
 
 ### Acceptance Criteria
-- P&L snapshots are accurate and stored hourly
-- All health checks run without errors
+- P&L snapshots are accurate and stored while bot is running
+- All health checks run without errors while bot is active
 - Warning and critical thresholds trigger appropriate responses
+- Critical health failures auto-stop the bot
 - Cost breakdown correctly separates cheap vs frontier model spending
 - Health check history is queryable for debugging
 - LLM cost hard cap prevents runaway spending
+- No monitoring runs when bot is stopped
 
 ---
 
-## Section 9: Main Loop & Orchestration
+## Section 9: TUI-Driven Pipeline Integration
 
 ### Context
-Tie everything together into a single entry point that runs the bot 24/7. This is the top-level orchestrator.
+The TUI is the only way to run the bot. `main.py --tui` launches the dashboard (already implemented). The Start/Stop button on the Home tab controls the trading pipeline. This section wires the full trading pipeline (signals → Kelly → executor → position management) into the existing TUI worker system.
+
+The TUI already has worker groups for `pipeline-loop`, `pipeline`, `health-loop`, `health-check`, `markets`, and `costs`. The Start button starts workers, the Stop button cancels all of them. This section extends the pipeline worker to include the full trading flow (not just signal aggregation).
 
 ### Tasks
-1. **`main.py`** — Main orchestrator:
-   - **Startup sequence** (run once on boot):
-     1. Load `.env` file with python-dotenv
-     2. Validate all required env vars are present (fail fast with clear error listing what's missing)
-     3. Initialize SQLite database (auto-create tables and `data/` directory)
-     4. Initialize LLM client, verify OpenRouter connectivity with a simple test call
-     5. Initialize Polymarket client, verify API credentials with a market list fetch
-     6. Check wallet balances (USDC, MATIC), warn if low
-     7. Load existing state from SQLite (open positions, pending orders)
-     8. Reconcile local state with Polymarket (cancel orphaned orders, sync positions)
-     9. Initialize notification system (Telegram if configured, otherwise stdout)
-     10. Send startup notification with bankroll summary
-     11. Begin main loop
+1. **Extend `tui/app.py` pipeline worker** — wire full trading flow:
+   - **On Start** (user presses `s` or clicks Start):
+     1. Validate required env vars are present (show error in TUI if missing)
+     2. Initialize SQLite database (auto-create tables and `data/` directory)
+     3. Initialize LLM client, verify OpenRouter connectivity
+     4. Initialize Polymarket client, verify API credentials
+     5. Check wallet balances (USDC, MATIC), warn in TUI if low
+     6. Load existing state from SQLite (open positions, pending orders)
+     7. Reconcile local state with Polymarket (cancel orphaned orders, sync positions)
+     8. Start health-loop and pipeline-loop workers (already implemented)
+     9. Log startup summary to Logs tab
 
-   - **Main loop** (every POLL_INTERVAL_SECONDS):
+   - **Pipeline cycle** (each iteration of pipeline-loop, every POLL_INTERVAL_SECONDS):
      ```
-     1. Run health checks (async, non-blocking)
-     2. If trading is paused → skip to step 8
-     3. Refresh market list from cache (re-fetch if stale)
-     4. Filter and rank candidate markets
-     5. For each candidate (up to MAX_NEW_TRADES_PER_HOUR remaining):
+     1. Refresh market list from Gamma API (re-fetch if stale)
+     2. Filter and rank candidate markets
+     3. For each candidate (up to MAX_NEW_TRADES_PER_HOUR remaining):
         a. Skip if we already hold max position in this market
         a2. If market category is `economics` or `crypto`, call `extract_resolution_params()` (cached) and pass the resulting `resolution_keywords` dict through to signal providers via kwargs
         b. Fetch/refresh signals for this market (pass resolution_keywords to providers)
@@ -1151,82 +1126,86 @@ Tie everything together into a single entry point that runs the bot 24/7. This i
         d. Calculate Kelly sizing
         e. Check all risk guardrails
         f. If should_trade → queue the order
-     6. Execute queued orders (with rate limiting)
-     7. Monitor existing orders (check fills, cancel stale)
-     8. Manage open positions (P&L update, profit-taking, loss evaluation)
-     9. Snapshot bankroll if it's been > 1 hour since last snapshot
-     10. Send daily summary if it's past midnight and we haven't sent one today
-     11. Log cycle summary: markets scanned, trades made, P&L, LLM cost this cycle
-     12. Sleep until next cycle
+     4. Execute queued orders (with rate limiting)
+     5. Monitor existing orders (check fills, cancel stale)
+     6. Manage open positions (P&L update, profit-taking, loss evaluation)
+     7. Snapshot bankroll if it's been > 1 hour since last snapshot
+     8. Log cycle summary: markets scanned, trades made, P&L, LLM cost this cycle
+     9. Sleep until next cycle
      ```
 
-   - **Parallel tasks** (run as asyncio tasks alongside main loop):
-     - Telegram command listener (if TELEGRAM_ENABLED=true)
-     - Health check timer (every 5 minutes)
-
-   - **Error handling**:
-     - Wrap entire main loop body in try/except
-     - On any exception: log full traceback, send notification, increment failure counter
-     - On 3 consecutive loop failures: pause trading, send critical alert, require manual `/resume` or restart
-     - On keyboard interrupt (Ctrl+C): graceful shutdown
-     - Never crash silently — every error must be logged and notified
-
-   - **Graceful shutdown** (handle SIGINT and SIGTERM):
-     - Cancel all pending (unfilled) orders on Polymarket
+   - **On Stop** (user presses `s` or clicks Stop):
+     - Cancel all worker groups (already implemented)
+     - Do NOT cancel open orders on Polymarket (they persist — user may restart soon)
      - Save current state snapshot to SQLite
-     - Send shutdown notification
-     - Exit cleanly with code 0
+     - Log stop summary to Logs tab
+
+   - **Error handling** (within pipeline worker):
+     - Wrap entire pipeline cycle in try/except
+     - On any exception: log full traceback to Logs tab, increment failure counter
+     - On 3 consecutive cycle failures: auto-stop the bot, show critical alert in TUI
+     - Never crash the TUI — errors are caught and displayed
+
+   - **On TUI exit** (Ctrl+C or quit):
+     - Stop bot if running (cancel workers)
+     - Save state to SQLite
+     - Exit cleanly
+
+2. **Paper trading mode** — controlled via settings, not a separate script:
+   - Add `PAPER_MODE = os.getenv("PAPER_MODE", "true").lower() == "true"` to `config/settings.py`
+   - Default is `true` (paper mode) — user must explicitly set `PAPER_MODE=false` in `.env` to go live
+   - When `PAPER_MODE=true`:
+     - Replace executor with `PaperExecutor` that simulates order placement
+     - Simulates fills: if real market price touches limit price within 15 minutes, mark as filled
+     - Tracks simulated positions using real market prices
+     - All other components run for real (signals, LLM calls, Kelly, filtering)
+     - TUI title bar shows `[PAPER]` indicator
+     - Paper trades stored in SQLite with `paper=True` column
+   - When `PAPER_MODE=false`:
+     - Real order execution via CLOB client
+     - TUI title bar shows `[LIVE]` indicator
 
 ### Acceptance Criteria
-- Bot starts from a completely cold state with full env validation
-- Main loop runs continuously at configured interval
-- Graceful handling of API downtime, LLM failures, wallet issues
-- State survives restarts via SQLite persistence + reconciliation on startup
-- Graceful shutdown cancels orders and saves state
-- 3 consecutive failures trigger automatic pause with alert
+- Start/Stop in TUI controls the entire trading pipeline
+- Full pipeline cycle runs: filter → signals → Kelly → execute → monitor → manage positions
+- State persists in SQLite across Start/Stop cycles
+- 3 consecutive failures auto-stop the bot with visible error in TUI
+- Paper mode is the default — real trading requires explicit opt-in
+- TUI never crashes from pipeline errors
 - All components integrate correctly end-to-end
 
 ---
 
-## Section 10: Paper Trading Mode
+## Section 10: Paper Executor & Live Readiness
 
 ### Context
-**CRITICAL: Do not trade real money until paper trading is validated.** This section builds a simulation mode that runs the entire pipeline identically to live — signals, LLM calls, Kelly sizing — except actual order placement is simulated.
+**CRITICAL: Do not trade real money until paper trading is validated.** Paper mode is the default (`PAPER_MODE=true` in settings). The user runs the same TUI — Start/Stop works identically — but order execution is simulated. This section implements the `PaperExecutor` and the live readiness checklist.
 
 ### Tasks
-1. **`scripts/dry_run.py`** — Paper trading entry point:
-   - Import and reuse the same startup sequence and main loop from `main.py`
-   - Override the executor with `PaperExecutor`:
-     - `PaperExecutor.place_order()` → simulates order placement, returns fake order ID
-     - Simulates fills: if the real market price touches our limit price within 15 minutes, mark as filled
-     - Tracks simulated positions using real market prices
+1. **`strategy/executor.py`** — Add `PaperExecutor` alongside the real executor:
+   - `PaperExecutor` implements the same interface as the real executor:
+     - `place_order()` → simulates order placement, returns fake order ID, logs to TUI
+     - Simulates fills: if real market price touches limit price within 15 minutes, mark as filled
+     - Tracks simulated positions using real market prices from Gamma API
      - Calculates simulated P&L identically to live mode
-   - All other components run for real (signals, LLM calls, Kelly, filtering, monitoring)
-   - Notifications are prefixed with `[PAPER]` so you always know it's simulated
-   - Paper trades stored in same SQLite tables with a `paper=True` column
+   - All other components run for real (signals, LLM calls, Kelly, filtering)
+   - Paper trades stored in SQLite with `paper=True` column
 
-2. **Paper trading validation checklist** — print at startup:
-   ```
-   ============================================
-   PAPER TRADING MODE
-   ============================================
-   Before going live, verify ALL of the following:
+2. **TUI live readiness check** — shown when user sets `PAPER_MODE=false`:
+   - On Start with `PAPER_MODE=false`, show a confirmation dialog in TUI:
+     ```
+     ⚠ LIVE TRADING MODE ⚠
+     Real money will be used. Checklist:
+     - Paper traded for 7+ days?
+     - 30+ simulated trades?
+     - Win rate > 52%?
+     - Kelly sizing reasonable?
+     - LLM costs within budget?
 
-   [ ] Ran paper trading for at least 7 days
-   [ ] At least 30 simulated trades executed
-   [ ] Win rate > 52% (check with /pnl or logs)
-   [ ] Average win > average loss
-   [ ] No risk guardrail bugs observed
-   [ ] Signal estimates meaningfully differ from market prices
-   [ ] Kelly sizing produces reasonable bet amounts
-   [ ] Notifications working correctly
-   [ ] Bot handled restarts gracefully
-   [ ] LLM costs within budget (check with /costs or logs)
-   [ ] Reviewed trade log — reasoning makes sense
-
-   To go live: switch to `python main.py`
-   ============================================
-   ```
+     Press Enter to confirm, Escape to cancel.
+     ```
+   - If user confirms → proceed with real executor
+   - If user cancels → stay stopped
 
 ### Acceptance Criteria
 - Paper trading is functionally identical to live except order execution
@@ -1234,82 +1213,44 @@ Tie everything together into a single entry point that runs the bot 24/7. This i
 - Simulated P&L is tracked and fully reportable
 - Paper trades are clearly distinguished from live trades in the database
 - All LLM calls happen for real (so cost estimates are accurate)
-- Validation checklist prints on every paper trading startup
+- Live mode requires explicit confirmation in TUI
 
 ---
 
-## Section 11: Deployment & Containerization
+## Section 11: Polish & Documentation
 
 ### Context
-The bot needs to run 24/7 reliably. This section covers Docker containerization and documents deployment options.
+The bot runs locally via `python main.py --tui`. No Docker, no VPS, no 24/7 daemon. This section covers final polish, documentation, and cost estimation.
 
 ### Tasks
-1. **`Dockerfile`**:
-   ```dockerfile
-   FROM python:3.11-slim
-   WORKDIR /app
-   COPY requirements.txt .
-   RUN pip install --no-cache-dir -r requirements.txt
-   COPY . .
-   RUN mkdir -p /app/data
-   VOLUME /app/data
-   CMD ["python", "main.py"]
-   ```
+1. **Remove Docker files** — delete `Dockerfile` and `docker-compose.yml` if they exist. The bot is a local TUI application.
 
-2. **`docker-compose.yml`**:
-   ```yaml
-   version: "3.8"
-   services:
-     polymarket-bot:
-       build: .
-       container_name: polymarket-bot
-       restart: unless-stopped
-       env_file: .env
-       volumes:
-         - bot-data:/app/data
-       logging:
-         driver: json-file
-         options:
-           max-size: "10m"
-           max-file: "3"
+2. **Clean up requirements.txt** — remove `python-telegram-bot` and `schedule` (neither is used). Verify all remaining dependencies are actually imported somewhere.
 
-   volumes:
-     bot-data:
-   ```
+3. **Update README.md**:
+   - **How to run**: `python main.py --tui` — that's it
+   - **Usage**: Press `s` to Start/Stop the bot. Use tabs 1-6 to navigate. Use `:` for command bar.
+   - **Paper vs Live**: Default is paper mode. Set `PAPER_MODE=false` in `.env` to go live.
+   - **Document expected costs**:
+     ```
+     COST BREAKDOWN (estimated, per session):
+     ├── LLM — Cheap model ... ~$0 (free tier via OpenRouter)
+     ├── LLM — Frontier model  ~$0.03-0.05 per market analyzed
+     ├── Polygon gas ......... ~$0.01 per trade
+     ├── News/data APIs ...... $0 (RSS feeds + free APIs)
+     └── Typical session ...... $0.50-5.00 depending on markets analyzed
 
-3. **Document deployment options in README**:
-   - **Option A — Local machine**: `docker-compose up -d`. Cost: $0. Requires always-on machine.
-   - **Option B — Oracle Cloud free tier**: Always-free ARM A1 instance. Deploy via SSH + Docker. Cost: $0.
-   - **Option C — Any cheap VPS**: DigitalOcean ($4/mo), Hetzner ($3.79/mo), Vultr ($3.50/mo). Cost: $4-5/mo.
-
-4. **Document expected costs in README**:
-   ```
-   MONTHLY COST BREAKDOWN (estimated):
-   ├── Compute .............. $0-5 (free tier or cheap VPS)
-   ├── LLM — Cheap model ... ~$0 (free tier via OpenRouter)
-   ├── LLM — Frontier model  $30-150 (depends on markets analyzed per day)
-   │   └── ~$0.03-0.05 per market analysis × 50-100 markets/day
-   ├── Polygon gas ......... $0.50-2.00
-   ├── News/data APIs ...... $0 (RSS feeds + free APIs)
-   └── TOTAL ............... $30-160/month
-
-   BREAK-EVEN ANALYSIS:
-   - At $500 bankroll with 5% avg edge and 10 trades/week:
-     Expected monthly trade profit: ~$50
-     Monthly costs: ~$50-80
-     → Need ~$1500-2000 bankroll to reliably self-sustain
-
-   - To minimize costs during paper trading:
-     Reduce POLL_INTERVAL to 900 (15 min) and analyze fewer markets
-     This cuts frontier model calls by ~60%
-   ```
+     Costs only accrue while the bot is running (Start pressed).
+     Monitor spending in real time on the Costs tab.
+     ```
+   - **Architecture overview** — brief description of signal pipeline
+   - **Risk warnings** — same as Appendix C
 
 ### Acceptance Criteria
-- `docker build` succeeds with no errors
-- Bot runs in Docker with persistent SQLite via volume mount
-- Automatic restart on crash via `unless-stopped` policy
-- README documents all deployment options step-by-step
-- Cost breakdown is realistic and includes break-even analysis
+- README accurately describes TUI-driven usage (no mention of 24/7, Docker, or Telegram)
+- Requirements.txt contains only actually-used dependencies
+- Cost estimates reflect session-based usage, not 24/7 operation
+- No Docker files in the project
 
 ---
 
@@ -1326,7 +1267,7 @@ The bot needs to run 24/7 reliably. This section covers Docker containerization 
 | Reddit search | https://www.reddit.com/search.json?q={query}&sort=relevance&t=week | No |
 | CoinGecko API | https://api.coingecko.com/api/v3/ | No |
 | FRED API | https://fred.stlouisfed.org/docs/api/ | Free key |
-| Telegram Bot API | https://api.telegram.org/bot{token}/ | Bot token |
+| ~~Telegram Bot API~~ | ~~removed — TUI-only~~ | — |
 
 ## Appendix B: LLM Task Routing Reference
 
@@ -1347,5 +1288,5 @@ The bot needs to run 24/7 reliably. This section covers Docker containerization 
 - **Your model will be wrong**: The goal is to be right more often than the crowd, not every time. A 55% win rate with proper sizing is profitable.
 - **Liquidity risk**: Never take a position larger than 5% of a market's daily volume.
 - **LLM costs are real**: Monitor daily. If frontier model spending outpaces profits, reduce trade frequency or lower POLL_INTERVAL.
-- **Paper trade first**: Run Section 10 for at least 7 days before real money. No exceptions.
+- **Paper trade first**: Run with `PAPER_MODE=true` (the default) for at least 7 days before real money. No exceptions.
 - **Regulatory**: Understand Polymarket's terms of service and your local laws regarding prediction markets.

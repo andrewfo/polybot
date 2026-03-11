@@ -13,7 +13,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from config.settings import RESOLUTION_SIGNAL_WEIGHT
+from config.settings import (
+    DIVERGENCE_CONFIDENCE_THRESHOLD,
+    MAX_DIVERGENCE_ANY_CONFIDENCE,
+    MAX_DIVERGENCE_LOW_CONFIDENCE,
+    RESOLUTION_SIGNAL_WEIGHT,
+)
 from core import db
 from core.llm import LLMClient, LLMError
 from signals.base import SignalProvider, SignalResult
@@ -21,6 +26,7 @@ from signals.news import NewsSignalProvider
 from signals.polling import PollingSignalProvider
 from signals.resolution_crypto import CryptoResolutionProvider
 from signals.resolution_econ import EconomicsResolutionProvider
+from signals.temporal import build_frontier_system_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +90,61 @@ def compute_preliminary_probability(signals: list[SignalResult]) -> float:
     return weighted_sum / total_weight
 
 
+def _format_raw_evidence(signal: SignalResult) -> str:
+    """Extract key raw data from a signal for the frontier model prompt.
+
+    Gives the frontier model the actual evidence (article titles, prices,
+    FRED values), not just the cheap model's interpretation.
+    """
+    raw = signal.raw_data or {}
+    source = signal.source
+
+    if source == "news":
+        articles = raw.get("articles", [])
+        if not articles:
+            return ""
+        lines = ["  Key evidence:"]
+        for article in articles[:8]:
+            direction = article.get("direction", "?").upper()
+            title = article.get("title", "untitled")
+            src = article.get("source", "unknown")
+            lines.append(f"  - [{direction}] \"{title}\" ({src})")
+        return "\n".join(lines)
+
+    if source == "resolution_crypto":
+        current = raw.get("current_price")
+        target = raw.get("target_price")
+        direction = raw.get("direction", "?")
+        vol = raw.get("annualized_vol")
+        change_24h = raw.get("change_24h")
+        raw_prob = raw.get("raw_log_normal_prob")
+        adjusted = raw.get("adjusted_prob")
+        if current is None and target is None:
+            return ""
+        lines = ["  Market data:"]
+        if current is not None and target is not None:
+            lines.append(f"  - Current: ${current:,.0f} | Target: ${target:,.0f} ({direction})")
+        if change_24h is not None and vol is not None:
+            lines.append(f"  - 24h: {change_24h:+.1%} | Annual vol: {vol:.0%}")
+        if raw_prob is not None and adjusted is not None:
+            lines.append(f"  - Log-normal model: {raw_prob:.2f} → adjusted: {adjusted:.2f}")
+        return "\n".join(lines)
+
+    if source == "resolution_econ":
+        formatted = raw.get("formatted_data", "")
+        if not formatted:
+            return ""
+        return f"  FRED data:\n  {formatted[:500]}"
+
+    if source == "polling":
+        structured = raw.get("structured_data", "")
+        if not structured:
+            return ""
+        return f"  Poll data:\n  {str(structured)[:500]}"
+
+    return ""
+
+
 def _build_frontier_prompt(
     question: str,
     category: str,
@@ -91,8 +152,13 @@ def _build_frontier_prompt(
     end_date: str,
     signals: list[SignalResult],
     preliminary_prob: float,
+    date_context_line: str = "",
 ) -> str:
-    """Build the frontier model prompt from the plan spec."""
+    """Build the frontier model user prompt from the plan spec.
+
+    The system prompt (with date/calibration) is built separately via
+    build_frontier_system_prompt() and sent as a system message.
+    """
     signal_lines: list[str] = []
     for signal in signals:
         resolution_label = (
@@ -100,18 +166,24 @@ def _build_frontier_prompt(
             if signal.source.startswith("resolution_")
             else ""
         )
+        evidence = _format_raw_evidence(signal)
+        evidence_block = f"\n{evidence}" if evidence else ""
         signal_lines.append(
             f"- Source: {signal.source}{resolution_label}\n"
             f"  Estimate: {signal.probability}\n"
             f"  Confidence: {signal.confidence}\n"
             f"  Reasoning: {signal.reasoning}\n"
             f"  Data points analyzed: {signal.data_points}"
+            f"{evidence_block}"
         )
 
     signals_block = "\n".join(signal_lines)
 
+    date_line = f"\n{date_context_line}\n" if date_context_line else ""
+
     return (
         f'You are a superforecaster analyzing a prediction market. Your job is to estimate the true probability of an event as accurately as possible.\n'
+        f'{date_line}'
         f'\n'
         f'Market question: "{question}"\n'
         f'Market category: {category}\n'
@@ -252,6 +324,12 @@ class SignalAggregator:
 
         # Step 5: FRONTIER MODEL CALL
         self._emit(market_question, "frontier", "calling frontier model for final estimate")
+
+        # Build dynamic system prompt with date context and calibration
+        from signals.temporal import format_date_context_line
+        system_prompt = build_frontier_system_prompt(market_end_date)
+        date_context_line = format_date_context_line(market_end_date)
+
         prompt = _build_frontier_prompt(
             question=market_question,
             category=market_category,
@@ -259,11 +337,16 @@ class SignalAggregator:
             end_date=market_end_date,
             signals=usable_signals,
             preliminary_prob=preliminary_prob,
+            date_context_line=date_context_line,
         )
+
+        # Log full prompts for audit trail
+        logger.debug("Frontier system prompt: %s", system_prompt[:500])
+        logger.debug("Frontier user prompt: %s", prompt[:500])
 
         # This call uses the frontier model — NEVER falls back to cheap
         frontier_response = await self._llm.call_json(
-            prompt, task_type="estimate_probability"
+            prompt, task_type="estimate_probability", system=system_prompt
         )
 
         if not isinstance(frontier_response, dict):
@@ -287,7 +370,31 @@ class SignalAggregator:
             f"P={final_prob:.2f} C={final_conf:.2f} — {reasoning[:80]}",
         )
 
-        # Step 6: If confidence < 0.4 → skip market
+        # Step 6a: Post-response divergence sanity check
+        divergence = abs(final_prob - market_price)
+        if (
+            divergence > MAX_DIVERGENCE_ANY_CONFIDENCE
+            or (divergence > MAX_DIVERGENCE_LOW_CONFIDENCE and final_conf < DIVERGENCE_CONFIDENCE_THRESHOLD)
+        ):
+            logger.warning(
+                "Frontier divergence sanity check FAILED for '%s': "
+                "estimate=%.2f, market=%.2f, divergence=%.2f, confidence=%.2f",
+                market_question[:60], final_prob, market_price, divergence, final_conf,
+            )
+            self._emit(
+                market_question, "skip",
+                f"divergence sanity check failed (div={divergence:.2f}, conf={final_conf:.2f})",
+            )
+            self._log_aggregated_signal(
+                market_question, "aggregator_divergence_skip",
+                final_prob, final_conf,
+                f"Divergence {divergence:.2f} exceeds threshold — skipping "
+                f"(estimate={final_prob:.2f}, market={market_price:.2f}, conf={final_conf:.2f})",
+                "frontier",
+            )
+            return None
+
+        # Step 6b: If confidence < 0.4 → skip market
         if final_conf < MIN_FRONTIER_CONFIDENCE:
             logger.info(
                 "Frontier confidence %.2f < %.2f for '%s', skipping",
@@ -318,10 +425,11 @@ class SignalAggregator:
             total_data_points=total_data_points,
         )
 
-        # Store in signals table
+        # Store in signals table (with full prompt audit trail)
         self._log_aggregated_signal(
             market_question, "aggregator",
             final_prob, final_conf, reasoning, "frontier",
+            raw_data={"system_prompt": system_prompt, "user_prompt": prompt},
         )
 
         # Also log individual signals
@@ -344,6 +452,7 @@ class SignalAggregator:
         confidence: float,
         reasoning: str,
         model_used: str,
+        raw_data: dict[str, Any] | None = None,
     ) -> None:
         """Log a signal to the SQLite signals table."""
         try:
@@ -354,6 +463,7 @@ class SignalAggregator:
                 confidence=confidence,
                 reasoning=reasoning[:1000],
                 model_used=model_used,
+                raw_data=json.dumps(raw_data) if raw_data else None,
             )
         except Exception as e:
             logger.warning("Failed to log aggregated signal to DB: %s", e)

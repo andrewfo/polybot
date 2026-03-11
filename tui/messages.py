@@ -112,6 +112,32 @@ class CommandResult(Message):
         self.output = output
 
 
+class AggregationResult(Message):
+    """Carries a full AggregatedSignal + market dict for drill-down storage."""
+    def __init__(
+        self,
+        market_data: dict[str, Any],
+        aggregation: Any,  # AggregatedSignal | None
+        market_question: str,
+    ) -> None:
+        super().__init__()
+        self.market_data = market_data
+        self.aggregation = aggregation
+        self.market_question = market_question
+
+
+class DrillDownRequest(Message):
+    """Posted by panels when a row is selected for detail view."""
+    def __init__(
+        self,
+        market_data: dict[str, Any],
+        aggregation: Any = None,  # AggregatedSignal | None
+    ) -> None:
+        super().__init__()
+        self.market_data = market_data
+        self.aggregation = aggregation
+
+
 class SignalUpdate(Message):
     """Live update from a signal pipeline."""
     def __init__(

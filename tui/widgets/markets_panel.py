@@ -8,7 +8,7 @@ from textual.containers import Vertical, Horizontal
 from textual.widgets import DataTable, Button, Static
 from textual.reactive import reactive
 
-from tui.messages import MarketsUpdate
+from tui.messages import DrillDownRequest, MarketsUpdate
 
 
 class MarketsPanel(Vertical):
@@ -41,6 +41,10 @@ class MarketsPanel(Vertical):
     sort_field: reactive[str] = reactive("volume24hr")
     limit: reactive[int] = reactive(20)
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._market_data: list[dict[str, Any]] = []
+
     def compose(self) -> ComposeResult:
         with Horizontal(classes="controls"):
             yield Button("Volume", id="sort-volume", variant="primary")
@@ -59,7 +63,16 @@ class MarketsPanel(Vertical):
         table.add_columns("#", "YES", "NO", "Liquidity", "Vol 24H", "Expires", "Question")
         table.cursor_type = "row"
 
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Drill down into a market row."""
+        row_index = event.cursor_row
+        if 0 <= row_index < len(self._market_data):
+            self.post_message(DrillDownRequest(
+                market_data=self._market_data[row_index],
+            ))
+
     def on_markets_update(self, event: MarketsUpdate) -> None:
+        self._market_data = list(event.markets)
         table = self.query_one("#markets-table", DataTable)
         table.clear()
         for i, m in enumerate(event.markets):

@@ -5,7 +5,7 @@ from textual.containers import Vertical, Horizontal
 from textual.widgets import DataTable, RichLog, Static, Label
 from rich.text import Text
 
-from tui.messages import SignalUpdate
+from tui.messages import AggregationResult, DrillDownRequest, SignalUpdate
 
 MAX_ACTIVITY_LINES = 500
 
@@ -90,6 +90,8 @@ class SignalsPanel(Vertical):
         super().__init__()
         self._signals_count = 0
         self._active_market: str = ""
+        self._aggregation_store: dict[str, tuple[dict, object]] = {}  # question -> (market_data, AggregatedSignal)
+        self._result_rows: list[tuple[str, str]] = []  # (question, source) per table row
 
     def compose(self) -> ComposeResult:
         yield Label("SIGNAL ENGINE", classes="signals-header")
@@ -112,6 +114,31 @@ class SignalsPanel(Vertical):
         table = self.query_one("#signal-results", DataTable)
         table.add_columns("Market", "Source", "Prob", "Conf", "Points", "Reasoning")
         table.cursor_type = "row"
+
+    def on_aggregation_result(self, event: AggregationResult) -> None:
+        """Store aggregation data for drill-down lookup."""
+        if event.aggregation is not None:
+            self._aggregation_store[event.market_question] = (
+                event.market_data, event.aggregation,
+            )
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Drill down into a signal result row."""
+        row_index = event.cursor_row
+        if 0 <= row_index < len(self._result_rows):
+            question, source = self._result_rows[row_index]
+            stored = self._aggregation_store.get(question)
+            if stored:
+                market_data, aggregation = stored
+                self.post_message(DrillDownRequest(
+                    market_data=market_data,
+                    aggregation=aggregation,
+                ))
+            else:
+                # No aggregation data — show basic drill-down with question as market data
+                self.post_message(DrillDownRequest(
+                    market_data={"question": question},
+                ))
 
     def on_signal_update(self, event: SignalUpdate) -> None:
         """Handle a signal pipeline update."""
@@ -176,3 +203,4 @@ class SignalsPanel(Vertical):
         reasoning = event.detail[:60] if event.detail else ""
 
         table.add_row(question_short, source_str, prob_str, conf_str, points_str, reasoning)
+        self._result_rows.append((event.market_question, source_str))

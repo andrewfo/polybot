@@ -43,6 +43,12 @@ MAX_DAILY_LOSS_PCT = float(os.getenv("MAX_DAILY_LOSS_PCT", "0.15"))   # Stop for
 RESOLUTION_SIGNAL_WEIGHT = float(os.getenv("RESOLUTION_SIGNAL_WEIGHT", "2.0"))
 FRED_API_KEY = os.getenv("FRED_API_KEY", "DEMO_KEY")
 
+# --- Frontier Divergence Guardrails ---
+# Skip trade if frontier estimate diverges too far from market price
+MAX_DIVERGENCE_LOW_CONFIDENCE = float(os.getenv("MAX_DIVERGENCE_LOW_CONFIDENCE", "0.30"))   # max divergence when confidence < 0.7
+MAX_DIVERGENCE_ANY_CONFIDENCE = float(os.getenv("MAX_DIVERGENCE_ANY_CONFIDENCE", "0.40"))   # max divergence regardless of confidence
+DIVERGENCE_CONFIDENCE_THRESHOLD = float(os.getenv("DIVERGENCE_CONFIDENCE_THRESHOLD", "0.7"))
+
 # --- Notifications ---
 NOTIFICATIONS_ENABLED = os.getenv("NOTIFICATIONS_ENABLED", "true").lower() == "true"
 TELEGRAM_ENABLED = os.getenv("TELEGRAM_ENABLED", "false").lower() == "true"
