@@ -40,9 +40,6 @@ signals/temporal.py          → Date context injection, urgency tiers, frontier
 signals/web_search.py        → Perplexity Sonar search-grounded LLM signal (universal, all categories)
 signals/prediction_markets.py→ Cross-platform consensus (Metaculus + Kalshi + PredictIt, no auth)
 signals/serper_search.py     → Serper.dev structured Google search signal (requires SERPER_API_KEY)
-signals/sports_odds.py       → The Odds API bookmaker consensus for sports (requires ODDS_API_KEY)
-signals/political.py         → Congress.gov legislative data for politics (requires CONGRESS_API_KEY)
-signals/wiki_attention.py    → Wikipedia pageviews attention/spike signal (no auth, all categories)
 ```
 
 ### Not Yet Implemented (build plan sections 5-11)
@@ -76,20 +73,16 @@ monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
 7. Sort survivors by `volume_24hr` descending
 
 ## Signal Aggregator (signals/aggregator.py)
-- Collects signals from all 10 providers (news, polling, resolution_econ, resolution_crypto, web_search, prediction_markets, wiki_attention, serper_search, sports_odds, political_data)
+- Collects signals from 6 providers (news, resolution_econ, resolution_crypto, web_search, prediction_markets, serper_search)
 - Filters out signals with confidence=0 or probability=None
 - If 0 usable signals → returns None (skip market)
 - Computes weighted preliminary estimate using source multipliers:
   - `resolution_econ`: 2.0x (direct FRED data)
   - `resolution_crypto`: 2.0x (direct CoinGecko data)
-  - `sports_odds`: 2.0x (direct bookmaker consensus)
   - `prediction_markets`: 1.8x (cross-platform market consensus)
   - `web_search`: 1.5x (Perplexity Sonar search-grounded)
   - `serper_search`: 1.3x (structured Google search)
-  - `political_data`: 1.5x (Congress.gov legislative data)
-  - `polling`: 1.5x (structured data)
   - `news`: 1.0x (baseline)
-  - `wiki_attention`: 0.5x (weak attention signal)
   - Weight = `signal.confidence * source_multiplier`
 - Makes single FRONTIER MODEL call with superforecaster prompt
 - If frontier confidence < 0.4 → skip market (returns None)

@@ -370,12 +370,12 @@ class TestRankCandidates:
         assert ranked[0]["_score"] == 8
 
     def test_scoring_mid_range(self) -> None:
-        """Resolution 4-8 weeks (+1), liquidity $500-$1k (+1), politics (+1), vol<=500 (+0) = 3."""
+        """Resolution 4-8 weeks (+1), liquidity $500-$1k (+1), other (+0), vol<=500 (+0) = 2."""
         market = _make_market(
-            days_until_end=35, liquidity=800, volume_24h=200, category="politics",
+            days_until_end=35, liquidity=800, volume_24h=200, category="other",
         )
         ranked = rank_candidates([market])
-        assert ranked[0]["_score"] == 3
+        assert ranked[0]["_score"] == 2
 
     def test_empty_list(self) -> None:
         ranked = rank_candidates([])

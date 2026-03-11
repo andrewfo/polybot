@@ -482,6 +482,9 @@ class TUIApp(App):
             await batch_categorize_markets(filtered, llm)
             self._post_stage("categorize", 2, processed=len(filtered), total=len(filtered), started_at=pipeline_start)
 
+            # Category gate: keep only crypto and economics markets
+            filtered = [m for m in filtered if m.get("_category") in ("crypto", "economics")]
+
             # Stage 3: Extract resolution params
             self._post_stage("extract", 3, processed=0, total=len(filtered), started_at=pipeline_start)
             for i, m in enumerate(filtered):
@@ -530,7 +533,6 @@ class TUIApp(App):
         from core.llm import LLMClient
         from signals.aggregator import SignalAggregator
         from signals.news import NewsSignalProvider
-        from signals.polling import PollingSignalProvider
         from signals.resolution_crypto import CryptoResolutionProvider
         from signals.resolution_econ import EconomicsResolutionProvider
 
@@ -579,7 +581,6 @@ class TUIApp(App):
 
                 providers = [
                     NewsSignalProvider(llm=llm),
-                    PollingSignalProvider(llm=llm),
                     EconomicsResolutionProvider(llm=llm),
                     CryptoResolutionProvider(llm=llm),
                 ]
@@ -721,9 +722,11 @@ class TUIApp(App):
         """Run all signal providers on a question and emit live updates."""
         from core.llm import LLMClient
         from signals.news import NewsSignalProvider
-        from signals.polling import PollingSignalProvider
         from signals.resolution_crypto import CryptoResolutionProvider
         from signals.resolution_econ import EconomicsResolutionProvider
+        from signals.web_search import WebSearchSignalProvider
+        from signals.prediction_markets import PredictionMarketsSignalProvider
+        from signals.serper_search import SerperSearchSignalProvider
         from strategy.market_filter import categorize_market, extract_resolution_params
 
         def _make_progress_cb(source_name: str):
@@ -749,22 +752,26 @@ class TUIApp(App):
                     if params:
                         resolution_kwargs["resolution_keywords"] = params
 
-                # Create all 4 providers with source-tagged progress callbacks
+                # Create all 6 providers with source-tagged progress callbacks
                 news_provider = NewsSignalProvider(llm=llm, on_progress=_make_progress_cb("news"))
-                polling_provider = PollingSignalProvider(llm=llm, on_progress=_make_progress_cb("polling"))
                 econ_provider = EconomicsResolutionProvider(llm=llm, on_progress=_make_progress_cb("econ"))
                 crypto_provider = CryptoResolutionProvider(llm=llm, on_progress=_make_progress_cb("crypto"))
+                web_search_provider = WebSearchSignalProvider(llm=llm, on_progress=_make_progress_cb("web_search"))
+                prediction_markets_provider = PredictionMarketsSignalProvider(llm=llm, on_progress=_make_progress_cb("prediction_markets"))
+                serper_provider = SerperSearchSignalProvider(llm=llm, on_progress=_make_progress_cb("serper_search"))
 
                 # Run all providers in parallel
                 results = await asyncio.gather(
                     news_provider.get_signal(question, category, "2026-12-31", **resolution_kwargs),
-                    polling_provider.get_signal(question, category, "2026-12-31", **resolution_kwargs),
                     econ_provider.get_signal(question, category, "2026-12-31", **resolution_kwargs),
                     crypto_provider.get_signal(question, category, "2026-12-31", **resolution_kwargs),
+                    web_search_provider.get_signal(question, category, "2026-12-31", **resolution_kwargs),
+                    prediction_markets_provider.get_signal(question, category, "2026-12-31", **resolution_kwargs),
+                    serper_provider.get_signal(question, category, "2026-12-31", **resolution_kwargs),
                     return_exceptions=True,
                 )
 
-                provider_names = ["news", "polling", "resolution_econ", "resolution_crypto"]
+                provider_names = ["news", "resolution_econ", "resolution_crypto", "web_search", "prediction_markets", "serper_search"]
                 output_lines = [f"Question: {question}", f"Category: {category}"]
 
                 for name, result in zip(provider_names, results):
@@ -827,9 +834,11 @@ class TUIApp(App):
         from core.llm import LLMClient
         from signals.aggregator import SignalAggregator
         from signals.news import NewsSignalProvider
-        from signals.polling import PollingSignalProvider
         from signals.resolution_crypto import CryptoResolutionProvider
         from signals.resolution_econ import EconomicsResolutionProvider
+        from signals.web_search import WebSearchSignalProvider
+        from signals.prediction_markets import PredictionMarketsSignalProvider
+        from signals.serper_search import SerperSearchSignalProvider
         from strategy.market_filter import categorize_market, extract_resolution_params
 
         def _make_progress_cb(source_name: str):
@@ -864,9 +873,11 @@ class TUIApp(App):
                 # Build providers with progress callbacks
                 providers = [
                     NewsSignalProvider(llm=llm, on_progress=_make_progress_cb("news")),
-                    PollingSignalProvider(llm=llm, on_progress=_make_progress_cb("polling")),
                     EconomicsResolutionProvider(llm=llm, on_progress=_make_progress_cb("econ")),
                     CryptoResolutionProvider(llm=llm, on_progress=_make_progress_cb("crypto")),
+                    WebSearchSignalProvider(llm=llm, on_progress=_make_progress_cb("web_search")),
+                    PredictionMarketsSignalProvider(llm=llm, on_progress=_make_progress_cb("prediction_markets")),
+                    SerperSearchSignalProvider(llm=llm, on_progress=_make_progress_cb("serper_search")),
                 ]
 
                 aggregator = SignalAggregator(

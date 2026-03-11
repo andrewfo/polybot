@@ -143,18 +143,6 @@ class TestFormatRawEvidence:
         signal = _make_signal(source="resolution_econ", raw_data={})
         assert _format_raw_evidence(signal) == ""
 
-    def test_polling_data(self) -> None:
-        signal = _make_signal(source="polling", raw_data={
-            "structured_data": "Poll: Biden 45%, Trump 43%, margin 2%"
-        })
-        result = _format_raw_evidence(signal)
-        assert "Poll data:" in result
-        assert "Biden 45%" in result
-
-    def test_polling_no_data(self) -> None:
-        signal = _make_signal(source="polling", raw_data={})
-        assert _format_raw_evidence(signal) == ""
-
     def test_unknown_source(self) -> None:
         signal = _make_signal(source="unknown_source")
         assert _format_raw_evidence(signal) == ""

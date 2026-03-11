@@ -135,10 +135,10 @@ class TestResolutionSourceWeight:
         expected = (0.4 * 1.0 + 0.8 * 2.0) / (1.0 + 2.0)
         assert abs(result - expected) < 1e-6
 
-    def test_polling_1_5x(self):
+    def test_web_search_1_5x(self):
         signals = [
             _make_signal(source="news", probability=0.4, confidence=1.0),
-            _make_signal(source="polling", probability=0.6, confidence=1.0),
+            _make_signal(source="web_search", probability=0.6, confidence=1.0),
         ]
         result = compute_preliminary_probability(signals)
         expected = (0.4 * 1.0 + 0.6 * 1.5) / (1.0 + 1.5)
@@ -152,8 +152,8 @@ class TestResolutionSourceWeight:
             _make_signal(source="resolution_crypto", confidence=1.0)
         ) == SIGNAL_WEIGHT_MULTIPLIERS["resolution_crypto"]
         assert _compute_effective_weight(
-            _make_signal(source="polling", confidence=1.0)
-        ) == SIGNAL_WEIGHT_MULTIPLIERS["polling"]
+            _make_signal(source="web_search", confidence=1.0)
+        ) == SIGNAL_WEIGHT_MULTIPLIERS["web_search"]
         assert _compute_effective_weight(
             _make_signal(source="news", confidence=1.0)
         ) == SIGNAL_WEIGHT_MULTIPLIERS["news"]
@@ -236,7 +236,7 @@ class TestLowFrontierConfidence:
         ))
         providers = [
             _make_mock_provider(_make_signal(probability=0.6, confidence=0.8)),
-            _make_mock_provider(_make_signal(source="polling", probability=0.55, confidence=0.6)),
+            _make_mock_provider(_make_signal(source="web_search", probability=0.55, confidence=0.6)),
         ]
         aggregator = SignalAggregator(llm=mock_llm, providers=providers)
 
@@ -258,7 +258,7 @@ class TestLowFrontierConfidence:
         ))
         providers = [
             _make_mock_provider(_make_signal(probability=0.6, confidence=0.8)),
-            _make_mock_provider(_make_signal(source="polling", probability=0.55, confidence=0.6)),
+            _make_mock_provider(_make_signal(source="web_search", probability=0.55, confidence=0.6)),
         ]
         aggregator = SignalAggregator(llm=mock_llm, providers=providers)
 
@@ -280,7 +280,7 @@ class TestLowFrontierConfidence:
         ))
         providers = [
             _make_mock_provider(_make_signal(probability=0.6, confidence=0.8)),
-            _make_mock_provider(_make_signal(source="polling", probability=0.55, confidence=0.6)),
+            _make_mock_provider(_make_signal(source="web_search", probability=0.55, confidence=0.6)),
         ]
         aggregator = SignalAggregator(llm=mock_llm, providers=providers)
 
@@ -308,7 +308,7 @@ class TestFrontierFailure:
         mock_llm.call_json = AsyncMock(side_effect=LLMError("Frontier model failed"))
         providers = [
             _make_mock_provider(_make_signal(probability=0.6, confidence=0.8)),
-            _make_mock_provider(_make_signal(source="polling", probability=0.55, confidence=0.6)),
+            _make_mock_provider(_make_signal(source="web_search", probability=0.55, confidence=0.6)),
         ]
         aggregator = SignalAggregator(llm=mock_llm, providers=providers)
 
@@ -342,7 +342,7 @@ class TestFullPipeline:
                 source="news", probability=0.55, confidence=0.6, data_points=10,
             )),
             _make_mock_provider(_make_signal(
-                source="polling", probability=None, confidence=0.0, data_points=0,
+                source="web_search", probability=None, confidence=0.0, data_points=0,
             )),
             _make_mock_provider(_make_signal(
                 source="resolution_econ", probability=0.75, confidence=0.9, data_points=24,
@@ -398,7 +398,7 @@ class TestFullPipeline:
 
         providers = [
             _make_mock_provider(_make_signal(source="news", probability=0.5, confidence=0.7)),
-            _make_mock_provider(_make_signal(source="polling", probability=0.55, confidence=0.8)),
+            _make_mock_provider(_make_signal(source="web_search", probability=0.55, confidence=0.8)),
             _make_mock_provider(_make_signal(source="resolution_econ", probability=0.65, confidence=0.9)),
             _make_mock_provider(_make_signal(source="resolution_crypto", probability=0.70, confidence=0.85)),
         ]
@@ -484,7 +484,7 @@ class TestSignalStorage:
         ))
         providers = [
             _make_mock_provider(_make_signal(probability=0.6, confidence=0.8)),
-            _make_mock_provider(_make_signal(source="polling", probability=0.55, confidence=0.6)),
+            _make_mock_provider(_make_signal(source="web_search", probability=0.55, confidence=0.6)),
         ]
         aggregator = SignalAggregator(llm=mock_llm, providers=providers)
 
@@ -544,7 +544,7 @@ class TestFrontierPrompt:
         mock_llm.call_json = AsyncMock(return_value=_make_frontier_response(confidence=0.8))
         providers = [
             _make_mock_provider(_make_signal(probability=0.6, confidence=0.8)),
-            _make_mock_provider(_make_signal(source="polling", probability=0.55, confidence=0.6)),
+            _make_mock_provider(_make_signal(source="web_search", probability=0.55, confidence=0.6)),
         ]
         aggregator = SignalAggregator(llm=mock_llm, providers=providers)
 

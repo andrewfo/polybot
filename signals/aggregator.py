@@ -1,9 +1,10 @@
 """Signal aggregator with frontier model final probability call.
 
-Collects signals from all providers (news, polling, resolution_econ, resolution_crypto),
-computes a weighted preliminary estimate, then makes the single FRONTIER MODEL call
-that determines the final probability. This is the only place the expensive frontier
-model is used in the signal pipeline.
+Collects signals from 6 providers (news, resolution_econ, resolution_crypto,
+web_search, prediction_markets, serper_search), computes a weighted preliminary
+estimate, then makes the single FRONTIER MODEL call that determines the final
+probability. This is the only place the expensive frontier model is used in the
+signal pipeline.
 """
 
 import asyncio
@@ -23,15 +24,11 @@ from core import db
 from core.llm import LLMClient, LLMError
 from signals.base import SignalProvider, SignalResult
 from signals.news import NewsSignalProvider
-from signals.political import PoliticalSignalProvider
-from signals.polling import PollingSignalProvider
 from signals.prediction_markets import PredictionMarketsSignalProvider
 from signals.resolution_crypto import CryptoResolutionProvider
 from signals.resolution_econ import EconomicsResolutionProvider
 from signals.serper_search import SerperSearchSignalProvider
-from signals.sports_odds import SportsOddsSignalProvider
 from signals.web_search import WebSearchSignalProvider
-from signals.wiki_attention import WikiAttentionSignalProvider
 from signals.temporal import build_frontier_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -40,14 +37,10 @@ logger = logging.getLogger(__name__)
 SIGNAL_WEIGHT_MULTIPLIERS: dict[str, float] = {
     "resolution_econ": RESOLUTION_SIGNAL_WEIGHT,     # Direct resolution source — data from FRED
     "resolution_crypto": RESOLUTION_SIGNAL_WEIGHT,   # Direct resolution source — data from CoinGecko
-    "sports_odds": RESOLUTION_SIGNAL_WEIGHT,         # Direct resolution source — bookmaker consensus
     "prediction_markets": 1.8,                       # Cross-platform market consensus (strong)
     "web_search": 1.5,                               # Search-grounded LLM (Perplexity Sonar)
     "serper_search": 1.3,                            # Structured web search results
-    "political_data": 1.5,                           # Congressional/legislative data
-    "polling": 1.5,                                  # Structured polling data
     "news": 1.0,                                     # Baseline (RSS scraping)
-    "wiki_attention": 0.5,                           # Weak signal — attention proxy only
 }
 
 # Minimum frontier confidence to proceed
@@ -148,12 +141,6 @@ def _format_raw_evidence(signal: SignalResult) -> str:
             return ""
         return f"  FRED data:\n  {formatted[:500]}"
 
-    if source == "polling":
-        structured = raw.get("structured_data", "")
-        if not structured:
-            return ""
-        return f"  Poll data:\n  {str(structured)[:500]}"
-
     if source == "web_search":
         evidence = raw.get("key_evidence", [])
         if not evidence:
@@ -172,40 +159,11 @@ def _format_raw_evidence(signal: SignalResult) -> str:
             lines.append(f"  - [{m.get('platform', '?')}] \"{m.get('title', '')}\" = {m.get('probability', '?')}")
         return "\n".join(lines)
 
-    if source == "sports_odds":
-        odds = raw.get("consensus_odds", {})
-        if not odds:
-            return ""
-        bm_count = raw.get("bookmaker_count", 0)
-        lines = [f"  Bookmaker consensus ({bm_count} bookmakers):"]
-        for name, prob in odds.items():
-            lines.append(f"  - {name}: {prob:.2f}")
-        return "\n".join(lines)
-
-    if source == "political_data":
-        bills = raw.get("bills", [])
-        if not bills:
-            return ""
-        lines = ["  Congressional data:"]
-        for b in bills[:3]:
-            lines.append(f"  - {b.get('title', '')[:80]} — {b.get('latest_action', '')[:60]}")
-        return "\n".join(lines)
-
     if source == "serper_search":
         preview = raw.get("evidence_preview", "")
         if not preview:
             return ""
         return f"  Search evidence:\n  {preview[:400]}"
-
-    if source == "wiki_attention":
-        data = raw.get("attention_data", [])
-        if not data:
-            return ""
-        lines = ["  Wikipedia attention:"]
-        for d in data[:3]:
-            spike = "SPIKE" if d.get("spike_detected") else "normal"
-            lines.append(f"  - {d.get('article', '?')}: {spike} ({d.get('spike_ratio', 0)}x baseline)")
-        return "\n".join(lines)
 
     return ""
 
@@ -307,19 +265,12 @@ class SignalAggregator:
             self._providers = providers
         else:
             self._providers = [
-                # Original providers
                 NewsSignalProvider(llm=llm),
-                PollingSignalProvider(llm=llm),
                 EconomicsResolutionProvider(llm=llm),
                 CryptoResolutionProvider(llm=llm),
-                # New providers — universal
                 WebSearchSignalProvider(llm=llm),
                 PredictionMarketsSignalProvider(llm=llm),
-                WikiAttentionSignalProvider(llm=llm),
-                # New providers — conditional (require API keys, skip gracefully if missing)
                 SerperSearchSignalProvider(llm=llm),
-                SportsOddsSignalProvider(llm=llm),
-                PoliticalSignalProvider(llm=llm),
             ]
 
     def _emit(self, question: str, stage: str, detail: str = "") -> None:

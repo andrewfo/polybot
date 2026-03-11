@@ -30,10 +30,7 @@ GAMMA_MAX_PAGES = 5      # up to 1000 markets total
 
 logger = logging.getLogger(__name__)
 
-VALID_CATEGORIES = frozenset({
-    "politics", "crypto", "sports", "science_tech",
-    "entertainment", "economics", "other",
-})
+VALID_CATEGORIES = frozenset({"crypto", "economics", "other"})
 
 
 async def discover_markets(max_pages: int = 0) -> list[dict[str, Any]]:
@@ -324,7 +321,7 @@ async def categorize_market(market: dict[str, Any], llm: LLMClient) -> str:
     prompt = (
         'Classify this prediction market question into exactly one category.\n'
         f'Question: "{question}"\n'
-        'Categories: politics, crypto, sports, science_tech, entertainment, economics, other\n'
+        'Categories: crypto, economics, other\n'
         'Respond with only the category name, nothing else.'
     )
 
@@ -392,7 +389,7 @@ async def batch_categorize_markets(
 
         prompt = (
             'Classify each prediction market question into exactly one category.\n'
-            f'Categories: politics, crypto, sports, science_tech, entertainment, economics, other\n\n'
+            f'Categories: crypto, economics, other\n\n'
             f'{numbered_list}\n\n'
             'Respond with ONLY a numbered list of categories, one per line, like:\n'
             '1. politics\n'
@@ -543,7 +540,6 @@ def rank_candidates(filtered_markets: list[dict[str, Any]]) -> list[dict[str, An
     - Liquidity $1k-$10k: +2 points
     - Liquidity $500-$1k: +1 point
     - Category is economics or crypto: +2 points
-    - Category is politics: +1 point
     - 24h volume > $500: +1 point
 
     Returns sorted list (highest score first) with _score attached.
@@ -574,8 +570,6 @@ def rank_candidates(filtered_markets: list[dict[str, Any]]) -> list[dict[str, An
         category = market.get("_category", "")
         if category in ("economics", "crypto"):
             score += 2
-        elif category == "politics":
-            score += 1
 
         # Volume scoring
         volume = _get_volume_24h(market)
