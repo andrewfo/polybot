@@ -91,7 +91,10 @@ async def discover_markets(max_pages: int = 0) -> list[dict[str, Any]]:
 
     logger.info("Fetching markets from Gamma API (limit=%d per page, max_pages=%d)...", GAMMA_FETCH_LIMIT, pages)
 
+    seen_ids: set[str] = set()
+
     async with aiohttp.ClientSession() as session:
+        # Primary fetch: sorted by volume (most liquid)
         for page in range(pages):
             url = (
                 f"{GAMMA_API_BASE}/markets"
@@ -107,7 +110,11 @@ async def discover_markets(max_pages: int = 0) -> list[dict[str, Any]]:
                     page_markets = await resp.json()
                     if not page_markets:
                         break
-                    all_markets.extend(page_markets)
+                    for pm in page_markets:
+                        cid = pm.get("conditionId", "")
+                        if cid and cid not in seen_ids:
+                            seen_ids.add(cid)
+                            all_markets.append(pm)
                     offset += GAMMA_FETCH_LIMIT
                     if len(page_markets) < GAMMA_FETCH_LIMIT:
                         break  # Last page
@@ -115,7 +122,31 @@ async def discover_markets(max_pages: int = 0) -> list[dict[str, Any]]:
                 logger.error("Gamma API fetch failed on page %d: %s", page, e)
                 break
 
-    logger.info("Discovered %d markets from Gamma API", len(all_markets))
+        # Secondary fetch: recently created markets (more likely mispriced)
+        # New markets haven't had time for full price discovery
+        try:
+            url = (
+                f"{GAMMA_API_BASE}/markets"
+                f"?active=true&closed=false"
+                f"&limit={GAMMA_FETCH_LIMIT}"
+                f"&order=startDate&ascending=false"
+            )
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status == 200:
+                    new_markets = await resp.json()
+                    new_count = 0
+                    for pm in (new_markets or []):
+                        cid = pm.get("conditionId", "")
+                        if cid and cid not in seen_ids:
+                            seen_ids.add(cid)
+                            all_markets.append(pm)
+                            new_count += 1
+                    if new_count:
+                        logger.info("Added %d recently-created markets from secondary fetch", new_count)
+        except Exception as e:
+            logger.warning("Secondary Gamma fetch (new markets) failed: %s", e)
+
+    logger.info("Discovered %d unique markets from Gamma API", len(all_markets))
 
     # Normalize Gamma field names to match expected format
     markets = []
@@ -321,7 +352,7 @@ async def categorize_market(market: dict[str, Any], llm: LLMClient) -> str:
     prompt = (
         'Classify this prediction market question into exactly one category.\n'
         f'Question: "{question}"\n'
-        'Categories: crypto, other\n'
+        'Categories: crypto, politics, sports, science, economics, other\n'
         'Respond with only the category name, nothing else.'
     )
 
@@ -535,18 +566,164 @@ async def extract_resolution_params(
         return None
 
 
-def rank_candidates(filtered_markets: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Score and rank markets by desirability.
+async def pre_screen_crypto_edge(
+    markets: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Pre-screen crypto markets with quick CoinGecko math to find edge potential.
 
-    Scoring:
+    For each crypto market that has resolution params (coin_id, target_price),
+    fetches CoinGecko data and computes the barrier/terminal model probability.
+    Compares to market price to estimate edge BEFORE running the expensive
+    frontier model. Markets with larger model-vs-market divergence are more
+    likely to have real edges worth investigating.
+
+    Attaches _model_edge (absolute divergence) to each market.
+    Markets without computable edge get _model_edge = 0.
+    """
+    import aiohttp
+    from signals.resolution_crypto import (
+        _compute_volatility,
+        _fetch_coingecko_chart,
+        _fetch_coingecko_price,
+        _fetch_deribit_iv,
+        _select_volatility,
+        _shrink_drift,
+        barrier_probability,
+        log_normal_probability,
+        _coin_data_cache,
+        COIN_DATA_CACHE_TTL,
+    )
+    import time as _time
+
+    screened = 0
+    edge_found = 0
+
+    async with aiohttp.ClientSession() as session:
+        for m in markets:
+            m["_model_edge"] = 0.0
+            m["_model_prob"] = None
+
+            params = m.get("_resolution_params")
+            if not params:
+                continue
+
+            coin_id = params.get("coin_id")
+            target_value = params.get("target_value")
+            target_direction = params.get("target_direction", "above")
+            resolution_type = params.get("resolution_type", "barrier")
+
+            if not coin_id or target_value is None:
+                # Crypto market without clean price target (regulation, protocol events, etc.)
+                # Give a baseline edge so it still gets aggregated via web_search + prediction_markets
+                m["_model_edge"] = 0.05
+                continue
+
+            try:
+                target_price = float(target_value)
+            except (TypeError, ValueError):
+                continue
+
+            # Get market price
+            market_price = 0.50
+            for tok in m.get("tokens", []):
+                if tok.get("outcome", "").upper() == "YES":
+                    try:
+                        market_price = float(tok.get("price", 0.50))
+                    except (TypeError, ValueError):
+                        pass
+                    break
+
+            # Use coin-level cache (shared with resolution_crypto provider)
+            now = _time.monotonic()
+            cached = _coin_data_cache.get(coin_id)
+            if cached is not None:
+                price_data, chart_data, deribit_iv, cached_at = cached
+                if now - cached_at >= COIN_DATA_CACHE_TTL:
+                    cached = None
+
+            if cached is None:
+                price_data = await _fetch_coingecko_price(session, coin_id)
+                chart_data = await _fetch_coingecko_chart(session, coin_id, days=90)
+                deribit_iv = await _fetch_deribit_iv(session, coin_id)
+                _coin_data_cache[coin_id] = (price_data, chart_data, deribit_iv, now)
+            else:
+                price_data, chart_data, deribit_iv, _ = cached
+
+            if not price_data:
+                continue
+
+            current_price = price_data.get("usd", 0.0)
+            if current_price <= 0:
+                continue
+
+            # Compute vol
+            vol_est = None
+            if chart_data and len(chart_data) >= 2:
+                vol_est = _compute_volatility(chart_data)
+
+            if vol_est is None or vol_est.annual_vol <= 0:
+                continue
+
+            # Days remaining
+            end_date = _parse_end_date(m)
+            if not end_date:
+                continue
+            days_remaining = max(0, (end_date - datetime.now(timezone.utc)).total_seconds() / 86400)
+
+            annual_vol, _ = _select_volatility(vol_est, deribit_iv, days_remaining)
+            shrunk_drift = None
+            if vol_est.realized_drift is not None:
+                shrunk_drift = _shrink_drift(vol_est.realized_drift, vol_est.drift_stderr)
+
+            # Compute model probability
+            if resolution_type == "terminal":
+                model_prob = log_normal_probability(
+                    current_price, target_price, annual_vol,
+                    days_remaining, target_direction, shrunk_drift,
+                )
+            else:
+                model_prob = barrier_probability(
+                    current_price, target_price, annual_vol,
+                    days_remaining, target_direction, shrunk_drift,
+                )
+
+            edge = abs(model_prob - market_price)
+            m["_model_edge"] = edge
+            m["_model_prob"] = model_prob
+
+            screened += 1
+            if edge >= 0.03:
+                edge_found += 1
+
+            logger.debug(
+                "Pre-screen %s: model=%.3f mkt=%.3f edge=%.3f",
+                m.get("question", "")[:50], model_prob, market_price, edge,
+            )
+
+    logger.info(
+        "Pre-screened %d crypto markets: %d with edge >= 3%%",
+        screened, edge_found,
+    )
+    return markets
+
+
+def rank_candidates(filtered_markets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Score and rank markets by edge potential and desirability.
+
+    Primary sort: _model_edge (pre-screened mathematical edge vs market price).
+    Markets with higher model-vs-market divergence are ranked first because
+    they're more likely to have real tradeable edges.
+
+    Secondary scoring (tiebreakers):
     - Resolution in 1-4 weeks: +3 points
     - Resolution in 4-8 weeks: +1 point
-    - Liquidity $1k-$10k: +2 points
+    - Liquidity $1k-$10k: +2 points (mid-liquidity = more likely mispriced)
     - Liquidity $500-$1k: +1 point
-    - Category is crypto: +2 points
+    - Market price in tradeable range (0.15-0.85): +2 points
     - 24h volume > $500: +1 point
+    - Ultra-high volume (> $50k/day): -1 point (efficiently priced)
 
-    Returns sorted list (highest score first) with _score attached.
+    Returns sorted list (highest edge first, then score) with _score attached.
     """
     now = datetime.now(timezone.utc)
     scored: list[dict[str, Any]] = []
@@ -563,33 +740,44 @@ def rank_candidates(filtered_markets: list[dict[str, Any]]) -> list[dict[str, An
             elif 28 < days_to_resolution <= 56:
                 score += 1
 
-        # Liquidity scoring
+        # Liquidity scoring — mid-liquidity markets are more likely mispriced
         liquidity = _get_liquidity(market)
         if 1000 <= liquidity <= 10000:
             score += 2
         elif 500 <= liquidity < 1000:
             score += 1
 
-        # Category scoring
-        category = market.get("_category", "")
-        if category == "crypto":
-            score += 2
+        # Price range scoring — markets near 0.50 have more room for edge
+        prices = _get_outcome_prices(market)
+        if prices:
+            yes_price = prices[0]
+            if 0.15 <= yes_price <= 0.85:
+                score += 2
 
         # Volume scoring
         volume = _get_volume_24h(market)
         if volume > 500:
             score += 1
+        # Ultra-high volume markets are efficiently priced — less edge opportunity
+        if volume > 50000:
+            score -= 1
 
         market["_score"] = score
         scored.append(market)
 
-    scored.sort(key=lambda m: m["_score"], reverse=True)
+    # Sort primarily by model edge (desc), then by score (desc)
+    scored.sort(
+        key=lambda m: (m.get("_model_edge", 0.0), m.get("_score", 0)),
+        reverse=True,
+    )
 
     logger.info(
-        "Ranked %d candidates (top score=%d, bottom score=%d)",
+        "Ranked %d candidates (top edge=%.3f/score=%d, bottom edge=%.3f/score=%d)",
         len(scored),
-        scored[0]["_score"] if scored else 0,
-        scored[-1]["_score"] if scored else 0,
+        scored[0].get("_model_edge", 0) if scored else 0,
+        scored[0].get("_score", 0) if scored else 0,
+        scored[-1].get("_model_edge", 0) if scored else 0,
+        scored[-1].get("_score", 0) if scored else 0,
     )
     return scored
 

@@ -51,7 +51,7 @@ from tui.widgets.status_panel import StatusPanel
 logger = logging.getLogger(__name__)
 
 # Max markets to aggregate per filter cycle
-BATCH_SIZE = 20
+BATCH_SIZE = 40
 
 
 class TUIApp(App):
@@ -468,6 +468,7 @@ class TUIApp(App):
             discover_markets,
             extract_resolution_params,
             filter_markets,
+            pre_screen_crypto_edge,
             rank_candidates,
         )
 
@@ -503,8 +504,13 @@ class TUIApp(App):
                         m["_resolution_params"] = params
                 self._post_stage("extract", 3, processed=i + 1, total=len(filtered), started_at=pipeline_start)
 
-            # Stage 4: Rank
-            self._post_stage("rank", 4, started_at=pipeline_start)
+            # Stage 4: Pre-screen with CoinGecko math (free, fast)
+            self._post_stage("prescreen", 4, processed=0, total=len(filtered), started_at=pipeline_start)
+            filtered = await pre_screen_crypto_edge(filtered)
+            self._post_stage("prescreen", 4, processed=len(filtered), total=len(filtered), started_at=pipeline_start)
+
+            # Stage 5: Rank by edge potential
+            self._post_stage("rank", 5, started_at=pipeline_start)
             ranked = rank_candidates(filtered)
 
         return ranked
@@ -521,7 +527,7 @@ class TUIApp(App):
             running=True,
             current_stage=stage,
             stage_index=index,
-            total_stages=5,
+            total_stages=6,
             items_processed=processed,
             items_total=total,
             started_at=started_at or datetime.now(timezone.utc),

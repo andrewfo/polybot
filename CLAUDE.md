@@ -49,7 +49,7 @@ monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
 ### Kelly Criterion (strategy/kelly.py) — Section 5 COMPLETE
 - `TradeDecision` dataclass with full audit trail (15 fields incl. `effective_prob`)
 - `calculate_kelly()` confidence-blends estimate toward market price, then computes fractional Kelly (0.25x) with fee-adjusted odds
-- Confidence blending: `effective_prob = confidence * estimated_prob + (1 - confidence) * market_price`
+- Confidence blending: `blend_weight = max(confidence, MIN_CONFIDENCE_BLEND)` then `effective_prob = blend_weight * estimated_prob + (1 - blend_weight) * market_price` — floor prevents full edge dilution
 - Fee adjustment: Polymarket's 2% profit fee reduces effective odds (POLYMARKET_FEE_RATE setting)
 - Integrated into pipeline: every successful aggregation runs Kelly sizing
 - Results shown in TUI "Bets" tab with table + detail view
@@ -58,7 +58,8 @@ monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
 ## Market Discovery — Gamma API
 - Use Gamma API (`https://gamma-api.polymarket.com/markets`) for all market discovery — NOT the CLOB API
 - No auth required for Gamma read endpoints
-- Fetch with `?active=true&closed=false&order=volume24hr&ascending=false&limit=200`
+- Primary fetch: `?active=true&closed=false&order=volume24hr&ascending=false&limit=200` (by volume)
+- Secondary fetch: `?active=true&closed=false&order=startDate&ascending=false&limit=200` (newest, more likely mispriced)
 - Key fields: `conditionId`, `liquidityNum`, `volume24hr`, `spread`, `bestBid`, `bestAsk`, `outcomePrices[]`, `endDate`, `clobTokenIds[]`, `outcomes[]`
 - `liquidity`/`liquidityNum` values on Polymarket range from $500 to $5M+ — filter bands must account for this
 - Spread data comes from Gamma directly — do NOT fall back to CLOB API for spread (causes 400 errors)
@@ -74,7 +75,8 @@ monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
 4. Near-certain price: drop if any outcome price <= 0.02 or >= 0.98
 5. Spread: drop if spread > `MAX_SPREAD` (0.10) — Gamma data only
 6. Skip markets with existing positions
-7. Sort survivors by `volume_24hr` descending
+7. Pre-screen with CoinGecko math: compute barrier/terminal probability, compare to market price, attach `_model_edge`
+8. Rank by edge potential (model-vs-market divergence), then by score (time, liquidity, price range, volume)
 
 ## Signal Aggregator (signals/aggregator.py)
 - Collects signals from 3 providers (resolution_crypto, web_search, prediction_markets)
@@ -117,10 +119,10 @@ monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
 
 ### Pipeline Loop (when bot is running)
 When the bot is started via `s` key, it runs a continuous loop:
-1. **Filter**: Discover → filter → categorize → extract → rank markets
-2. **Aggregate**: Take top 20 filtered markets, run full signal aggregation on each
+1. **Filter**: Discover (volume + newest sort) → filter → categorize → extract → pre-screen (CoinGecko math) → rank by edge potential
+2. **Aggregate**: Take top 40 markets with highest model-vs-market edge, run full signal aggregation on each
 3. **Dedup**: Skip markets already aggregated in previous cycles (tracked by conditionId)
-4. **Repeat**: After top 20 are done, discard remaining and re-filter
+4. **Repeat**: After top 40 are done, discard remaining and re-filter
 5. If all top markets are already processed, clear history and re-filter
 6. The "In Progress" tab shows the current batch with per-market status (waiting/processing/done/skipped/error)
 7. The Home tab shows the current bot process phase (filtering/aggregating/waiting)

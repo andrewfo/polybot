@@ -12,6 +12,7 @@ from config.settings import (
     KELLY_FRACTION,
     MAX_POSITION_PCT,
     MIN_BANKROLL_RESERVE,
+    MIN_CONFIDENCE_BLEND,
     MIN_EDGE_THRESHOLD,
     POLYMARKET_FEE_RATE,
 )
@@ -90,7 +91,9 @@ def calculate_kelly(
     # Confidence-blend: shrink our estimate toward the market price.
     # If confidence=1.0 we fully trust our estimate; if confidence=0.0
     # we have no information and defer to the market entirely.
-    effective_prob = confidence * estimated_prob + (1.0 - confidence) * market_price
+    # Floor the blend weight so we never dilute more than 50% toward market.
+    blend_weight = max(confidence, MIN_CONFIDENCE_BLEND)
+    effective_prob = blend_weight * estimated_prob + (1.0 - blend_weight) * market_price
 
     # Determine side using the blended probability
     if effective_prob >= market_price:

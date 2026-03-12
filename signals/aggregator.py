@@ -232,7 +232,7 @@ def _build_frontier_prompt(
         f'7. Rate your overall confidence (0-1) in this estimate.\n'
         f'8. Explain your reasoning in 2-3 sentences.\n'
         f'\n'
-        f'IMPORTANT: Be calibrated. If you\'re unsure, your probability should be closer to the market price, not further from it. Only diverge significantly from the market when evidence is strong.\n'
+        f'IMPORTANT: Be calibrated. Do not anchor to the market price — form your own estimate from the evidence. If your data-driven estimate disagrees with the market, trust the data. Markets can be wrong, especially in mid-to-low liquidity crypto markets.\n'
         f'\n'
         f'Respond as JSON only:\n'
         f'{{\n'

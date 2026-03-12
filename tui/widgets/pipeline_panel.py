@@ -9,8 +9,8 @@ from textual.widgets import DataTable, Static, ProgressBar, Label
 
 from tui.messages import BatchUpdate, DrillDownRequest, PipelineStageUpdate, PipelineComplete
 
-STAGE_NAMES = ["discover", "filter", "categorize", "extract", "rank"]
-STAGE_WEIGHTS = [0.10, 0.20, 0.35, 0.15, 0.20]  # Weighted progress per stage
+STAGE_NAMES = ["discover", "filter", "categorize", "extract", "prescreen", "rank"]
+STAGE_WEIGHTS = [0.08, 0.15, 0.25, 0.12, 0.25, 0.15]  # Weighted progress per stage
 
 STATUS_DISPLAY = {
     "waiting": "[#667788]\u23f3 Waiting[/#667788]",

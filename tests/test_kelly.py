@@ -122,19 +122,20 @@ class TestConfidenceBlending:
         d = _kelly(estimated_prob=0.60, market_price=0.40, confidence=1.0)
         assert abs(d.effective_prob - 0.60) < 1e-9
 
-    def test_zero_confidence_collapses_to_market(self) -> None:
+    def test_zero_confidence_uses_blend_floor(self) -> None:
         d = _kelly(estimated_prob=0.60, market_price=0.40, confidence=0.0)
-        # effective = 0.0*0.60 + 1.0*0.40 = 0.40 = market_price → zero edge → skip
-        assert abs(d.effective_prob - 0.40) < 1e-9
-        assert d.should_trade is False
+        # With MIN_CONFIDENCE_BLEND=0.50: effective = 0.50*0.60 + 0.50*0.40 = 0.50
+        # Blend floor prevents full collapse to market price
+        assert abs(d.effective_prob - 0.50) < 1e-9
+        assert d.should_trade is True  # 10% edge after blend floor
 
-    def test_low_confidence_can_kill_trade(self) -> None:
-        """Low confidence shrinks effective edge below threshold → skip."""
+    def test_low_confidence_with_blend_floor(self) -> None:
+        """Low confidence uses blend floor — small edge can still pass threshold."""
         d = _kelly(estimated_prob=0.56, market_price=0.50, confidence=0.30)
-        # effective = 0.30*0.56 + 0.70*0.50 = 0.168 + 0.35 = 0.518
-        # edge = 0.518 - 0.50 = 0.018 < 0.05 threshold → skip
-        assert d.should_trade is False
-        assert "edge below threshold" in d.skip_reason
+        # With MIN_CONFIDENCE_BLEND=0.50: effective = 0.50*0.56 + 0.50*0.50 = 0.53
+        # edge = 0.53 - 0.50 = 0.03 = MIN_EDGE_THRESHOLD → passes
+        assert abs(d.effective_prob - 0.53) < 1e-9
+        assert d.should_trade is True
 
 
 # ---------------------------------------------------------------------------
