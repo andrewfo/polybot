@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from rich.markup import escape as esc
 from textual.app import ComposeResult
 from textual.containers import Vertical, VerticalScroll
 from textual.widgets import DataTable, Label, Static
@@ -182,11 +183,11 @@ class BetsPanel(Vertical):
 
         # ── Header ──
         trade_color = C_GREEN if d.should_trade else C_RED
-        status = "TRADE" if d.should_trade else f"SKIP — {d.skip_reason}"
+        status = "TRADE" if d.should_trade else f"SKIP — {esc(d.skip_reason)}"
         sections.append(
             f"[bold {trade_color}]{'═' * 60}[/]\n"
-            f"[bold {C_TEXT}]{d.market_question}[/]\n"
-            f"[{C_DIM}]ID: {d.market_id}  |  Token: {d.token_id}[/]\n"
+            f"[bold {C_TEXT}]{esc(d.market_question)}[/]\n"
+            f"[{C_DIM}]ID: {esc(d.market_id)}  |  Token: {esc(d.token_id)}[/]\n"
             f"[bold {trade_color}]Decision: {status}[/]"
         )
 
@@ -302,7 +303,7 @@ class BetsPanel(Vertical):
             # Trend
             trend = crypto_raw.get("trend")
             if trend:
-                sections.append(f"[{C_MUTED}]90d Trend:[/] [{C_TEXT}]{trend}[/]")
+                sections.append(f"[{C_MUTED}]90d Trend:[/] [{C_TEXT}]{esc(str(trend))}[/]")
 
         # ── Kelly Math Breakdown ──
         sections.append("")
@@ -324,7 +325,7 @@ class BetsPanel(Vertical):
         if agg:
             sections.append("")
             sections.append(f"[bold {C_TEXT}]╔══ FRONTIER MODEL REASONING ══╗[/]")
-            sections.append(f"[{C_TEXT}]{agg.reasoning}[/]")
+            sections.append(f"[{C_TEXT}]{esc(agg.reasoning)}[/]")
 
         sections.append(f"\n[{C_DIM}]{'─' * 60}[/]")
 

@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
+from rich.markup import escape as esc
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
@@ -98,8 +99,8 @@ def _build_market_info(market: dict[str, Any]) -> str:
 
     lines = [
         f"[bold {C_TEXT}]{'═' * 60}[/]",
-        f"[bold {C_TEXT}]{question}[/]",
-        f"[{C_DIM}]ID: {condition_id}  |  Category: {category}[/]",
+        f"[bold {C_TEXT}]{esc(question)}[/]",
+        f"[{C_DIM}]ID: {esc(condition_id)}  |  Category: {esc(category)}[/]",
         f"[{C_DIM}]{'─' * 60}[/]",
         "",
     ]
@@ -177,13 +178,13 @@ def _build_signals_section(agg: AggregatedSignal) -> str:
         lines.append(f"  [{C_MUTED}]Confidence:[/]   {conf_bar}")
         lines.append(f"  [{C_MUTED}]Weight:[/]       [{C_TEXT}]{signal.confidence:.2f} × {multiplier:.1f}x = {ew:.2f}[/]")
         lines.append(f"  [{C_MUTED}]Data Points:[/]  [{C_TEXT}]{signal.data_points}[/]")
-        lines.append(f"  [{C_MUTED}]Reasoning:[/]    [{C_TEXT}]{signal.reasoning}[/]")
+        lines.append(f"  [{C_MUTED}]Reasoning:[/]    [{C_TEXT}]{esc(signal.reasoning)}[/]")
 
         # Raw evidence
         evidence = _format_raw_evidence(signal)
         if evidence:
             lines.append(f"  [{C_MUTED}]Raw Evidence:[/]")
-            lines.append(f"[{C_DIM}]{evidence}[/]")
+            lines.append(f"[{C_DIM}]{esc(evidence)}[/]")
 
     return "\n".join(lines)
 
@@ -267,7 +268,7 @@ def _build_crypto_section(agg: AggregatedSignal) -> str:
     if days is not None:
         lines.append(f"[{C_MUTED}]Days remaining:[/] [{C_TEXT}]{days:.0f}[/]")
     if trend:
-        lines.append(f"[{C_MUTED}]90d Trend:[/] [{C_TEXT}]{trend}[/]")
+        lines.append(f"[{C_MUTED}]90d Trend:[/] [{C_TEXT}]{esc(str(trend))}[/]")
 
     return "\n".join(lines)
 
@@ -337,12 +338,12 @@ def _build_frontier_section(agg: AggregatedSignal) -> str:
         f"[{C_MUTED}]Market Efficiency:[/]   [{C_TEXT}]{agg.market_efficiency}[/]",
         "",
         f"[{C_MUTED}]Reasoning:[/]",
-        f"[{C_TEXT}]{agg.reasoning}[/]",
+        f"[{C_TEXT}]{esc(agg.reasoning)}[/]",
     ])
 
     if agg.skipped:
         lines.append("")
-        lines.append(f"[bold {C_RED}]SKIPPED: {agg.skip_reason}[/]")
+        lines.append(f"[bold {C_RED}]SKIPPED: {esc(agg.skip_reason)}[/]")
 
     return "\n".join(lines)
 
