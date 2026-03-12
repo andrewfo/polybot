@@ -173,10 +173,16 @@ class BotProcessUpdate(Message):
 
 class BetUpdate(Message):
     """A Kelly-sized trade decision to display in the Bets tab."""
-    def __init__(self, decision: Any, market_data: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        decision: Any,
+        market_data: dict[str, Any] | None = None,
+        aggregation: Any = None,
+    ) -> None:
         super().__init__()
         self.decision = decision      # TradeDecision
         self.market_data = market_data
+        self.aggregation = aggregation  # AggregatedSignal | None
 
 
 class BatchUpdate(Message):

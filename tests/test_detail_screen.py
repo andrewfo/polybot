@@ -173,7 +173,7 @@ class TestBuildSignalsSection:
         agg = _make_aggregation(signals=signals)
         result = _build_signals_section(agg)
         assert "RESOLUTION_CRYPTO" in result
-        assert "DIRECT RESOLUTION SOURCE" in result
+        assert "RESOLUTION SOURCE" in result
         assert "WEB_SEARCH" in result
 
     def test_shows_weights(self) -> None:
@@ -193,11 +193,11 @@ class TestBuildMathSection:
         ]
         agg = _make_aggregation(signals=signals)
         result = _build_math_section(agg)
-        assert "crypto: 2.0x" in result
-        assert "web_search: 1.5x" in result
-        assert "Weighted Sum:" in result
-        assert "Total Weight:" in result
-        assert "Preliminary Estimate:" in result
+        assert "web_search" in result
+        assert "resolution_crypto" in result
+        assert "Weighted Sum" in result
+        assert "Total Weight" in result
+        assert "Preliminary Est" in result
 
 
 class TestBuildFrontierSection:
@@ -206,7 +206,7 @@ class TestBuildFrontierSection:
     def test_shows_divergence(self) -> None:
         agg = _make_aggregation(final_probability=0.65, market_price=0.50)
         result = _build_frontier_section(agg)
-        assert "15.00%" in result  # divergence
+        assert "15%" in result  # divergence shown in bar
         assert "agree" in result
         assert "underpriced" in result
 

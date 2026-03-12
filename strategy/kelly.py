@@ -13,6 +13,7 @@ from config.settings import (
     MAX_POSITION_PCT,
     MIN_BANKROLL_RESERVE,
     MIN_EDGE_THRESHOLD,
+    POLYMARKET_FEE_RATE,
 )
 from core import db
 
@@ -27,9 +28,10 @@ class TradeDecision:
     token_id: str
     market_question: str
     side: str                    # "BUY_YES" or "BUY_NO"
-    estimated_prob: float        # Our probability estimate
+    estimated_prob: float        # Raw probability estimate from frontier model
+    effective_prob: float        # Confidence-blended probability used for Kelly
     market_price: float          # Current market implied probability
-    edge: float                  # estimated_prob - market_price (or inverse)
+    edge: float                  # effective_prob - market_price (or inverse)
     full_kelly_fraction: float   # What full Kelly says
     adjusted_fraction: float     # After applying KELLY_FRACTION multiplier
     bet_size_usd: float          # Dollar amount
@@ -85,30 +87,38 @@ def calculate_kelly(
     TradeDecision
         Full audit record including whether to trade and why/why not.
     """
-    # Determine side
-    if estimated_prob >= market_price:
+    # Confidence-blend: shrink our estimate toward the market price.
+    # If confidence=1.0 we fully trust our estimate; if confidence=0.0
+    # we have no information and defer to the market entirely.
+    effective_prob = confidence * estimated_prob + (1.0 - confidence) * market_price
+
+    # Determine side using the blended probability
+    if effective_prob >= market_price:
         # BUY YES: we think YES is underpriced
         side = "BUY_YES"
-        edge = estimated_prob - market_price
-        # Odds received: pay market_price to win 1
-        b = (1.0 - market_price) / market_price if market_price > 0 else 0.0
-        p = estimated_prob
-        q = 1.0 - estimated_prob
+        edge = effective_prob - market_price
+        # Fee-adjusted odds: profit after Polymarket fee
+        # Profit per share = (1 - market_price) * (1 - fee)
+        net_profit = (1.0 - market_price) * (1.0 - POLYMARKET_FEE_RATE)
+        b = net_profit / market_price if market_price > 0 else 0.0
+        p = effective_prob
+        q = 1.0 - effective_prob
     else:
         # BUY NO: we think YES is overpriced, so NO is underpriced
         side = "BUY_NO"
-        edge = market_price - estimated_prob
-        # Odds received: pay (1 - market_price) to win 1
+        edge = market_price - effective_prob
+        # Fee-adjusted odds for NO side
         no_price = 1.0 - market_price
-        b = market_price / no_price if no_price > 0 else 0.0
-        p = 1.0 - estimated_prob
-        q = estimated_prob
+        net_profit = market_price * (1.0 - POLYMARKET_FEE_RATE)
+        b = net_profit / no_price if no_price > 0 else 0.0
+        p = 1.0 - effective_prob
+        q = effective_prob
 
     # --- Safety check 1: edge below threshold ---
     if edge < MIN_EDGE_THRESHOLD:
         return _skip(
             market_id, token_id, market_question, side,
-            estimated_prob, market_price, edge, confidence,
+            estimated_prob, effective_prob, market_price, edge, confidence,
             reason="edge below threshold",
         )
 
@@ -119,7 +129,7 @@ def calculate_kelly(
     if full_kelly_f <= 0:
         return _skip(
             market_id, token_id, market_question, side,
-            estimated_prob, market_price, edge, confidence,
+            estimated_prob, effective_prob, market_price, edge, confidence,
             reason="no positive edge",
         )
 
@@ -131,7 +141,7 @@ def calculate_kelly(
     if bet_size < 1.0:
         return _skip(
             market_id, token_id, market_question, side,
-            estimated_prob, market_price, edge, confidence,
+            estimated_prob, effective_prob, market_price, edge, confidence,
             reason="bet too small (< $1)",
         )
 
@@ -150,7 +160,7 @@ def calculate_kelly(
         if bet_size < 1.0:
             return _skip(
                 market_id, token_id, market_question, side,
-                estimated_prob, market_price, edge, confidence,
+                estimated_prob, effective_prob, market_price, edge, confidence,
                 reason="bet too small after reserve (< $1)",
             )
         logger.info(
@@ -165,7 +175,7 @@ def calculate_kelly(
         if remaining_room <= 0:
             return _skip(
                 market_id, token_id, market_question, side,
-                estimated_prob, market_price, edge, confidence,
+                estimated_prob, effective_prob, market_price, edge, confidence,
                 reason="existing position at max exposure",
             )
         if bet_size > remaining_room:
@@ -177,7 +187,7 @@ def calculate_kelly(
             if bet_size < 1.0:
                 return _skip(
                     market_id, token_id, market_question, side,
-                    estimated_prob, market_price, edge, confidence,
+                    estimated_prob, effective_prob, market_price, edge, confidence,
                     reason="bet too small after existing exposure (< $1)",
                 )
 
@@ -189,6 +199,7 @@ def calculate_kelly(
         market_question=market_question,
         side=side,
         estimated_prob=estimated_prob,
+        effective_prob=effective_prob,
         market_price=market_price,
         edge=edge,
         full_kelly_fraction=full_kelly_f,
@@ -201,8 +212,9 @@ def calculate_kelly(
     )
 
     logger.info(
-        "TRADE: %s %s | edge=%.3f kelly=%.3f adj=%.3f bet=$%.2f EV=$%.2f",
-        side, market_question[:50], edge, full_kelly_f, adjusted_f, bet_size, expected_value,
+        "TRADE: %s %s | edge=%.3f eff_prob=%.3f kelly=%.3f adj=%.3f bet=$%.2f EV=$%.2f",
+        side, market_question[:50], edge, effective_prob, full_kelly_f, adjusted_f,
+        bet_size, expected_value,
     )
     return decision
 
@@ -213,6 +225,7 @@ def _skip(
     market_question: str,
     side: str,
     estimated_prob: float,
+    effective_prob: float,
     market_price: float,
     edge: float,
     confidence: float,
@@ -220,8 +233,8 @@ def _skip(
 ) -> TradeDecision:
     """Build a TradeDecision that says 'don't trade' with a reason."""
     logger.info(
-        "SKIP: %s | %s (edge=%.3f, est=%.3f, mkt=%.3f)",
-        market_question[:50], reason, edge, estimated_prob, market_price,
+        "SKIP: %s | %s (edge=%.3f, eff=%.3f, est=%.3f, mkt=%.3f)",
+        market_question[:50], reason, edge, effective_prob, estimated_prob, market_price,
     )
     return TradeDecision(
         market_id=market_id,
@@ -229,6 +242,7 @@ def _skip(
         market_question=market_question,
         side=side,
         estimated_prob=estimated_prob,
+        effective_prob=effective_prob,
         market_price=market_price,
         edge=edge,
         full_kelly_fraction=0.0,

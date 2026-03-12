@@ -695,7 +695,9 @@ class TUIApp(App):
                 confidence=agg_result.confidence,
                 available_bankroll=available_bankroll,
             )
-            self.post_message(BetUpdate(decision=decision, market_data=mkt))
+            self.post_message(BetUpdate(
+                decision=decision, market_data=mkt, aggregation=agg_result,
+            ))
             return decision
         except Exception as e:
             logger.warning("Kelly sizing failed for '%s': %s", question[:50], e)

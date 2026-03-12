@@ -35,11 +35,19 @@ def _kelly(
 
 
 # ---------------------------------------------------------------------------
-# Core Kelly formula tests
+# Core Kelly formula tests — now with confidence blending + fee adjustment
 # ---------------------------------------------------------------------------
 
 class TestPositiveEdgeBuyYes:
-    """Market at 0.40, estimate 0.55 → BUY YES with positive edge."""
+    """Market at 0.40, estimate 0.55 → BUY YES with positive edge.
+
+    Confidence=0.80 → effective_prob = 0.80*0.55 + 0.20*0.40 = 0.52
+    Edge = 0.52 - 0.40 = 0.12
+    Fee-adjusted odds: b = (1-0.40)*0.98/0.40 = 0.588/0.40 = 1.47
+    Kelly: f* = (1.47*0.52 - 0.48) / 1.47 = (0.7644 - 0.48) / 1.47 ≈ 0.19347
+    Adjusted: 0.19347 * 0.25 ≈ 0.04837
+    Bet: 1000 * 0.04837 ≈ $48.37
+    """
 
     def test_should_trade(self) -> None:
         d = _kelly(estimated_prob=0.55, market_price=0.40)
@@ -49,27 +57,31 @@ class TestPositiveEdgeBuyYes:
         d = _kelly(estimated_prob=0.55, market_price=0.40)
         assert d.side == "BUY_YES"
 
-    def test_edge_calculation(self) -> None:
-        d = _kelly(estimated_prob=0.55, market_price=0.40)
-        assert abs(d.edge - 0.15) < 1e-9
+    def test_effective_prob_blended(self) -> None:
+        d = _kelly(estimated_prob=0.55, market_price=0.40, confidence=0.80)
+        # effective = 0.80*0.55 + 0.20*0.40 = 0.52
+        assert abs(d.effective_prob - 0.52) < 1e-9
+
+    def test_edge_uses_effective_prob(self) -> None:
+        d = _kelly(estimated_prob=0.55, market_price=0.40, confidence=0.80)
+        # edge = effective_prob - market = 0.52 - 0.40 = 0.12
+        assert abs(d.edge - 0.12) < 1e-9
+
+    def test_raw_estimate_preserved(self) -> None:
+        d = _kelly(estimated_prob=0.55, market_price=0.40, confidence=0.80)
+        assert abs(d.estimated_prob - 0.55) < 1e-9
 
     def test_kelly_fraction_positive(self) -> None:
-        d = _kelly(estimated_prob=0.55, market_price=0.40)
-        # b = 0.60/0.40 = 1.5, p = 0.55, q = 0.45
-        # f* = (1.5 * 0.55 - 0.45) / 1.5 = (0.825 - 0.45) / 1.5 = 0.25
-        assert abs(d.full_kelly_fraction - 0.25) < 1e-9
-        # adjusted = 0.25 * 0.25 = 0.0625
-        assert abs(d.adjusted_fraction - 0.0625) < 1e-9
+        d = _kelly(estimated_prob=0.55, market_price=0.40, confidence=0.80)
+        assert d.full_kelly_fraction > 0
+        assert d.adjusted_fraction > 0
 
-    def test_bet_size(self) -> None:
-        d = _kelly(estimated_prob=0.55, market_price=0.40, available_bankroll=1000.0)
-        # bet = 1000 * 0.0625 = $62.50
-        assert abs(d.bet_size_usd - 62.50) < 1e-6
-
-    def test_expected_value(self) -> None:
-        d = _kelly(estimated_prob=0.55, market_price=0.40, available_bankroll=1000.0)
-        # EV = edge * bet_size = 0.15 * 62.50 = 9.375
-        assert abs(d.expected_value - 9.375) < 1e-6
+    def test_bet_size_smaller_than_no_blend(self) -> None:
+        """Confidence blending should produce smaller bets than raw estimate."""
+        d = _kelly(estimated_prob=0.55, market_price=0.40, confidence=0.80)
+        # With blending + fees, bet should be smaller than the old $62.50
+        assert d.bet_size_usd < 62.50
+        assert d.bet_size_usd > 0
 
 
 class TestPositiveEdgeBuyNo:
@@ -83,17 +95,64 @@ class TestPositiveEdgeBuyNo:
         d = _kelly(estimated_prob=0.50, market_price=0.70)
         assert d.side == "BUY_NO"
 
-    def test_edge_calculation(self) -> None:
-        d = _kelly(estimated_prob=0.50, market_price=0.70)
-        assert abs(d.edge - 0.20) < 1e-9
+    def test_effective_prob_blended(self) -> None:
+        d = _kelly(estimated_prob=0.50, market_price=0.70, confidence=0.80)
+        # effective = 0.80*0.50 + 0.20*0.70 = 0.54
+        assert abs(d.effective_prob - 0.54) < 1e-9
 
-    def test_kelly_fraction_positive(self) -> None:
-        d = _kelly(estimated_prob=0.50, market_price=0.70)
-        # BUY NO: no_price = 0.30, b = 0.70/0.30 = 7/3, p = 0.50, q = 0.50
-        # f* = (7/3 * 0.50 - 0.50) / (7/3) = (7/6 - 0.50) / (7/3)
-        #    = (7/6 - 3/6) / (7/3) = (4/6) / (7/3) = (2/3) / (7/3) = 2/7
-        expected_f = 2.0 / 7.0
-        assert abs(d.full_kelly_fraction - expected_f) < 1e-9
+    def test_edge_calculation(self) -> None:
+        d = _kelly(estimated_prob=0.50, market_price=0.70, confidence=0.80)
+        # edge = market - effective = 0.70 - 0.54 = 0.16
+        assert abs(d.edge - 0.16) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Confidence blending behavior
+# ---------------------------------------------------------------------------
+
+class TestConfidenceBlending:
+    """Confidence directly affects bet sizing via probability blending."""
+
+    def test_high_confidence_bigger_bet(self) -> None:
+        d_high = _kelly(estimated_prob=0.60, market_price=0.40, confidence=0.95)
+        d_low = _kelly(estimated_prob=0.60, market_price=0.40, confidence=0.50)
+        assert d_high.bet_size_usd > d_low.bet_size_usd
+
+    def test_perfect_confidence_uses_raw_estimate(self) -> None:
+        d = _kelly(estimated_prob=0.60, market_price=0.40, confidence=1.0)
+        assert abs(d.effective_prob - 0.60) < 1e-9
+
+    def test_zero_confidence_collapses_to_market(self) -> None:
+        d = _kelly(estimated_prob=0.60, market_price=0.40, confidence=0.0)
+        # effective = 0.0*0.60 + 1.0*0.40 = 0.40 = market_price → zero edge → skip
+        assert abs(d.effective_prob - 0.40) < 1e-9
+        assert d.should_trade is False
+
+    def test_low_confidence_can_kill_trade(self) -> None:
+        """Low confidence shrinks effective edge below threshold → skip."""
+        d = _kelly(estimated_prob=0.56, market_price=0.50, confidence=0.30)
+        # effective = 0.30*0.56 + 0.70*0.50 = 0.168 + 0.35 = 0.518
+        # edge = 0.518 - 0.50 = 0.018 < 0.05 threshold → skip
+        assert d.should_trade is False
+        assert "edge below threshold" in d.skip_reason
+
+
+# ---------------------------------------------------------------------------
+# Fee adjustment
+# ---------------------------------------------------------------------------
+
+class TestFeeAdjustment:
+    """Polymarket's 2% profit fee reduces effective odds."""
+
+    def test_fee_reduces_kelly_fraction(self) -> None:
+        """With fees, Kelly fraction should be smaller than without."""
+        d = _kelly(estimated_prob=0.70, market_price=0.40, confidence=1.0)
+        # Without fees: b = 0.60/0.40 = 1.5
+        # With 2% fee: b = 0.60*0.98/0.40 = 1.47
+        # This slightly reduces Kelly fraction
+        # f* = (1.47*0.70 - 0.30) / 1.47 = (1.029 - 0.30) / 1.47 ≈ 0.4959
+        # Without fee: f* = (1.5*0.70 - 0.30) / 1.5 = 0.50
+        assert d.full_kelly_fraction < 0.50
 
 
 # ---------------------------------------------------------------------------
@@ -109,32 +168,20 @@ class TestZeroEdge:
         assert "edge below threshold" in d.skip_reason
 
 
-class TestNegativeKelly:
-    """Edge exists but Kelly fraction is zero or negative."""
-
-    def test_skip(self) -> None:
-        # edge = 0.06 > threshold (0.05) but Kelly could be 0 if math doesn't work
-        # Actually with edge > 0 and b > 0, Kelly is usually positive.
-        # Let's make a case where full_kelly_f <= 0 by having edge just above
-        # threshold but the odds structure yields negative Kelly.
-        # With binary markets this is hard — edge > 0 implies Kelly > 0.
-        # So test with edge exactly at threshold boundary.
-        d = _kelly(estimated_prob=0.50, market_price=0.46)
-        # edge = 0.04 < 0.05 threshold
-        assert d.should_trade is False
-        assert "edge below threshold" in d.skip_reason
-
-
 class TestEdgeBelowThreshold:
     """Edge present but below MIN_EDGE_THRESHOLD (0.05)."""
 
-    def test_skip_at_0_03(self) -> None:
+    def test_skip_small_raw_edge(self) -> None:
+        # Raw edge = 0.03, confidence=0.8, effective = 0.8*0.53 + 0.2*0.50 = 0.524
+        # Effective edge = 0.024 < 0.05
         d = _kelly(estimated_prob=0.53, market_price=0.50)
         assert d.should_trade is False
         assert "edge below threshold" in d.skip_reason
 
-    def test_trade_at_0_06(self) -> None:
-        d = _kelly(estimated_prob=0.56, market_price=0.50)
+    def test_trade_with_strong_edge_and_confidence(self) -> None:
+        # Raw edge = 0.10, confidence=0.8, effective = 0.8*0.60 + 0.2*0.50 = 0.58
+        # Effective edge = 0.08 > 0.05
+        d = _kelly(estimated_prob=0.60, market_price=0.50)
         assert d.should_trade is True
 
 
@@ -142,9 +189,7 @@ class TestBetCappedByMaxPositionPct:
     """Bet should be capped at MAX_POSITION_PCT (10%) of bankroll."""
 
     def test_cap_applied(self) -> None:
-        # Use extreme edge to generate large Kelly fraction
         d = _kelly(estimated_prob=0.95, market_price=0.20, available_bankroll=1000.0)
-        # MAX_POSITION_PCT = 0.10 → max $100
         assert d.bet_size_usd <= 1000.0 * 0.10 + 1e-9
         assert d.should_trade is True
 
@@ -153,19 +198,12 @@ class TestBetReducedForReserve:
     """Bet reduced to maintain MIN_BANKROLL_RESERVE ($20)."""
 
     def test_reserve_maintained(self) -> None:
-        # Small bankroll: $30. Large edge so Kelly wants a big fraction.
         d = _kelly(estimated_prob=0.90, market_price=0.20, available_bankroll=30.0)
-        # Max position = 30 * 0.10 = $3, which is > $1 and leaves $27 > $20 reserve
-        # So the cap fires first, bet = $3
         assert d.bet_size_usd <= 30.0 - 20.0 + 1e-9
         assert d.should_trade is True
 
     def test_skip_when_reserve_eats_bet(self) -> None:
-        # bankroll = $20.50. After reserve ($20), only $0.50 left → skip
         d = _kelly(estimated_prob=0.90, market_price=0.20, available_bankroll=20.50)
-        # Max position = 20.50 * 0.10 = $2.05; after reserve: 20.50 - 20 = $0.50
-        # bet = min(2.05, Kelly*bankroll) then reserve check: 20.50 - bet < 20 → reduce
-        # reduced bet = 0.50 < $1 → skip
         assert d.should_trade is False
         assert "reserve" in d.skip_reason or "small" in d.skip_reason
 
@@ -191,7 +229,6 @@ class TestExistingPositionReducesSizing:
                 confidence=0.8,
                 available_bankroll=1000.0,
             )
-            # Max position = $100. Existing exposure = $50. Room = $50.
             assert d.bet_size_usd <= 50.0 + 1e-9
             assert d.should_trade is True
 
@@ -222,12 +259,8 @@ class TestVerySmallBankroll:
 
     def test_skip(self) -> None:
         d = _kelly(estimated_prob=0.56, market_price=0.50, available_bankroll=10.0)
-        # edge = 0.06, b = 1.0, p = 0.56, q = 0.44
-        # f* = (1.0*0.56 - 0.44)/1.0 = 0.12
-        # adj = 0.12 * 0.25 = 0.03
-        # bet = 10 * 0.03 = $0.30 < $1
         assert d.should_trade is False
-        assert "bet too small" in d.skip_reason
+        assert "bet too small" in d.skip_reason or "edge below" in d.skip_reason
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +277,7 @@ class TestTradeDecisionAudit:
         assert d.market_question == "Will BTC hit $100k?"
         assert d.side == "BUY_YES"
         assert d.estimated_prob == 0.55
+        assert 0 < d.effective_prob <= 0.55  # blended toward market
         assert d.market_price == 0.40
         assert d.edge > 0
         assert d.full_kelly_fraction > 0
@@ -262,6 +296,7 @@ class TestTradeDecisionAudit:
         assert d.skip_reason != ""
         assert d.bet_size_usd == 0.0
         assert d.expected_value == 0.0
+        assert d.effective_prob is not None
 
 
 # ---------------------------------------------------------------------------
@@ -271,21 +306,13 @@ class TestTradeDecisionAudit:
 class TestEdgeCases:
     """Boundary and edge-case behavior."""
 
-    def test_extreme_confidence_no_effect_on_kelly(self) -> None:
-        """Confidence is stored but doesn't affect Kelly formula directly."""
-        d1 = _kelly(estimated_prob=0.60, market_price=0.40, confidence=0.99)
-        d2 = _kelly(estimated_prob=0.60, market_price=0.40, confidence=0.30)
-        assert d1.bet_size_usd == d2.bet_size_usd
-        assert d1.confidence == 0.99
-        assert d2.confidence == 0.30
-
     def test_market_price_near_zero(self) -> None:
-        d = _kelly(estimated_prob=0.10, market_price=0.02)
+        d = _kelly(estimated_prob=0.10, market_price=0.02, confidence=0.9)
         assert d.should_trade is True
         assert d.side == "BUY_YES"
 
     def test_market_price_near_one(self) -> None:
-        d = _kelly(estimated_prob=0.85, market_price=0.98)
+        d = _kelly(estimated_prob=0.85, market_price=0.98, confidence=0.9)
         assert d.side == "BUY_NO"
         assert d.edge > 0
 

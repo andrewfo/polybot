@@ -31,7 +31,7 @@ scripts/dashboard.py     → Standalone dashboard launcher
 ### Implemented Signal Engine (3 providers, crypto-focused)
 ```
 signals/base.py              → SignalResult dataclass + SignalProvider ABC
-signals/resolution_crypto.py → CoinGecko + log-normal model → returns math probability directly (NO LLM)
+signals/resolution_crypto.py → CoinGecko + barrier/terminal probability models (NO LLM)
 signals/aggregator.py        → Weighted signal merge → FRONTIER model final probability call
 signals/temporal.py          → Date context injection, urgency tiers, frontier system prompt builder
 signals/web_search.py        → Perplexity Sonar search-grounded LLM signal (universal, all categories)
@@ -47,8 +47,10 @@ monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
 ```
 
 ### Kelly Criterion (strategy/kelly.py) — Section 5 COMPLETE
-- `TradeDecision` dataclass with full audit trail (14 fields)
-- `calculate_kelly()` determines side, computes fractional Kelly (0.25x), applies 6 safety checks
+- `TradeDecision` dataclass with full audit trail (15 fields incl. `effective_prob`)
+- `calculate_kelly()` confidence-blends estimate toward market price, then computes fractional Kelly (0.25x) with fee-adjusted odds
+- Confidence blending: `effective_prob = confidence * estimated_prob + (1 - confidence) * market_price`
+- Fee adjustment: Polymarket's 2% profit fee reduces effective odds (POLYMARKET_FEE_RATE setting)
 - Integrated into pipeline: every successful aggregation runs Kelly sizing
 - Results shown in TUI "Bets" tab with table + detail view
 - Safety checks: edge threshold, positive Kelly, min bet $1, max position 10%, bankroll reserve $20, existing exposure
@@ -79,15 +81,25 @@ monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
 - Filters out signals with confidence=0 or probability=None
 - If 0 usable signals → returns None (skip market)
 - Computes weighted preliminary estimate using source multipliers:
-  - `resolution_crypto`: 2.0x (direct CoinGecko data, log-normal model — NO LLM)
+  - `resolution_crypto`: 2.0x (direct CoinGecko data, barrier/terminal model — NO LLM)
   - `prediction_markets`: 1.8x (cross-platform market consensus)
   - `web_search`: 1.5x (Perplexity Sonar search-grounded)
   - Weight = `signal.confidence * source_multiplier`
 - Makes single FRONTIER MODEL call with superforecaster prompt
+- Frontier model sees both terminal and barrier probabilities + multi-timescale vol data
 - If frontier confidence < 0.25 → skip market (returns None)
 - Frontier failure RAISES — never falls back to cheap model
 - All signals logged to `signals` SQLite table with full audit trail
 - `AggregatedSignal` dataclass holds final result with all metadata
+
+### Crypto Probability Model (signals/resolution_crypto.py)
+- **Barrier model** (`barrier_probability()`): P(price touches target anytime before expiry) — used for "Will X reach Y?" markets (most crypto markets)
+- **Terminal model** (`log_normal_probability()`): P(price above/below target at expiry) — used for "Will X be above Y on date Z?" markets
+- Resolution type (barrier/terminal) extracted by `extract_resolution_params()` in market_filter.py, defaults to "barrier" for crypto
+- **Volatility estimation** (`VolEstimate` dataclass): time-weighted with Bessel's correction, EWM (λ=0.94), 7-day short-term, all computed from actual timestamp intervals (not assuming daily)
+- **Vol selection**: Deribit IV preferred (forward-looking), blended with short-term realized for <14d markets; falls back to EWM → historical → 80% default
+- **Drift shrinkage**: Bayesian shrinkage toward zero based on t-statistic significance (prevents noisy 90d momentum from dominating)
+- **Confidence scoring**: penalizes vol regime instability, extreme probabilities, heavily-shrunk drift; boosts for Deribit IV availability
 
 ### TUI Commands (command bar via ':' key)
 - `aggregate [question] [market_price]` — Full aggregation pipeline (signals + frontier model)
