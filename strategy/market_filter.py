@@ -483,14 +483,20 @@ async def extract_resolution_params(
         'Identify: coin/token name, target price or metric, '
         'direction (above/below), target date.\n'
         '\n'
-        'Also identify any specific resolution methodology mentioned '
-        '(e.g., specific exchange, TWAP, specific data source, snapshot time).\n'
+        'Also identify:\n'
+        '- Any specific resolution methodology (e.g., specific exchange, TWAP, snapshot time)\n'
+        '- Resolution type: "barrier" if the market resolves YES when price reaches/touches '
+        'the target at ANY point before the deadline (e.g., "Will BTC hit $100k?", '
+        '"Will ETH reach $5000 by June?"). Use "terminal" if the market resolves based on '
+        'the price AT the specific deadline/expiry date (e.g., "Will BTC be above $100k '
+        'on Dec 31?", "closing price on March 15"). Most crypto markets are "barrier" type.\n'
         '\n'
         'Respond as JSON only:\n'
         '{"indicator_type": "price", "metric_name": "...", "target_value": null, '
         '"target_direction": "above"|"below"|"other", '
         '"target_date": "YYYY-MM-DD or null", "coin_id": "coingecko_id or null", '
-        '"resolution_source": "specific exchange/source mentioned or null"}'
+        '"resolution_source": "specific exchange/source mentioned or null", '
+        '"resolution_type": "barrier"|"terminal"}'
     )
 
     try:

@@ -1,15 +1,17 @@
 """Crypto resolution source signal provider.
 
-Fetches data from CoinGecko (free, no API key) and computes a log-normal
-price model probability. Returns the mathematical result directly — no
-cheap LLM adjustment. The frontier model receives the raw data and can
-make its own adjustments.
+Fetches data from CoinGecko (free, no API key) and computes probability
+using log-normal price models. Supports both terminal distribution
+(price at expiry) and barrier option (price touches target at any point).
+Returns the mathematical result directly — no cheap LLM adjustment.
+The frontier model receives the raw data and can make its own adjustments.
 """
 
 import logging
 import math
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -45,6 +47,19 @@ _COINGECKO_TO_DERIBIT: dict[str, str] = {
 USER_AGENT = "polymarket-bot/1.0 (signal research)"
 
 
+@dataclass
+class VolEstimate:
+    """Rich volatility estimate from historical price data."""
+
+    annual_vol: float           # Standard annualized vol (Bessel-corrected)
+    annual_vol_ewm: float       # Exponentially-weighted (recent emphasis)
+    short_term_vol: float       # Vol from last 7 days of data
+    realized_drift: float | None  # Annualized drift (mean log return * 365/interval)
+    drift_stderr: float | None  # Standard error of drift estimate
+    data_points: int            # Number of price observations
+    avg_interval_hours: float   # Average hours between observations
+
+
 def norm_cdf(x: float) -> float:
     """Normal CDF via math.erf — no scipy dependency needed."""
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
@@ -58,11 +73,15 @@ def log_normal_probability(
     direction: str = "above",
     drift: float | None = None,
 ) -> float:
-    """Compute probability of price reaching target using log-normal model.
+    """Compute probability of price being above/below target at expiry (terminal).
 
-    Uses geometric Brownian motion. When ``drift`` is provided (real-world
-    drift estimated from historical returns), it is used directly.  Otherwise
-    falls back to risk-neutral drift (``-0.5 * σ²``).
+    Uses geometric Brownian motion terminal distribution. When ``drift`` is
+    provided (real-world drift estimated from historical returns), it is used
+    directly. Otherwise falls back to risk-neutral drift (``-0.5 * sigma^2``).
+
+    This computes P(S_T >= target) or P(S_T < target) — the probability at
+    the specific expiry time, NOT the probability of ever touching the target.
+    For touch/barrier probability, use ``barrier_probability()`` instead.
 
     Args:
         current_price: Current asset price.
@@ -92,9 +111,9 @@ def log_normal_probability(
         return 0.5
 
     log_ratio = math.log(target_price / current_price)
-    # ``drift`` is the annualized log-price drift (i.e. (μ − ½σ²) for GBM).
-    # When estimated from historical log-returns, mean(log_returns)*365 already
-    # equals (μ − ½σ²), so we use it directly.  Risk-neutral fallback: μ=0.
+    # ``drift`` is the annualized log-price drift (i.e. (mu - 0.5*sigma^2) for GBM).
+    # When estimated from historical log-returns, mean(log_returns)*annualize
+    # already equals (mu - 0.5*sigma^2), so we use it directly.
     effective_drift = drift if drift is not None else (-0.5 * annual_vol ** 2)
     time_years = days_remaining / 365.0
     z = (log_ratio - effective_drift * time_years) / (annual_vol * math.sqrt(time_years))
@@ -102,6 +121,114 @@ def log_normal_probability(
     if direction == "below":
         return norm_cdf(z)
     return 1.0 - norm_cdf(z)  # P(price >= target)
+
+
+def barrier_probability(
+    current_price: float,
+    target_price: float,
+    annual_vol: float,
+    days_remaining: float,
+    direction: str = "above",
+    drift: float | None = None,
+) -> float:
+    """Probability that price touches target at ANY point before expiry.
+
+    Uses the closed-form solution for the running maximum/minimum of
+    geometric Brownian motion (reflection principle).
+
+    For direction="above": P(max_{0<=t<=T} S_t >= target)
+    For direction="below": P(min_{0<=t<=T} S_t <= target)
+
+    This is always >= the terminal probability from log_normal_probability().
+    Many Polymarket crypto markets resolve based on "Will X reach Y?" which
+    is a barrier/touch event, not a terminal price comparison.
+
+    Args:
+        current_price: Current asset price.
+        target_price: Target price threshold.
+        annual_vol: Annualized volatility (as decimal, e.g. 0.80 for 80%).
+        days_remaining: Days until resolution.
+        direction: "above" for ever-touch-above, "below" for ever-touch-below.
+        drift: Annualized log-return drift. None → risk-neutral fallback.
+
+    Returns:
+        Probability between 0 and 1.
+    """
+    # Edge cases
+    if days_remaining <= 0:
+        if direction == "below":
+            return 1.0 if current_price <= target_price else 0.0
+        return 1.0 if current_price >= target_price else 0.0
+
+    if annual_vol <= 0 or current_price <= 0 or target_price <= 0:
+        return 0.5
+
+    # Already past the barrier
+    if direction == "above" and current_price >= target_price:
+        return 1.0
+    if direction == "below" and current_price <= target_price:
+        return 1.0
+
+    m = drift if drift is not None else (-0.5 * annual_vol ** 2)
+    sigma = annual_vol
+    T = days_remaining / 365.0
+    sigma_sqrt_T = sigma * math.sqrt(T)
+
+    if direction == "above":
+        # P(max S_t >= H) where H > S_0
+        # b = log(H/S_0) > 0
+        b = math.log(target_price / current_price)
+        d1 = (m * T - b) / sigma_sqrt_T
+        d2 = (-m * T - b) / sigma_sqrt_T
+
+        # Exponential term: exp(2*m*b/sigma^2)
+        exponent = 2.0 * m * b / (sigma ** 2)
+    else:
+        # P(min S_t <= L) where L < S_0
+        # c = log(S_0/L) > 0
+        c = math.log(current_price / target_price)
+        d1 = (-m * T - c) / sigma_sqrt_T
+        d2 = (m * T - c) / sigma_sqrt_T
+
+        # Exponential term: exp(-2*m*c/sigma^2)
+        exponent = -2.0 * m * c / (sigma ** 2)
+
+    # Clamp exponent to avoid overflow
+    if exponent > 500:
+        # Very large exponent means reflection term dominates → prob ≈ 1
+        return 1.0
+    elif exponent < -500:
+        exp_term = 0.0
+    else:
+        exp_term = math.exp(exponent)
+
+    prob = norm_cdf(d1) + exp_term * norm_cdf(d2)
+    return max(0.0, min(1.0, prob))
+
+
+def _shrink_drift(drift: float, stderr: float | None) -> float:
+    """Shrink noisy drift estimates toward zero using Bayesian shrinkage.
+
+    When the drift estimate is statistically insignificant (low t-statistic),
+    we shrink it toward our prior of zero drift. This prevents noisy momentum
+    estimates from wildly swinging probability outputs.
+
+    Uses shrinkage factor: t^2 / (t^2 + 1), which gives:
+    - t=0 → keep 0% of drift (no signal)
+    - t=1 → keep 50% of drift (weak signal)
+    - t=2 → keep 80% of drift (moderate signal, ~95% significance)
+    - t=3 → keep 90% of drift (strong signal)
+    """
+    if drift == 0.0:
+        return 0.0
+
+    if stderr is None or stderr <= 0:
+        # No standard error available — use moderate shrinkage (50%)
+        return drift * 0.5
+
+    t = abs(drift) / stderr
+    shrinkage = t ** 2 / (t ** 2 + 1.0)
+    return drift * shrinkage
 
 
 async def _fetch_coingecko_price(
@@ -169,7 +296,6 @@ async def _fetch_deribit_iv(
 
     # Deribit perpetual index gives current price; we use the DVOL instrument
     # for overall implied vol.  Format: {CURRENCY}-DVOL
-    instrument = f"{deribit_currency}_USDC-PERPETUAL"
     dvol_instrument = f"{deribit_currency}VOL-USDC"
     params = {"instrument_name": dvol_instrument}
     try:
@@ -191,49 +317,142 @@ async def _fetch_deribit_iv(
     except Exception as e:
         logger.debug("Deribit DVOL fetch failed for %s: %s", coin_id, e)
 
-    # Fallback: try the nearest listed option's mark_iv field
-    # (requires knowing the current strike — skip for simplicity)
     return None
 
 
-def _compute_volatility(prices: list[list[float]]) -> tuple[float, float | None]:
-    """Compute annualized volatility and realized drift from daily price data.
+def _compute_volatility(prices: list[list[float]]) -> VolEstimate:
+    """Compute volatility estimates from price time series.
+
+    Uses time-aware intervals (not assuming daily spacing), Bessel's
+    correction for unbiased variance, and exponential weighting for
+    recent observations.
 
     Args:
         prices: List of [timestamp_ms, price] pairs from CoinGecko.
 
     Returns:
-        Tuple of (annualized_volatility, annualized_drift).
-        Drift is the mean daily log-return × 365 — already equals (μ − ½σ²)
-        for GBM, so it can be passed directly to ``log_normal_probability``.
-        Returns ``None`` for drift when insufficient data.
+        VolEstimate with multiple volatility metrics and drift.
     """
     if len(prices) < 2:
-        return 0.0, None
+        return VolEstimate(0.0, 0.0, 0.0, None, None, 0, 0.0)
 
-    # Extract just prices
-    price_values = [p[1] for p in prices if p[1] > 0]
-    if len(price_values) < 2:
-        return 0.0, None
+    # Build returns with actual time intervals
+    # Each entry: (log_return, interval_days, timestamp_ms)
+    returns: list[tuple[float, float, float]] = []
+    for i in range(1, len(prices)):
+        if prices[i][1] <= 0 or prices[i - 1][1] <= 0:
+            continue
+        dt_ms = prices[i][0] - prices[i - 1][0]
+        dt_days = dt_ms / (1000.0 * 86400.0)
+        if dt_days <= 0.001:  # skip sub-minute intervals
+            continue
+        lr = math.log(prices[i][1] / prices[i - 1][1])
+        returns.append((lr, dt_days, prices[i][0]))
 
-    # Compute daily log returns
-    log_returns: list[float] = []
-    for i in range(1, len(price_values)):
-        log_returns.append(math.log(price_values[i] / price_values[i - 1]))
+    if len(returns) < 2:
+        return VolEstimate(0.0, 0.0, 0.0, None, None, 0, 0.0)
 
-    if not log_returns:
-        return 0.0, None
+    n = len(returns)
+    total_time_days = sum(dt for _, dt, _ in returns)
+    avg_interval_days = total_time_days / n
+    avg_interval_hours = avg_interval_days * 24.0
+    total_time_years = total_time_days / 365.0
 
-    # Standard deviation of log returns
-    mean_ret = sum(log_returns) / len(log_returns)
-    variance = sum((r - mean_ret) ** 2 for r in log_returns) / len(log_returns)
-    daily_vol = math.sqrt(variance)
+    # --- Drift estimate (annualized) ---
+    # Under GBM: E[log(S_{i+1}/S_i)] = m * dt_i where m = (mu - sigma^2/2)
+    # MLE for m: total_log_return / total_time
+    total_log_return = sum(r for r, _, _ in returns)
+    drift_per_year = total_log_return / total_time_years if total_time_years > 0 else 0.0
 
-    # Annualize (crypto trades 365 days/year)
-    annual_vol = daily_vol * math.sqrt(365)
-    annual_drift = mean_ret * 365
+    # --- Standard vol (time-weighted, Bessel-corrected) ---
+    # Under GBM: Var(log_return_i) = sigma^2 * dt_i
+    # So (log_return_i - m*dt_i)^2 / dt_i is an estimate of sigma^2
+    # Average these with Bessel's correction (N-1)
+    sum_sq = 0.0
+    for r, dt, _ in returns:
+        dt_yr = dt / 365.0
+        residual = r - drift_per_year * dt_yr
+        sum_sq += residual ** 2 / dt_yr
 
-    return annual_vol, annual_drift
+    sigma_sq = sum_sq / (n - 1) if n > 1 else sum_sq
+    annual_vol = math.sqrt(max(0.0, sigma_sq))
+
+    # --- Exponentially-weighted vol (RiskMetrics-style) ---
+    # Lambda = 0.94 per day (industry standard), adjusted for actual interval
+    lambda_daily = 0.94
+    lambda_per_obs = lambda_daily ** avg_interval_days
+    ewm_var = 0.0
+    weight_sum = 0.0
+    w = 1.0
+    for r, dt, _ in reversed(returns):
+        # Annualized squared return (zero-mean for short-term vol)
+        annualized_sq = r ** 2 / (dt / 365.0)
+        ewm_var += w * annualized_sq
+        weight_sum += w
+        w *= lambda_per_obs
+    annual_vol_ewm = math.sqrt(ewm_var / weight_sum) if weight_sum > 0 else annual_vol
+
+    # --- Short-term vol (last 7 days of data) ---
+    last_ts = returns[-1][2]
+    cutoff_7d = last_ts - 7.0 * 24.0 * 3600.0 * 1000.0
+    short_returns = [(r, dt) for r, dt, ts in returns if ts >= cutoff_7d]
+    if len(short_returns) >= 3:
+        # Use zero-mean estimator for short-term (drift negligible over 7 days)
+        st_sum_sq = sum(r ** 2 / (dt / 365.0) for r, dt in short_returns)
+        short_term_vol = math.sqrt(st_sum_sq / len(short_returns))
+    else:
+        short_term_vol = annual_vol_ewm  # fall back to EWM
+
+    # --- Drift standard error ---
+    # SE(drift) ≈ sigma / sqrt(T) where T is observation period in years
+    drift_stderr = annual_vol / math.sqrt(total_time_years) if total_time_years > 0 else None
+
+    return VolEstimate(
+        annual_vol=annual_vol,
+        annual_vol_ewm=annual_vol_ewm,
+        short_term_vol=short_term_vol,
+        realized_drift=drift_per_year,
+        drift_stderr=drift_stderr,
+        data_points=n + 1,  # n returns = n+1 price points
+        avg_interval_hours=avg_interval_hours,
+    )
+
+
+def _select_volatility(
+    vol_est: VolEstimate,
+    deribit_iv: float | None,
+    days_remaining: float,
+) -> tuple[float, str]:
+    """Select the best volatility estimate for the given time horizon.
+
+    Priority:
+    1. Deribit IV when available (forward-looking, market-implied)
+       - For very short horizons (< 14d), blend with short-term realized
+    2. Short-term vol for short-dated markets (< 14d)
+    3. EWM vol for medium horizons (gives more weight to recent regime)
+    4. Standard historical vol for long horizons
+    5. Default 80% if no data available
+
+    Returns:
+        Tuple of (volatility, source_label).
+    """
+    if deribit_iv is not None and deribit_iv > 0:
+        if days_remaining < 14 and vol_est.short_term_vol > 0:
+            # Very short horizon: blend IV with recent realized vol
+            # Short-term realized captures current regime; IV captures expectations
+            blended = 0.5 * deribit_iv + 0.5 * vol_est.short_term_vol
+            return blended, f"blend(iv={deribit_iv:.0%},st={vol_est.short_term_vol:.0%})"
+        return deribit_iv, "deribit_iv"
+
+    # No Deribit IV available
+    if days_remaining < 14 and vol_est.short_term_vol > 0:
+        return vol_est.short_term_vol, "short_7d"
+    elif vol_est.annual_vol_ewm > 0:
+        return vol_est.annual_vol_ewm, "ewm"
+    elif vol_est.annual_vol > 0:
+        return vol_est.annual_vol, "historical"
+    else:
+        return 0.80, "default_80pct"
 
 
 def _describe_trend(prices: list[list[float]]) -> str:
@@ -260,9 +479,11 @@ class CryptoResolutionProvider(SignalProvider):
     Pipeline:
     1. If category != crypto -> return confidence=0 immediately
     2. Resolve CoinGecko coin_id (from kwargs or via cheap LLM mapping)
-    3. Fetch current price + 30-day history
-    4. Compute log-normal model probability (no LLM cost)
-    5. Return mathematical probability directly with raw data for frontier model
+    3. Fetch current price + 90-day history + Deribit IV
+    4. Compute volatility (time-weighted, EWM, short-term)
+    5. Determine resolution type (barrier vs terminal)
+    6. Compute probability with appropriate model
+    7. Return mathematical probability directly with raw data for frontier model
     """
 
     name: str = "resolution_crypto"
@@ -435,7 +656,7 @@ class CryptoResolutionProvider(SignalProvider):
     ) -> SignalResult:
         """Execute the full crypto signal pipeline.
 
-        Returns the log-normal model probability directly without LLM adjustment.
+        Returns the model probability directly without LLM adjustment.
         All raw data is included so the frontier model can make its own assessment.
         """
         resolution_keywords = kwargs.get("resolution_keywords", {})
@@ -498,29 +719,16 @@ class CryptoResolutionProvider(SignalProvider):
 
         target_price = float(target_value)
 
-        # Compute volatility and realized drift from chart data
-        historical_vol = 0.0
-        realized_drift: float | None = None
+        # Compute rich volatility estimate from chart data
+        vol_est = VolEstimate(0.0, 0.0, 0.0, None, None, 1, 0.0)
         trend_description = "No history available"
-        data_points = 1  # at least the current price
 
         if chart_data:
-            historical_vol, realized_drift = _compute_volatility(chart_data)
+            vol_est = _compute_volatility(chart_data)
             trend_description = _describe_trend(chart_data)
-            data_points = len(chart_data)
 
-        # Choose best volatility estimate: prefer Deribit IV (forward-looking)
-        vol_source = "historical"
-        annual_vol = historical_vol
-        if deribit_iv is not None and deribit_iv > 0:
-            annual_vol = deribit_iv
-            vol_source = "deribit_iv"
-            logger.info(
-                "Using Deribit IV %.0f%% for %s (historical %.0f%%)",
-                deribit_iv * 100, coin_id, historical_vol * 100,
-            )
-
-        # Compute days remaining
+        # Select best volatility for this time horizon
+        # Compute days remaining first
         try:
             end_dt = datetime.fromisoformat(market_end_date.replace("Z", "+00:00"))
             if end_dt.tzinfo is None:
@@ -530,43 +738,113 @@ class CryptoResolutionProvider(SignalProvider):
         except (ValueError, TypeError):
             days_remaining = 30.0  # default fallback
 
-        # Log-normal model probability — this IS the signal, no LLM needed
+        annual_vol, vol_source = _select_volatility(vol_est, deribit_iv, days_remaining)
+
+        # Shrink drift to avoid noisy estimates dominating the probability
+        realized_drift = vol_est.realized_drift
+        shrunk_drift: float | None = None
+        if realized_drift is not None:
+            shrunk_drift = _shrink_drift(realized_drift, vol_est.drift_stderr)
+
+        # Determine resolution type: barrier ("will reach") vs terminal ("will be at")
+        # Default to barrier for crypto markets since most are "Will X reach Y?"
+        resolution_type = resolution_keywords.get("resolution_type", "barrier")
+
+        # Compute probabilities with both models
         self._emit(
             market_question, "model",
-            f"vol={annual_vol:.0%}({vol_source}), drift={realized_drift or 0:.0%}, days={days_remaining:.0f}",
+            f"vol={annual_vol:.0%}({vol_source}), "
+            f"drift={shrunk_drift or 0:.0%}, "
+            f"days={days_remaining:.0f}, "
+            f"type={resolution_type}",
         )
-        model_prob = log_normal_probability(
+
+        terminal_prob = log_normal_probability(
             current_price=current_price,
             target_price=target_price,
             annual_vol=annual_vol,
             days_remaining=days_remaining,
             direction=target_direction,
-            drift=realized_drift,
+            drift=shrunk_drift,
         )
+
+        barrier_prob = barrier_probability(
+            current_price=current_price,
+            target_price=target_price,
+            annual_vol=annual_vol,
+            days_remaining=days_remaining,
+            direction=target_direction,
+            drift=shrunk_drift,
+        )
+
+        # Select the probability based on resolution type
+        if resolution_type == "terminal":
+            model_prob = terminal_prob
+        elif resolution_type == "barrier":
+            model_prob = barrier_prob
+        else:
+            # Unknown type: blend (weighted toward barrier since most crypto
+            # markets are "will reach" style)
+            model_prob = 0.7 * barrier_prob + 0.3 * terminal_prob
 
         # Distance from target
         distance_pct = ((target_price - current_price) / current_price) * 100
 
-        # Confidence based on data quality
-        confidence = 0.6  # base confidence for mathematical model
-        if annual_vol > 0 and data_points > 10:
-            confidence = 0.7
-        if annual_vol > 0 and data_points > 20:
-            confidence = 0.75
-        # Boost confidence when using forward-looking IV
-        if vol_source == "deribit_iv":
-            confidence = min(confidence + 0.05, 0.85)
+        # Confidence based on data quality, vol estimation, and model suitability
+        confidence = 0.55  # base confidence for mathematical model
+        data_points = vol_est.data_points
 
-        vol_label = f"vol={annual_vol:.0%}"
+        if annual_vol > 0 and data_points > 10:
+            confidence = 0.65
+        if annual_vol > 0 and data_points > 30:
+            confidence = 0.70
+
+        # Boost for forward-looking IV (much better than historical)
+        if deribit_iv is not None and deribit_iv > 0:
+            confidence = min(confidence + 0.08, 0.85)
+
+        # Reduce confidence when vol estimation is uncertain
+        # (large gap between standard and EWM vol suggests regime change)
+        if vol_est.annual_vol > 0 and vol_est.annual_vol_ewm > 0:
+            vol_ratio = max(vol_est.annual_vol, vol_est.annual_vol_ewm) / \
+                        min(vol_est.annual_vol, vol_est.annual_vol_ewm)
+            if vol_ratio > 1.5:
+                # Vol regime is unstable — reduce confidence
+                confidence = max(confidence - 0.10, 0.40)
+                logger.info(
+                    "Vol regime unstable for %s (ratio=%.1f), reducing confidence",
+                    coin_id, vol_ratio,
+                )
+
+        # Reduce confidence for very extreme probabilities (model might be overconfident)
+        if model_prob < 0.05 or model_prob > 0.95:
+            confidence = min(confidence, 0.70)
+
+        # Reduce confidence when drift was heavily shrunk (uncertain trend)
+        if realized_drift is not None and shrunk_drift is not None and realized_drift != 0:
+            shrink_ratio = abs(shrunk_drift) / abs(realized_drift)
+            if shrink_ratio < 0.3:
+                # Heavy shrinkage = very noisy drift estimate
+                confidence = max(confidence - 0.05, 0.40)
+
+        # Build detailed reasoning
+        vol_label = f"vol={annual_vol:.0%}({vol_source})"
         if vol_source == "deribit_iv":
-            vol_label = f"IV={annual_vol:.0%} (hist={historical_vol:.0%})"
+            vol_label = f"IV={annual_vol:.0%} (hist={vol_est.annual_vol:.0%}, ewm={vol_est.annual_vol_ewm:.0%})"
 
         drift_label = ""
-        if realized_drift is not None:
-            drift_label = f", drift={realized_drift:+.0%}"
+        if shrunk_drift is not None:
+            drift_label = f", drift={shrunk_drift:+.0%}"
+            if realized_drift is not None and abs(realized_drift - shrunk_drift) > 0.01:
+                drift_label += f" (raw={realized_drift:+.0%}, shrunk)"
+
+        model_label = "Barrier" if resolution_type == "barrier" else "Terminal"
+        if resolution_type not in ("barrier", "terminal"):
+            model_label = "Blended(barrier+terminal)"
 
         reasoning = (
-            f"Log-normal model: P(YES)={model_prob:.2f}. "
+            f"{model_label} model: P(YES)={model_prob:.3f} "
+            f"[terminal={terminal_prob:.3f}, barrier={barrier_prob:.3f}]. "
             f"Current ${current_price:,.2f}, target ${target_price:,.2f} ({target_direction}), "
             f"{vol_label}{drift_label}, {days_remaining:.0f}d remaining. "
             f"Trend: {trend_description}"
@@ -586,15 +864,24 @@ class CryptoResolutionProvider(SignalProvider):
                 "target_direction": target_direction,
                 "direction": target_direction,
                 "annualized_vol": annual_vol,
-                "historical_vol": historical_vol,
+                "historical_vol": vol_est.annual_vol,
+                "ewm_vol": vol_est.annual_vol_ewm,
+                "short_term_vol": vol_est.short_term_vol,
                 "vol_source": vol_source,
                 "realized_drift": realized_drift,
+                "shrunk_drift": shrunk_drift,
+                "drift_stderr": vol_est.drift_stderr,
                 "deribit_iv": deribit_iv,
                 "days_remaining": days_remaining,
-                "raw_log_normal_prob": model_prob,
+                "resolution_type": resolution_type,
+                "raw_log_normal_prob": terminal_prob,
+                "barrier_prob": barrier_prob,
+                "terminal_prob": terminal_prob,
+                "model_prob": model_prob,
                 "change_24h": change_24h / 100 if change_24h else 0.0,
                 "trend": trend_description,
                 "distance_pct": distance_pct,
+                "avg_interval_hours": vol_est.avg_interval_hours,
             },
         )
 

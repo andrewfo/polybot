@@ -76,8 +76,12 @@ class TestFormatRawEvidence:
             "target_price": 150000,
             "direction": "above",
             "annualized_vol": 0.78,
+            "vol_source": "historical",
             "change_24h": 0.021,
-            "raw_log_normal_prob": 0.38,
+            "terminal_prob": 0.38,
+            "barrier_prob": 0.55,
+            "model_prob": 0.55,
+            "resolution_type": "barrier",
             "trend": "upward (+5.2% over 30 data points)",
         })
         result = _format_raw_evidence(signal)
@@ -85,7 +89,8 @@ class TestFormatRawEvidence:
         assert "$142,300" in result
         assert "$150,000" in result
         assert "above" in result
-        assert "Log-normal model probability" in result
+        assert "Terminal model" in result
+        assert "Barrier model" in result
         assert "trend" in result.lower()
 
     def test_crypto_missing_fields(self) -> None:

@@ -104,28 +104,49 @@ def _format_raw_evidence(signal: SignalResult) -> str:
         direction = raw.get("direction", "?")
         vol = raw.get("annualized_vol")
         change_24h = raw.get("change_24h")
-        raw_prob = raw.get("raw_log_normal_prob")
+        terminal_prob = raw.get("terminal_prob")
+        barrier_prob = raw.get("barrier_prob")
+        model_prob = raw.get("model_prob")
+        resolution_type = raw.get("resolution_type", "barrier")
         trend = raw.get("trend")
         vol_source = raw.get("vol_source", "historical")
         historical_vol = raw.get("historical_vol")
+        ewm_vol = raw.get("ewm_vol")
+        short_term_vol = raw.get("short_term_vol")
         realized_drift = raw.get("realized_drift")
+        shrunk_drift = raw.get("shrunk_drift")
         deribit_iv = raw.get("deribit_iv")
         if current is None and target is None:
             return ""
         lines = ["  Market data:"]
         if current is not None and target is not None:
-            lines.append(f"  - Current: ${current:,.0f} | Target: ${target:,.0f} ({direction})")
+            distance_pct = raw.get("distance_pct", 0)
+            lines.append(f"  - Current: ${current:,.0f} | Target: ${target:,.0f} ({direction}, {distance_pct:+.1f}% away)")
         if change_24h is not None and vol is not None:
-            vol_label = f"{vol:.0%}"
-            if vol_source == "deribit_iv" and historical_vol is not None:
-                vol_label = f"{vol:.0%} (Deribit IV, historical: {historical_vol:.0%})"
+            vol_label = f"{vol:.0%} ({vol_source})"
+            if historical_vol is not None and ewm_vol is not None:
+                vol_label += f" [hist={historical_vol:.0%}, ewm={ewm_vol:.0%}"
+                if short_term_vol is not None:
+                    vol_label += f", 7d={short_term_vol:.0%}"
+                vol_label += "]"
             lines.append(f"  - 24h: {change_24h:+.1%} | Annual vol: {vol_label}")
-        if realized_drift is not None:
-            lines.append(f"  - Realized drift (90d): {realized_drift:+.1%}/yr")
         if deribit_iv is not None:
             lines.append(f"  - Deribit implied vol: {deribit_iv:.0%}")
-        if raw_prob is not None:
-            lines.append(f"  - Log-normal model probability: {raw_prob:.4f}")
+        if shrunk_drift is not None:
+            drift_info = f"{shrunk_drift:+.1%}/yr"
+            if realized_drift is not None and abs(realized_drift - shrunk_drift) > 0.01:
+                drift_info += f" (raw={realized_drift:+.1%}, shrunk for noise)"
+            lines.append(f"  - Drift estimate: {drift_info}")
+        elif realized_drift is not None:
+            lines.append(f"  - Realized drift (90d): {realized_drift:+.1%}/yr")
+        # Show both model probabilities so frontier can assess
+        lines.append(f"  - Resolution type: {resolution_type}")
+        if terminal_prob is not None and barrier_prob is not None:
+            lines.append(f"  - Terminal model (price at expiry): {terminal_prob:.4f}")
+            lines.append(f"  - Barrier model (price touches target anytime): {barrier_prob:.4f}")
+            lines.append(f"  - Selected model probability: {model_prob:.4f}")
+        elif model_prob is not None:
+            lines.append(f"  - Model probability: {model_prob:.4f}")
         if trend:
             lines.append(f"  - 90-day trend: {trend}")
         return "\n".join(lines)
