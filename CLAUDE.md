@@ -20,7 +20,7 @@ main.py                  → Entry point, --tui flag for dashboard (main loop NO
 core/llm.py              → OpenRouter client, tiered routing (cheap vs frontier)
 core/client.py           → Polymarket CLOB wrapper for ORDER EXECUTION ONLY (no market reading methods)
 core/wallet.py           → Wallet balance checks, gas monitoring
-core/db.py               → SQLite tables: trades, positions, signals, bankroll, llm_costs, market_cache
+core/db.py               → SQLite tables: trades, positions, signals, bankroll, llm_costs, market_cache, signal_calibration
 strategy/market_filter.py→ Gamma API discovery, filtering, LLM categorization (crypto-only gate), ranking
 tui/app.py               → Textual TUI dashboard with 4 tabs (Dashboard, Markets, Analysis, Logs), navy/grey/white theme
 tui/widgets/             → DashboardPanel, MarketsPanel, AnalysisListPanel, AnalysisDetailPanel, LogPanel, CommandBar, detail_builders, charts
@@ -40,9 +40,19 @@ signals/calibration.py       → Brier-score calibration, dynamic source multipl
 strategy/depth.py            → CLOB order book depth analysis, slippage estimation, bet adjustment
 ```
 
-### Not Yet Implemented (build plan sections 6-11)
+### Order Execution (strategy/executor.py) — Section 6 COMPLETE
+- `AutoStopError` exception for critical guardrail failures (drawdown, daily loss)
+- 5 risk guardrail functions: `check_position_count()`, `check_trade_rate()`, `check_drawdown()`, `check_daily_loss()`, `check_all_guardrails()`
+- `compute_limit_price(decision, market_data)`: BUY_YES uses `best_ask - SLIPPAGE_BUFFER`, BUY_NO uses `(1 - best_bid) - SLIPPAGE_BUFFER`, clamped `[0.01, 0.99]`
+- `PaperExecutor`: instant fills, records trade + position with `paper=True`, `manage_positions()` fetches Gamma prices for PnL
+- `TradeExecutor`: places limit orders via `ClobClientWrapper`, `monitor_orders()` detects fills and expires stale orders (>STALE_ORDER_MINUTES)
+- Both executors log >20% loss warnings in `manage_positions()`
+- Settings: `PAPER_TRADING` (default true), `STALE_ORDER_MINUTES` (default 15)
+- DB migrations: `order_id`, `placed_at`, `market_question` columns on trades table
+- `get_recent_trade_count(hours)` helper for trade rate limiting
+
+### Not Yet Implemented (build plan sections 7-11)
 ```
-strategy/executor.py     → Order placement, fill monitoring, position management (+ PaperExecutor)
 monitoring/pnl.py        → P&L tracking, bankroll snapshots, performance metrics
 monitoring/health.py     → Health checks while bot is running (TUI-driven)
 monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
@@ -230,7 +240,7 @@ docker-compose logs -f              # Tail logs
 ## Build Sequence
 This project is built section by section from `POLYMARKET_BOT_PLAN (1).md`. Each section is self-contained. Build in order: 0 → 1 → 2 → 3 → 4A → 4B → 4C → 4D → 5 → 6 → 7 → 8 → 9 → 10 → 11. Do not skip ahead. Run tests after each section before proceeding.
 
-**Current progress:** Sections 0-5 complete (core infra, LLM, wallet, DB, market filtering, TUI, full signal engine with aggregator, Kelly criterion). Section 6+ (executor, monitoring, main loop) not yet implemented.
+**Current progress:** Sections 0-6 complete (core infra, LLM, wallet, DB, market filtering, TUI, full signal engine with aggregator, Kelly criterion, order execution). Section 7+ (monitoring, main loop) not yet implemented.
 
 ## File Naming
 - All Python files use snake_case
