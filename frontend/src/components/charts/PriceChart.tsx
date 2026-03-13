@@ -20,58 +20,58 @@ interface PricePoint {
 export default function PriceChart({ data, target }: { data: PricePoint[]; target?: number }) {
   if (data.length === 0) return null
 
-  const chartData = {
-    labels: data.map(d => d.date),
-    datasets: [
-      {
-        label: 'Price',
-        data: data.map(d => d.price),
-        borderColor: colors.accent,
-        backgroundColor: colors.accent + '20',
-        fill: true,
-        pointRadius: 0,
-        borderWidth: 2,
-        tension: 0.3,
-      },
-      ...(target && target > 0 ? [{
-        label: 'Target',
-        data: data.map(() => target),
-        borderColor: colors.danger,
-        borderDash: [6, 3],
-        pointRadius: 0,
-        borderWidth: 1.5,
-        fill: false,
-      }] : []),
-    ],
-  }
-
   return (
     <div style={{ marginBottom: 12 }}>
       <Line
-        data={chartData}
+        data={{
+          labels: data.map(d => d.date),
+          datasets: [
+            {
+              label: 'Price',
+              data: data.map(d => d.price),
+              borderColor: colors.accent,
+              backgroundColor: 'rgba(59, 130, 246, 0.08)',
+              fill: true,
+              pointRadius: 0,
+              pointHoverRadius: 4,
+              pointHoverBackgroundColor: colors.accent,
+              borderWidth: 2,
+              tension: 0.3,
+            },
+            ...(target && target > 0 ? [{
+              label: 'Target',
+              data: data.map(() => target),
+              borderColor: colors.danger,
+              borderDash: [6, 3],
+              pointRadius: 0,
+              borderWidth: 1.5,
+              fill: false,
+            }] : []),
+          ],
+        }}
         options={{
           responsive: true,
           maintainAspectRatio: false,
+          interaction: { mode: 'index' as const, intersect: false },
           scales: {
             x: {
               grid: { display: false },
-              ticks: {
-                color: colors.textDim,
-                maxRotation: 0,
-                maxTicksLimit: 8,
-                font: { size: 10 },
-              },
+              border: { display: false },
+              ticks: { color: colors.textDim, maxRotation: 0, maxTicksLimit: 8, font: { size: 10 } },
             },
             y: {
-              grid: { color: colors.border },
+              grid: { color: 'rgba(30, 45, 74, 0.4)' },
+              border: { display: false },
               ticks: { color: colors.textDim },
             },
           },
           plugins: {
             tooltip: {
-              callbacks: {
-                label: ctx => `$${(ctx.parsed.y ?? 0).toLocaleString()}`,
-              },
+              backgroundColor: 'rgba(11, 21, 41, 0.95)',
+              borderColor: colors.border,
+              borderWidth: 1,
+              cornerRadius: 8,
+              callbacks: { label: ctx => `$${(ctx.parsed.y ?? 0).toLocaleString()}` },
             },
           },
         }}

@@ -11,43 +11,48 @@ interface ProbBar {
 }
 
 export default function ProbabilityBars({ bars }: { bars: ProbBar[] }) {
-  const data = {
-    labels: bars.map(b => b.label),
-    datasets: [{
-      data: bars.map(b => b.value * 100),
-      backgroundColor: bars.map(b => b.color),
-      borderRadius: 3,
-      barThickness: 20,
-    }],
-  }
-
   return (
     <div style={{ maxHeight: 200 }}>
       <Bar
-        data={data}
+        data={{
+          labels: bars.map(b => b.label),
+          datasets: [{
+            data: bars.map(b => b.value * 100),
+            backgroundColor: bars.map(b => b.color + '80'),
+            borderColor: bars.map(b => b.color),
+            borderWidth: 1,
+            borderRadius: 4,
+            barThickness: 22,
+          }],
+        }}
         options={{
           indexAxis: 'y',
           responsive: true,
           maintainAspectRatio: false,
           scales: {
             x: {
-              min: 0,
-              max: 100,
-              grid: { color: colors.border },
-              ticks: { color: colors.textDim, callback: v => v + '%' },
+              min: 0, max: 100,
+              grid: { color: 'rgba(30, 45, 74, 0.4)' },
+              border: { display: false },
+              ticks: { color: colors.textDim, callback: v => v + '%', font: { size: 10 } },
             },
             y: {
               grid: { display: false },
-              ticks: { color: colors.textMuted, font: { size: 11 } },
+              border: { display: false },
+              ticks: { color: colors.textMuted, font: { size: 11, family: 'Inter' } },
             },
           },
           plugins: {
             tooltip: {
+              backgroundColor: 'rgba(11, 21, 41, 0.95)',
+              borderColor: colors.border,
+              borderWidth: 1,
+              cornerRadius: 8,
               callbacks: { label: ctx => (ctx.parsed.x ?? 0).toFixed(1) + '%' },
             },
           },
         }}
-        height={bars.length * 30 + 40}
+        height={bars.length * 32 + 40}
       />
     </div>
   )

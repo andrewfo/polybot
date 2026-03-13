@@ -110,6 +110,23 @@ export interface LogEntry {
   message: string
 }
 
+export interface PnlSnapshot {
+  timestamp: string
+  total_value: number
+  available_cash: number
+  unrealized_pnl: number
+  realized_pnl_today: number
+  realized_pnl_total: number
+}
+
+export interface PnlResponse {
+  snapshots: PnlSnapshot[]
+  daily_pnl: number
+  total_pnl: number
+  trade_count: number
+  win_rate: number
+}
+
 const BASE = ''
 
 async function fetchJSON<T>(url: string): Promise<T> {
@@ -134,6 +151,7 @@ export const api = {
   fetchPositions: () => fetchJSON<Position[]>('/api/positions'),
   fetchCosts: () => fetchJSON<CostResponse>('/api/costs'),
   fetchBotStatus: () => fetchJSON<BotStatus>('/api/bot/status'),
+  fetchPnl: () => fetchJSON<PnlResponse>('/api/pnl'),
   fetchMarkets: (sort = 'volume24hr', limit = 20) =>
     fetchJSON<Market[]>(`/api/markets?sort=${sort}&limit=${limit}`),
   fetchAnalysisList: () => fetchJSON<AnalysisSummary[]>('/api/analysis'),

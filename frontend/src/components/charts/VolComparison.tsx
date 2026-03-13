@@ -4,18 +4,18 @@ import { colors } from '../../theme'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 
+const colorMap: Record<string, string> = {
+  historical: '#7a8ba5',
+  ewm: '#3b82f6',
+  short_term: '#f59e0b',
+  deribit_iv: '#22c55e',
+  selected: '#e8edf5',
+}
+
 export default function VolComparison({ data }: { data: Record<string, number> }) {
   const labels: string[] = []
   const values: number[] = []
   const barColors: string[] = []
-
-  const colorMap: Record<string, string> = {
-    historical: colors.textMuted,
-    ewm: colors.accent,
-    short_term: colors.warning,
-    deribit_iv: colors.success,
-    selected: '#ffffff',
-  }
 
   for (const [key, val] of Object.entries(data)) {
     if (typeof val === 'number' && val > 0) {
@@ -35,8 +35,10 @@ export default function VolComparison({ data }: { data: Record<string, number> }
           datasets: [{
             label: 'Volatility',
             data: values,
-            backgroundColor: barColors,
-            borderRadius: 3,
+            backgroundColor: barColors.map(c => c + '70'),
+            borderColor: barColors,
+            borderWidth: 1,
+            borderRadius: 4,
             barThickness: 24,
           }],
         }}
@@ -45,17 +47,25 @@ export default function VolComparison({ data }: { data: Record<string, number> }
           maintainAspectRatio: false,
           scales: {
             y: {
-              grid: { color: colors.border },
+              grid: { color: 'rgba(30, 45, 74, 0.4)' },
+              border: { display: false },
               ticks: { color: colors.textDim, callback: v => v + '%' },
             },
             x: {
               grid: { display: false },
+              border: { display: false },
               ticks: { color: colors.textMuted, font: { size: 11 } },
             },
           },
           plugins: {
             legend: { display: false },
-            tooltip: { callbacks: { label: ctx => (ctx.parsed.y ?? 0).toFixed(1) + '%' } },
+            tooltip: {
+              backgroundColor: 'rgba(11, 21, 41, 0.95)',
+              borderColor: colors.border,
+              borderWidth: 1,
+              cornerRadius: 8,
+              callbacks: { label: ctx => (ctx.parsed.y ?? 0).toFixed(1) + '%' },
+            },
           },
         }}
         height={160}

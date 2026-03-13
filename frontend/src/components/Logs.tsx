@@ -1,13 +1,21 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { colors } from '../theme'
+import { colors, cardStyle } from '../theme'
 import { api, LogEntry } from '../api'
 
 const levelColors: Record<string, string> = {
   DEBUG: colors.textDim,
-  INFO: colors.accent,
-  WARNING: colors.warning,
-  ERROR: colors.danger,
-  CRITICAL: colors.danger,
+  INFO: '#3b82f6',
+  WARNING: '#f59e0b',
+  ERROR: '#ef4444',
+  CRITICAL: '#ef4444',
+}
+
+const levelBg: Record<string, string> = {
+  DEBUG: 'transparent',
+  INFO: 'rgba(59,130,246,0.06)',
+  WARNING: 'rgba(245,158,11,0.06)',
+  ERROR: 'rgba(239,68,68,0.08)',
+  CRITICAL: 'rgba(239,68,68,0.12)',
 }
 
 export default function Logs() {
@@ -29,24 +37,27 @@ export default function Logs() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [logs])
 
+  const selectStyle: React.CSSProperties = {
+    background: colors.bgCard,
+    color: colors.textPrimary,
+    border: `1px solid ${colors.border}`,
+    borderRadius: 8,
+    padding: '6px 10px',
+    fontSize: 13,
+    fontFamily: 'inherit',
+    cursor: 'pointer',
+    outline: 'none',
+  }
+
   return (
     <div>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 12, alignItems: 'center' }}>
-        <label style={{ color: colors.textMuted, fontSize: 13 }}>
-          Level:
-          <select
-            value={level}
-            onChange={e => setLevel(e.target.value)}
-            style={{
-              marginLeft: 6,
-              background: colors.bgCard,
-              color: colors.textPrimary,
-              border: `1px solid ${colors.border}`,
-              borderRadius: 4,
-              padding: '4px 8px',
-              fontSize: 13,
-            }}
-          >
+      <div style={{
+        ...cardStyle, padding: '12px 16px', marginBottom: 14,
+        display: 'flex', gap: 10, alignItems: 'center',
+      }}>
+        <label style={{ color: colors.textMuted, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+          Level
+          <select value={level} onChange={e => setLevel(e.target.value)} style={selectStyle}>
             <option value="ALL">ALL</option>
             <option value="DEBUG">DEBUG</option>
             <option value="INFO">INFO</option>
@@ -54,34 +65,31 @@ export default function Logs() {
             <option value="ERROR">ERROR</option>
           </select>
         </label>
-        <button
-          onClick={refresh}
-          style={{
-            padding: '4px 14px',
-            borderRadius: 4,
-            border: `1px solid ${colors.border}`,
-            background: colors.bgCard,
-            color: colors.textPrimary,
-            cursor: 'pointer',
-            fontSize: 13,
-          }}
+        <button onClick={refresh} style={selectStyle}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = colors.accent }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = colors.border }}
         >
           Refresh
         </button>
-        <span style={{ color: colors.textDim, fontSize: 12 }}>{logs.length} entries</span>
+        <span style={{ color: colors.textDim, fontSize: 12, marginLeft: 'auto' }}>
+          {logs.length} entries
+        </span>
+        <div style={{
+          width: 8, height: 8, borderRadius: '50%',
+          background: colors.success, animation: 'pulse 2s ease-in-out infinite',
+        }} />
+        <style>{`@keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }`}</style>
       </div>
 
       <div style={{
-        background: colors.bgCard,
-        border: `1px solid ${colors.border}`,
-        borderRadius: 8,
-        maxHeight: 'calc(100vh - 200px)',
+        ...cardStyle, padding: 0,
+        maxHeight: 'calc(100vh - 220px)',
         overflow: 'auto',
-        fontFamily: 'monospace',
+        fontFamily: "'JetBrains Mono', monospace",
         fontSize: 12,
       }}>
         {logs.length === 0 ? (
-          <div style={{ padding: 24, textAlign: 'center', color: colors.textDim }}>
+          <div style={{ padding: 32, textAlign: 'center', color: colors.textDim, fontFamily: 'Inter' }}>
             No logs yet
           </div>
         ) : (
@@ -89,24 +97,27 @@ export default function Logs() {
             <div
               key={i}
               style={{
-                padding: '3px 10px',
+                padding: '5px 12px',
                 borderBottom: `1px solid ${colors.border}`,
                 display: 'flex',
-                gap: 8,
+                gap: 10,
+                background: levelBg[entry.level] || 'transparent',
+                transition: 'background 0.1s',
               }}
             >
-              <span style={{ color: colors.textDim, whiteSpace: 'nowrap', minWidth: 180 }}>
+              <span style={{ color: colors.textDim, whiteSpace: 'nowrap', minWidth: 170, fontSize: 11 }}>
                 {entry.timestamp.replace('T', ' ').slice(0, 19)}
               </span>
               <span style={{
                 color: levelColors[entry.level] || colors.textMuted,
-                fontWeight: 600,
-                minWidth: 55,
+                fontWeight: 600, minWidth: 55, fontSize: 11,
               }}>
                 {entry.level}
               </span>
-              <span style={{ color: colors.textDim, minWidth: 120 }}>{entry.name}</span>
-              <span style={{ color: colors.textPrimary }}>{entry.message}</span>
+              <span style={{ color: colors.textDim, minWidth: 100, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {entry.name}
+              </span>
+              <span style={{ color: colors.textSecondary, fontSize: 12 }}>{entry.message}</span>
             </div>
           ))
         )}

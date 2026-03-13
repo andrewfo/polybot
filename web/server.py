@@ -530,11 +530,10 @@ def create_app() -> FastAPI:
         else:
             try:
                 t0 = time.monotonic()
-                async with _session().post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    json={"model": CHEAP_MODEL, "messages": [{"role": "user", "content": "ping"}]},
-                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                    timeout=aiohttp.ClientTimeout(total=15),
+                async with _session().get(
+                    "https://openrouter.ai/api/v1/auth/key",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    timeout=aiohttp.ClientTimeout(total=10),
                 ) as resp:
                     latency = round((time.monotonic() - t0) * 1000)
                     services.append({
@@ -621,6 +620,58 @@ def create_app() -> FastAPI:
                 "total_calls": total_calls,
                 "model_breakdown": model_breakdown,
                 "task_breakdown": task_breakdown,
+            }
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": str(e)[:200]})
+
+    @app.get("/api/pnl")
+    async def pnl():
+        try:
+            from core.db import get_db, get_daily_pnl, get_total_pnl
+            db = get_db()
+            daily = get_daily_pnl()
+            total = get_total_pnl()
+
+            # Bankroll snapshots for the chart
+            snapshots: list[dict[str, Any]] = []
+            try:
+                rows = list(db.execute(
+                    "SELECT timestamp, total_value, available_cash, "
+                    "unrealized_pnl, realized_pnl_today, realized_pnl_total "
+                    "FROM bankroll ORDER BY timestamp ASC LIMIT 500"
+                ).fetchall())
+                for r in rows:
+                    snapshots.append({
+                        "timestamp": r[0],
+                        "total_value": r[1],
+                        "available_cash": r[2],
+                        "unrealized_pnl": r[3],
+                        "realized_pnl_today": r[4],
+                        "realized_pnl_total": r[5],
+                    })
+            except Exception:
+                pass
+
+            # Win rate from closed trades
+            trade_count = 0
+            win_count = 0
+            try:
+                rows = list(db.execute(
+                    "SELECT pnl FROM trades WHERE pnl IS NOT NULL"
+                ).fetchall())
+                trade_count = len(rows)
+                win_count = sum(1 for r in rows if r[0] > 0)
+            except Exception:
+                pass
+
+            win_rate = win_count / trade_count if trade_count > 0 else 0.0
+
+            return {
+                "snapshots": snapshots,
+                "daily_pnl": daily,
+                "total_pnl": total,
+                "trade_count": trade_count,
+                "win_rate": win_rate,
             }
         except Exception as e:
             return JSONResponse(status_code=500, content={"error": str(e)[:200]})

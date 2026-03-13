@@ -1,19 +1,17 @@
 import { useState, useEffect, useCallback } from 'react'
-import { colors } from '../theme'
+import { colors, cardStyle } from '../theme'
 import { api, Market } from '../api'
 
 function parseOutcomePrices(raw: string | unknown): [number | null, number | null] {
   try {
     const arr = typeof raw === 'string' ? JSON.parse(raw) : raw
-    if (Array.isArray(arr) && arr.length >= 2) {
-      return [parseFloat(arr[0]), parseFloat(arr[1])]
-    }
+    if (Array.isArray(arr) && arr.length >= 2) return [parseFloat(arr[0]), parseFloat(arr[1])]
   } catch {}
   return [null, null]
 }
 
 function formatDate(iso: string): string {
-  if (!iso) return '—'
+  if (!iso) return '\u2014'
   const d = new Date(iso)
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
@@ -32,45 +30,36 @@ export default function Markets() {
 
   useEffect(() => { refresh() }, [refresh])
 
+  const selectStyle: React.CSSProperties = {
+    background: colors.bgCard,
+    color: colors.textPrimary,
+    border: `1px solid ${colors.border}`,
+    borderRadius: 8,
+    padding: '6px 10px',
+    fontSize: 13,
+    fontFamily: 'inherit',
+    cursor: 'pointer',
+    outline: 'none',
+  }
+
   return (
     <div>
       {/* Controls */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 12, alignItems: 'center' }}>
-        <label style={{ color: colors.textMuted, fontSize: 13 }}>
-          Sort:
-          <select
-            value={sort}
-            onChange={e => setSort(e.target.value)}
-            style={{
-              marginLeft: 6,
-              background: colors.bgCard,
-              color: colors.textPrimary,
-              border: `1px solid ${colors.border}`,
-              borderRadius: 4,
-              padding: '4px 8px',
-              fontSize: 13,
-            }}
-          >
+      <div style={{
+        display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center',
+        ...cardStyle, padding: '12px 16px', flexWrap: 'wrap',
+      }}>
+        <label style={{ color: colors.textMuted, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+          Sort by
+          <select value={sort} onChange={e => setSort(e.target.value)} style={selectStyle}>
             <option value="volume24hr">Volume</option>
             <option value="liquidityNum">Liquidity</option>
             <option value="startDate">Newest</option>
           </select>
         </label>
-        <label style={{ color: colors.textMuted, fontSize: 13 }}>
-          Limit:
-          <select
-            value={limit}
-            onChange={e => setLimit(Number(e.target.value))}
-            style={{
-              marginLeft: 6,
-              background: colors.bgCard,
-              color: colors.textPrimary,
-              border: `1px solid ${colors.border}`,
-              borderRadius: 4,
-              padding: '4px 8px',
-              fontSize: 13,
-            }}
-          >
+        <label style={{ color: colors.textMuted, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+          Show
+          <select value={limit} onChange={e => setLimit(Number(e.target.value))} style={selectStyle}>
             <option value={20}>20</option>
             <option value={50}>50</option>
             <option value={100}>100</option>
@@ -79,38 +68,42 @@ export default function Markets() {
         <button
           onClick={refresh}
           style={{
-            padding: '4px 14px',
-            borderRadius: 4,
-            border: `1px solid ${colors.border}`,
-            background: colors.bgCard,
-            color: colors.textPrimary,
-            cursor: 'pointer',
-            fontSize: 13,
+            ...selectStyle, cursor: 'pointer', fontWeight: 500,
+            transition: 'all 0.15s',
           }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = colors.accent }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = colors.border }}
         >
           Refresh
         </button>
-        {loading && <span style={{ color: colors.textDim, fontSize: 13 }}>Loading...</span>}
+        {loading && (
+          <span style={{ color: colors.accent, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>&#x21BB;</span>
+            Loading...
+            <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+          </span>
+        )}
+        <span style={{ marginLeft: 'auto', color: colors.textDim, fontSize: 12 }}>
+          {markets.length} markets
+        </span>
       </div>
 
       {/* Table */}
-      <div style={{
-        background: colors.bgCard,
-        border: `1px solid ${colors.border}`,
-        borderRadius: 8,
-        overflow: 'auto',
-      }}>
+      <div style={{ ...cardStyle, padding: 0, overflow: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
-            <tr style={{ color: colors.textMuted, textAlign: 'left' }}>
-              <th style={{ padding: '8px', width: 30 }}>#</th>
-              <th style={{ padding: '8px', textAlign: 'right' }}>YES</th>
-              <th style={{ padding: '8px', textAlign: 'right' }}>NO</th>
-              <th style={{ padding: '8px', textAlign: 'right' }}>Liquidity</th>
-              <th style={{ padding: '8px', textAlign: 'right' }}>Vol 24H</th>
-              <th style={{ padding: '8px', textAlign: 'right' }}>Spread</th>
-              <th style={{ padding: '8px' }}>Expires</th>
-              <th style={{ padding: '8px' }}>Question</th>
+            <tr>
+              {['#', 'YES', 'NO', 'Liquidity', 'Vol 24H', 'Spread', 'Expires', 'Question'].map((h, i) => (
+                <th key={h} style={{
+                  padding: '12px', textAlign: i <= 0 || i >= 6 ? 'left' : 'right',
+                  color: colors.textDim, fontWeight: 500, fontSize: 11,
+                  textTransform: 'uppercase', letterSpacing: '0.06em',
+                  borderBottom: `1px solid ${colors.border}`,
+                  position: 'sticky', top: 0, background: colors.bgCard,
+                }}>
+                  {h}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -122,31 +115,37 @@ export default function Markets() {
                   key={m.conditionId || i}
                   onClick={() => setSelected(isSelected ? null : m)}
                   style={{
-                    borderTop: `1px solid ${colors.border}`,
-                    background: isSelected ? colors.bgSecondary : 'transparent',
+                    borderBottom: `1px solid ${colors.border}`,
+                    background: isSelected ? colors.accentDim : 'transparent',
                     cursor: 'pointer',
+                    transition: 'background 0.15s',
                   }}
+                  onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'rgba(59,130,246,0.05)' }}
+                  onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent' }}
                 >
-                  <td style={{ padding: '6px 8px', color: colors.textDim }}>{i + 1}</td>
-                  <td style={{ padding: '6px 8px', textAlign: 'right', color: colors.success }}>
-                    {yes !== null ? (yes * 100).toFixed(1) + '%' : '—'}
+                  <td style={{ padding: '10px 12px', color: colors.textDim, fontSize: 12 }}>{i + 1}</td>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', color: colors.success, fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>
+                    {yes !== null ? (yes * 100).toFixed(1) + '%' : '\u2014'}
                   </td>
-                  <td style={{ padding: '6px 8px', textAlign: 'right', color: colors.danger }}>
-                    {no !== null ? (no * 100).toFixed(1) + '%' : '—'}
+                  <td style={{ padding: '10px 12px', textAlign: 'right', color: colors.danger, fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>
+                    {no !== null ? (no * 100).toFixed(1) + '%' : '\u2014'}
                   </td>
-                  <td style={{ padding: '6px 8px', textAlign: 'right' }}>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>
                     ${(m.liquidityNum || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                   </td>
-                  <td style={{ padding: '6px 8px', textAlign: 'right' }}>
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>
                     ${(m.volume24hr || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                   </td>
-                  <td style={{ padding: '6px 8px', textAlign: 'right' }}>
-                    {m.spread != null ? (m.spread * 100).toFixed(1) + '%' : '—'}
+                  <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", fontSize: 12 }}>
+                    {m.spread != null ? (m.spread * 100).toFixed(1) + '%' : '\u2014'}
                   </td>
-                  <td style={{ padding: '6px 8px', color: colors.textDim, whiteSpace: 'nowrap' }}>
+                  <td style={{ padding: '10px 12px', color: colors.textDim, whiteSpace: 'nowrap', fontSize: 12 }}>
                     {formatDate(m.endDate)}
                   </td>
-                  <td style={{ padding: '6px 8px', maxWidth: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <td style={{
+                    padding: '10px 12px', maxWidth: 400, overflow: 'hidden',
+                    textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>
                     {m.question}
                   </td>
                 </tr>
@@ -159,36 +158,48 @@ export default function Markets() {
       {/* Detail panel */}
       {selected && (
         <div style={{
-          marginTop: 12,
-          background: colors.bgCard,
-          border: `1px solid ${colors.border}`,
-          borderRadius: 8,
-          padding: 16,
+          ...cardStyle, marginTop: 14,
+          borderLeft: `3px solid ${colors.accent}`,
         }}>
-          <h3 style={{ marginBottom: 8, fontSize: 15 }}>{selected.question}</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12, fontSize: 13 }}>
-            <div>
-              <span style={{ color: colors.textMuted }}>Condition ID: </span>
-              <span style={{ fontFamily: 'monospace', fontSize: 11 }}>{selected.conditionId}</span>
-            </div>
+          <h3 style={{ marginBottom: 10, fontSize: 15, fontWeight: 600 }}>{selected.question}</h3>
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+            gap: 12, fontSize: 13,
+          }}>
+            <DetailField label="Condition ID" value={selected.conditionId} mono />
             {(() => {
               const [yes, no] = parseOutcomePrices(selected.outcomePrices)
-              return (
-                <>
-                  <div><span style={{ color: colors.textMuted }}>YES: </span><span style={{ color: colors.success }}>{yes !== null ? (yes * 100).toFixed(1) + '%' : '—'}</span></div>
-                  <div><span style={{ color: colors.textMuted }}>NO: </span><span style={{ color: colors.danger }}>{no !== null ? (no * 100).toFixed(1) + '%' : '—'}</span></div>
-                </>
-              )
+              return <>
+                <DetailField label="YES" value={yes !== null ? (yes * 100).toFixed(1) + '%' : '\u2014'} color={colors.success} />
+                <DetailField label="NO" value={no !== null ? (no * 100).toFixed(1) + '%' : '\u2014'} color={colors.danger} />
+              </>
             })()}
-            <div><span style={{ color: colors.textMuted }}>Liquidity: </span>${(selected.liquidityNum || 0).toLocaleString()}</div>
-            <div><span style={{ color: colors.textMuted }}>Volume 24H: </span>${(selected.volume24hr || 0).toLocaleString()}</div>
-            <div><span style={{ color: colors.textMuted }}>Spread: </span>{selected.spread != null ? (selected.spread * 100).toFixed(1) + '%' : '—'}</div>
-            <div><span style={{ color: colors.textMuted }}>Best Bid: </span>{selected.bestBid ?? '—'}</div>
-            <div><span style={{ color: colors.textMuted }}>Best Ask: </span>{selected.bestAsk ?? '—'}</div>
-            <div><span style={{ color: colors.textMuted }}>Expires: </span>{formatDate(selected.endDate)}</div>
+            <DetailField label="Liquidity" value={`$${(selected.liquidityNum || 0).toLocaleString()}`} />
+            <DetailField label="Volume 24H" value={`$${(selected.volume24hr || 0).toLocaleString()}`} />
+            <DetailField label="Spread" value={selected.spread != null ? (selected.spread * 100).toFixed(1) + '%' : '\u2014'} />
+            <DetailField label="Best Bid" value={String(selected.bestBid ?? '\u2014')} />
+            <DetailField label="Best Ask" value={String(selected.bestAsk ?? '\u2014')} />
+            <DetailField label="Expires" value={formatDate(selected.endDate)} />
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function DetailField({ label, value, mono, color }: { label: string; value: string; mono?: boolean; color?: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: colors.textDim, marginBottom: 2 }}>{label}</div>
+      <div style={{
+        fontFamily: mono ? "'JetBrains Mono', monospace" : 'inherit',
+        fontSize: mono ? 11 : 13,
+        color: color || colors.textPrimary,
+        fontWeight: 500,
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      }}>
+        {value}
+      </div>
     </div>
   )
 }

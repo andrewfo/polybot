@@ -1,23 +1,21 @@
 import { useState, useEffect, useCallback } from 'react'
-import { colors } from '../theme'
+import { colors, cardStyle } from '../theme'
 import { api, AnalysisSummary } from '../api'
 import AnalysisDetail from './AnalysisDetail'
 
 function StatusBadge({ status }: { status: string }) {
-  const bg =
-    status === 'done' ? colors.success :
-    status === 'processing' ? colors.accent :
-    status === 'error' ? colors.danger :
-    status === 'skipped' ? colors.textDim :
-    colors.bgSecondary
+  const map: Record<string, { bg: string; fg: string }> = {
+    done: { bg: 'rgba(34,197,94,0.15)', fg: '#22c55e' },
+    processing: { bg: 'rgba(59,130,246,0.15)', fg: '#60a5fa' },
+    error: { bg: 'rgba(239,68,68,0.15)', fg: '#ef4444' },
+    skipped: { bg: 'rgba(122,139,165,0.15)', fg: '#7a8ba5' },
+    waiting: { bg: 'rgba(30,45,74,0.5)', fg: '#556178' },
+  }
+  const s = map[status] || map.waiting
   return (
     <span style={{
-      padding: '1px 6px',
-      borderRadius: 3,
-      fontSize: 10,
-      fontWeight: 600,
-      background: bg,
-      color: '#fff',
+      padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 600,
+      background: s.bg, color: s.fg, letterSpacing: '0.02em',
     }}>
       {status.toUpperCase()}
     </span>
@@ -29,12 +27,9 @@ function DecisionBadge({ decision }: { decision: string | null }) {
   const isTrade = decision.toUpperCase().includes('TRADE') && !decision.toUpperCase().includes('SKIP')
   return (
     <span style={{
-      padding: '1px 6px',
-      borderRadius: 3,
-      fontSize: 10,
-      fontWeight: 600,
-      background: isTrade ? colors.success : colors.warning,
-      color: isTrade ? '#fff' : '#000',
+      padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 600,
+      background: isTrade ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)',
+      color: isTrade ? '#22c55e' : '#f59e0b',
     }}>
       {decision.toUpperCase()}
     </span>
@@ -65,9 +60,7 @@ export default function Analysis() {
     setAggError(null)
     try {
       const result = await api.runAggregate(aggQuestion.trim(), parseFloat(aggPrice) || 0.5)
-      if (result.condition_id) {
-        setSelectedId(result.condition_id)
-      }
+      if (result.condition_id) setSelectedId(result.condition_id)
       setAggQuestion('')
       refresh()
     } catch (e) {
@@ -77,20 +70,21 @@ export default function Analysis() {
     }
   }
 
-  const isEmpty = entries.length === 0
+  const inputStyle: React.CSSProperties = {
+    padding: '8px 12px', borderRadius: 8,
+    border: `1px solid ${colors.border}`,
+    background: colors.bgSecondary,
+    color: colors.textPrimary,
+    fontSize: 13, fontFamily: 'inherit', outline: 'none',
+    transition: 'border-color 0.15s',
+  }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* Aggregate command form */}
       <div style={{
-        background: colors.bgCard,
-        border: `1px solid ${colors.border}`,
-        borderRadius: 8,
-        padding: 12,
-        display: 'flex',
-        gap: 8,
-        alignItems: 'center',
-        flexWrap: 'wrap',
+        ...cardStyle, padding: 14,
+        display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap',
       }}>
         <input
           type="text"
@@ -98,49 +92,31 @@ export default function Analysis() {
           value={aggQuestion}
           onChange={e => setAggQuestion(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !aggLoading) handleAggregate() }}
-          style={{
-            flex: 1,
-            minWidth: 250,
-            padding: '6px 10px',
-            borderRadius: 4,
-            border: `1px solid ${colors.border}`,
-            background: colors.bgSecondary,
-            color: colors.textPrimary,
-            fontSize: 13,
-            outline: 'none',
-          }}
+          onFocus={e => { e.currentTarget.style.borderColor = colors.accent }}
+          onBlur={e => { e.currentTarget.style.borderColor = colors.border }}
+          style={{ ...inputStyle, flex: 1, minWidth: 250 }}
         />
         <input
           type="number"
-          placeholder="Market price"
+          placeholder="Price"
           value={aggPrice}
           onChange={e => setAggPrice(e.target.value)}
-          min="0"
-          max="1"
-          step="0.01"
-          style={{
-            width: 90,
-            padding: '6px 10px',
-            borderRadius: 4,
-            border: `1px solid ${colors.border}`,
-            background: colors.bgSecondary,
-            color: colors.textPrimary,
-            fontSize: 13,
-            outline: 'none',
-          }}
+          min="0" max="1" step="0.01"
+          onFocus={e => { e.currentTarget.style.borderColor = colors.accent }}
+          onBlur={e => { e.currentTarget.style.borderColor = colors.border }}
+          style={{ ...inputStyle, width: 90 }}
         />
         <button
           disabled={aggLoading || !aggQuestion.trim()}
           onClick={handleAggregate}
           style={{
-            padding: '6px 16px',
-            borderRadius: 4,
-            border: `1px solid ${colors.accent}`,
-            background: aggLoading ? colors.bgSecondary : colors.accent,
-            color: '#fff',
-            cursor: aggLoading ? 'wait' : 'pointer',
-            fontSize: 13,
-            fontWeight: 600,
+            padding: '8px 20px', borderRadius: 8, border: 'none', fontFamily: 'inherit',
+            background: aggLoading ? colors.bgSecondary : colors.gradientAccent,
+            color: '#fff', cursor: aggLoading ? 'wait' : 'pointer',
+            fontSize: 13, fontWeight: 600,
+            boxShadow: aggLoading ? 'none' : '0 2px 8px rgba(59,130,246,0.3)',
+            transition: 'all 0.2s',
+            opacity: !aggQuestion.trim() ? 0.5 : 1,
           }}
         >
           {aggLoading ? 'Running...' : 'Run Aggregate'}
@@ -151,19 +127,17 @@ export default function Analysis() {
       </div>
 
       {/* Main split view */}
-      <div style={{ display: 'grid', gridTemplateColumns: '40% 60%', gap: 16, minHeight: 500 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '40% 60%', gap: 14, minHeight: 500 }}>
         {/* Left: List */}
         <div style={{
-          background: colors.bgCard,
-          border: `1px solid ${colors.border}`,
-          borderRadius: 8,
-          overflow: 'auto',
-          maxHeight: 'calc(100vh - 240px)',
+          ...cardStyle, padding: 0, overflow: 'auto',
+          maxHeight: 'calc(100vh - 260px)',
         }}>
-          {isEmpty ? (
-            <div style={{ padding: 24, textAlign: 'center', color: colors.textDim }}>
-              <div style={{ fontSize: 16, marginBottom: 8 }}>No analysis data yet</div>
-              <div style={{ fontSize: 13 }}>Start the bot or run a manual aggregate above.</div>
+          {entries.length === 0 ? (
+            <div style={{ padding: 32, textAlign: 'center', color: colors.textDim }}>
+              <div style={{ fontSize: 20, marginBottom: 8, opacity: 0.4 }}>~</div>
+              <div style={{ fontSize: 14, marginBottom: 4 }}>No analysis data yet</div>
+              <div style={{ fontSize: 12 }}>Start the bot or run a manual aggregate above.</div>
             </div>
           ) : (
             <div>
@@ -172,26 +146,37 @@ export default function Analysis() {
                   key={e.condition_id}
                   onClick={() => setSelectedId(e.condition_id)}
                   style={{
-                    padding: '10px 12px',
+                    padding: '12px 14px',
                     borderBottom: `1px solid ${colors.border}`,
                     cursor: 'pointer',
-                    background: selectedId === e.condition_id ? colors.bgSecondary : 'transparent',
+                    background: selectedId === e.condition_id ? colors.accentDim : 'transparent',
+                    transition: 'all 0.15s',
+                    borderLeft: selectedId === e.condition_id ? `3px solid ${colors.accent}` : '3px solid transparent',
+                  }}
+                  onMouseEnter={e2 => {
+                    if (selectedId !== e.condition_id) e2.currentTarget.style.background = 'rgba(59,130,246,0.05)'
+                  }}
+                  onMouseLeave={e2 => {
+                    if (selectedId !== e.condition_id) e2.currentTarget.style.background = 'transparent'
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
                     <StatusBadge status={e.status} />
                     <DecisionBadge decision={e.decision} />
                     {e.edge != null && (
-                      <span style={{ fontSize: 11, color: e.edge > 0 ? colors.success : colors.danger }}>
+                      <span style={{
+                        fontSize: 11, fontWeight: 600,
+                        fontFamily: "'JetBrains Mono', monospace",
+                        color: e.edge > 0 ? colors.success : colors.danger,
+                      }}>
                         {e.edge > 0 ? '+' : ''}{(e.edge * 100).toFixed(1)}%
                       </span>
                     )}
                   </div>
                   <div style={{
-                    fontSize: 13,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
+                    fontSize: 13, overflow: 'hidden',
+                    textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    color: colors.textSecondary,
                   }}>
                     {e.question || e.condition_id}
                   </div>
@@ -203,17 +188,14 @@ export default function Analysis() {
 
         {/* Right: Detail */}
         <div style={{
-          background: colors.bgCard,
-          border: `1px solid ${colors.border}`,
-          borderRadius: 8,
-          overflow: 'auto',
-          maxHeight: 'calc(100vh - 240px)',
-          padding: 16,
+          ...cardStyle, overflow: 'auto',
+          maxHeight: 'calc(100vh - 260px)',
         }}>
           {selectedId ? (
             <AnalysisDetail conditionId={selectedId} />
           ) : (
             <div style={{ color: colors.textDim, textAlign: 'center', marginTop: 80 }}>
+              <div style={{ fontSize: 24, marginBottom: 8, opacity: 0.3 }}>&#x2190;</div>
               Select a market from the list to view analysis details
             </div>
           )}
