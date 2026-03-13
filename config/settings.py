@@ -71,6 +71,10 @@ USE_LOG_ODDS_AVERAGING = os.getenv("USE_LOG_ODDS_AVERAGING", "false").lower() ==
 MIN_CALIBRATION_SAMPLES = int(os.getenv("MIN_CALIBRATION_SAMPLES", "20"))  # Min resolved predictions to use dynamic weights
 CALIBRATION_LOOKBACK_DAYS = int(os.getenv("CALIBRATION_LOOKBACK_DAYS", "90"))  # Rolling window for Brier scores
 
+# --- Execution ---
+PAPER_TRADING = os.getenv("PAPER_TRADING", "true").lower() == "true"
+STALE_ORDER_MINUTES = int(os.getenv("STALE_ORDER_MINUTES", "15"))
+
 # --- Notifications ---
 NOTIFICATIONS_ENABLED = os.getenv("NOTIFICATIONS_ENABLED", "true").lower() == "true"
 TELEGRAM_ENABLED = os.getenv("TELEGRAM_ENABLED", "false").lower() == "true"

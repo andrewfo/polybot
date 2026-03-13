@@ -43,6 +43,18 @@ def ensure_tables() -> None:
         }, pk="id", if_not_exists=True)
         logger.info("Created trades table")
 
+    else:
+        columns = {col.name for col in db["trades"].columns}
+        if "order_id" not in columns:
+            db.execute("ALTER TABLE trades ADD COLUMN order_id TEXT")
+            logger.info("Added order_id column to trades table")
+        if "placed_at" not in columns:
+            db.execute("ALTER TABLE trades ADD COLUMN placed_at TEXT")
+            logger.info("Added placed_at column to trades table")
+        if "market_question" not in columns:
+            db.execute("ALTER TABLE trades ADD COLUMN market_question TEXT")
+            logger.info("Added market_question column to trades table")
+
     if "positions" not in db.table_names():
         db["positions"].create({
             "token_id": str,
@@ -138,10 +150,13 @@ def record_trade(
     size: float,
     status: str = "PENDING",
     paper: bool = False,
+    order_id: str | None = None,
+    placed_at: str | None = None,
+    market_question: str | None = None,
 ) -> None:
     """Insert a new trade record."""
     db = get_db()
-    db["trades"].insert({
+    row: dict[str, Any] = {
         "id": trade_id,
         "market_id": market_id,
         "token_id": token_id,
@@ -153,7 +168,14 @@ def record_trade(
         "fill_price": None,
         "pnl": None,
         "paper": int(paper),
-    })
+    }
+    if order_id is not None:
+        row["order_id"] = order_id
+    if placed_at is not None:
+        row["placed_at"] = placed_at
+    if market_question is not None:
+        row["market_question"] = market_question
+    db["trades"].insert(row)
 
 
 def update_trade_status(
@@ -176,6 +198,18 @@ def get_open_trades() -> list[dict[str, Any]]:
     """Return all trades with status PENDING."""
     db = get_db()
     return list(db["trades"].rows_where("status = ?", ["PENDING"]))
+
+
+def get_recent_trade_count(hours: int = 1) -> int:
+    """Return the number of trades placed in the last N hours."""
+    db = get_db()
+    from datetime import timedelta
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    rows = list(db.execute(
+        "SELECT COUNT(*) FROM trades WHERE timestamp >= ?",
+        [cutoff],
+    ).fetchall())
+    return int(rows[0][0]) if rows else 0
 
 
 # ---------------------------------------------------------------------------
