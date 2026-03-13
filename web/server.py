@@ -95,6 +95,12 @@ class BotEngine:
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
+        # Close LLM session to avoid unclosed connector warnings
+        if self._llm is not None:
+            await self._llm.close()
+            self._llm = None
+        self._aggregator = None
+        self._executor = None
         logger.info("BotEngine stopped — all workers cancelled")
         await self._broadcast({"type": "bot_status", "running": False, "phase": "idle"})
 
@@ -874,14 +880,14 @@ def create_app() -> FastAPI:
 
         from core.llm import LLMClient
         from signals.aggregator import SignalAggregator
-        llm = LLMClient()
-        agg = SignalAggregator(llm)
-        result = await agg.aggregate(
-            market_question=question,
-            market_category="crypto",
-            market_end_date="",
-            market_price=market_price,
-        )
+        async with LLMClient() as llm:
+            agg = SignalAggregator(llm)
+            result = await agg.aggregate(
+                market_question=question,
+                market_category="crypto",
+                market_end_date="",
+                market_price=market_price,
+            )
         if result is None:
             return {"status": "skipped", "reason": "no usable signals"}
 
@@ -926,26 +932,26 @@ def create_app() -> FastAPI:
 
         from core.llm import LLMClient
         from signals.aggregator import SignalAggregator
-        llm = LLMClient()
-        agg = SignalAggregator(llm)
-        # Run individual signal providers without frontier model
-        results: list[dict[str, Any]] = []
-        for provider in agg._providers:
-            try:
-                signal = await provider.get_signal(question, "crypto", "")
-                results.append({
-                    "source": signal.source,
-                    "probability": signal.probability,
-                    "confidence": signal.confidence,
-                    "reasoning": signal.reasoning,
-                })
-            except Exception as e:
-                results.append({
-                    "source": provider.__class__.__name__,
-                    "probability": None,
-                    "confidence": 0,
-                    "reasoning": f"Error: {e!s}",
-                })
+        async with LLMClient() as llm:
+            agg = SignalAggregator(llm)
+            # Run individual signal providers without frontier model
+            results: list[dict[str, Any]] = []
+            for provider in agg._providers:
+                try:
+                    signal = await provider.get_signal(question, "crypto", "")
+                    results.append({
+                        "source": signal.source,
+                        "probability": signal.probability,
+                        "confidence": signal.confidence,
+                        "reasoning": signal.reasoning,
+                    })
+                except Exception as e:
+                    results.append({
+                        "source": provider.__class__.__name__,
+                        "probability": None,
+                        "confidence": 0,
+                        "reasoning": f"Error: {e!s}",
+                    })
         return {"question": question, "signals": results}
 
     # -----------------------------------------------------------------------
