@@ -236,16 +236,59 @@ class BotEngine:
 
             await self._cancellable_sleep(AGGREGATION_INTERVAL_MINUTES * 60)
 
+    @staticmethod
+    def _parse_market_price(m: dict[str, Any]) -> float:
+        """Extract YES outcome price from Gamma market data.
+
+        Tries outcomePrices first, then bestBid/bestAsk midpoint, then 0.
+        Never silently defaults to 0.5.
+        """
+        prices = m.get("outcomePrices", "[]")
+        if isinstance(prices, str):
+            try:
+                prices = json.loads(prices)
+            except (json.JSONDecodeError, TypeError):
+                prices = []
+        if prices and len(prices) >= 1:
+            try:
+                p = float(prices[0])
+                if 0 < p < 1:
+                    return p
+            except (ValueError, TypeError):
+                pass
+        # Fallback: midpoint of bestBid/bestAsk
+        bid = m.get("bestBid")
+        ask = m.get("bestAsk")
+        if bid is not None and ask is not None:
+            try:
+                mid = (float(bid) + float(ask)) / 2
+                if 0 < mid < 1:
+                    return mid
+            except (ValueError, TypeError):
+                pass
+        # Fallback: bestAsk alone (YES price ≈ bestAsk)
+        if ask is not None:
+            try:
+                a = float(ask)
+                if 0 < a < 1:
+                    return a
+            except (ValueError, TypeError):
+                pass
+        return 0.0  # Caller should skip if 0
+
     async def _process_candidate(self, m: dict[str, Any], cid: str) -> None:
         """Run aggregation + Kelly + depth + execution for a single market."""
         from strategy.depth import analyze_depth
         from strategy.kelly import calculate_kelly
 
-        # Parse market price
-        prices = m.get("outcomePrices", "[]")
-        if isinstance(prices, str):
-            prices = json.loads(prices)
-        market_price = float(prices[0]) if prices else 0.5
+        # Parse market price — never default to 0.5
+        market_price = self._parse_market_price(m)
+        if market_price <= 0:
+            self.analysis_entries[cid].update({
+                "status": "skipped",
+                "skip_reason": "Could not determine market price from Gamma data",
+            })
+            return
 
         # Run aggregation
         result = await self._aggregator.aggregate(
@@ -290,12 +333,22 @@ class BotEngine:
         )
 
         # Depth analysis (if trading)
+        depth_data: dict[str, Any] = {}
         if decision.should_trade and DEPTH_ANALYSIS_ENABLED:
             depth = await analyze_depth(
                 token_id=decision.token_id,
                 side=decision.side,
                 bet_size_usd=decision.bet_size_usd,
             )
+            depth_data = {
+                "total_depth_usd": depth.total_depth_usd,
+                "slippage": depth.slippage,
+                "best_price": depth.best_price,
+                "avg_fill_price": depth.avg_fill_price,
+                "max_fillable_usd": depth.max_fillable_usd,
+                "levels": depth.levels,
+                "skip_reason": depth.skip_reason,
+            }
             if depth.skip_reason:
                 decision.should_trade = False
                 decision.skip_reason = depth.skip_reason
@@ -304,6 +357,8 @@ class BotEngine:
                 decision.depth_total_usd = depth.total_depth_usd
                 decision.depth_slippage = depth.slippage
                 decision.depth_adjusted = depth.adjusted_bet_usd < decision.bet_size_usd
+                depth_data["adjusted_bet_usd"] = depth.adjusted_bet_usd
+                depth_data["was_adjusted"] = depth.adjusted_bet_usd < decision.bet_size_usd
 
         # Execute trade if decision says go
         exec_data: dict[str, Any] = {}
@@ -317,23 +372,55 @@ class BotEngine:
                 "paper": PAPER_TRADING,
             }
 
-        # Store full analysis entry
+        # Build market metadata for frontend
+        end_date = m.get("endDate", "")
+        days_remaining = None
+        if end_date:
+            try:
+                end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+                days_remaining = max(0, (end_dt - datetime.now(timezone.utc)).total_seconds() / 86400)
+            except Exception:
+                pass
+
+        market_meta = {
+            "liquidity": m.get("liquidityNum"),
+            "volume_24h": m.get("volume24hr"),
+            "spread": m.get("spread"),
+            "best_bid": m.get("bestBid"),
+            "best_ask": m.get("bestAsk"),
+            "end_date": end_date,
+            "days_remaining": round(days_remaining, 1) if days_remaining is not None else None,
+            "resolution_type": (m.get("_resolution_params") or {}).get("resolution_type", "unknown"),
+            "resolution_params": m.get("_resolution_params"),
+            "model_edge": m.get("_model_edge"),
+            "time_score": m.get("_time_score"),
+            "total_score": m.get("_total_score"),
+        }
+
+        # Store full analysis entry — include all raw signal data
         self.analysis_entries[cid].update({
             "status": "done",
             "decision": "TRADE" if decision.should_trade else "SKIP",
             "edge": decision.edge,
+            "market_meta": market_meta,
             "aggregation": {
                 "final_probability": result.final_probability,
+                "preliminary_probability": result.preliminary_probability,
                 "confidence": result.confidence,
                 "reasoning": result.reasoning,
                 "signals_agreement": result.signals_agreement,
+                "market_efficiency": result.market_efficiency,
                 "market_price": market_price,
+                "total_data_points": result.total_data_points,
                 "signals": [
                     {
                         "source": s.source,
                         "probability": s.probability,
                         "confidence": s.confidence,
                         "reasoning": s.reasoning,
+                        "model_used": s.model_used,
+                        "data_points": s.data_points,
+                        "raw_data": s.raw_data,
                     }
                     for s in result.individual_signals
                 ],
@@ -341,14 +428,19 @@ class BotEngine:
             "kelly": {
                 "side": decision.side,
                 "edge": decision.edge,
+                "estimated_prob": decision.estimated_prob,
+                "market_price": decision.market_price,
                 "bankroll": bankroll,
                 "effective_prob": decision.effective_prob,
+                "confidence": decision.confidence,
                 "raw_kelly": decision.full_kelly_fraction,
                 "fractional_kelly": decision.adjusted_fraction,
                 "bet_size": decision.bet_size_usd,
+                "expected_value": decision.expected_value,
                 "should_trade": decision.should_trade,
                 "skip_reason": decision.skip_reason,
             },
+            "depth": depth_data,
             "execution": exec_data,
         })
 
@@ -802,11 +894,23 @@ def create_app() -> FastAPI:
             "edge": result.final_probability - market_price,
             "aggregation": {
                 "final_probability": result.final_probability,
+                "preliminary_probability": result.preliminary_probability,
                 "confidence": result.confidence,
                 "reasoning": result.reasoning,
+                "signals_agreement": result.signals_agreement,
+                "market_efficiency": result.market_efficiency,
                 "market_price": market_price,
+                "total_data_points": result.total_data_points,
                 "signals": [
-                    {"source": s.source, "probability": s.probability, "confidence": s.confidence, "reasoning": s.reasoning}
+                    {
+                        "source": s.source,
+                        "probability": s.probability,
+                        "confidence": s.confidence,
+                        "reasoning": s.reasoning,
+                        "model_used": s.model_used,
+                        "data_points": s.data_points,
+                        "raw_data": s.raw_data,
+                    }
                     for s in result.individual_signals
                 ],
             },
