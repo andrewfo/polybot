@@ -10,22 +10,22 @@ Autonomous Polymarket trading bot focused exclusively on crypto markets. Signal-
 - SQLite via sqlite-utils for state persistence (DB at `data/bot.db`)
 - OpenRouter for all LLM calls (unified API, tiered model routing)
 - aiohttp for async HTTP, web3/eth-account for wallet ops
-- Textual for TUI dashboard
+- FastAPI + React (Vite) for localhost web dashboard
 - Docker for deployment
 - pytest + pytest-asyncio for testing
 
 ## Architecture
 ```
-main.py                  → Entry point, --tui flag for dashboard (main loop NOT YET IMPLEMENTED)
+main.py                  → Entry point, --web flag for dashboard (main loop NOT YET IMPLEMENTED)
 core/llm.py              → OpenRouter client, tiered routing (cheap vs frontier)
 core/client.py           → Polymarket CLOB wrapper for ORDER EXECUTION ONLY (no market reading methods)
 core/wallet.py           → Wallet balance checks, gas monitoring
 core/db.py               → SQLite tables: trades, positions, signals, bankroll, llm_costs, market_cache, signal_calibration
 strategy/market_filter.py→ Gamma API discovery, filtering, LLM categorization (crypto-only gate), ranking
-tui/app.py               → Textual TUI dashboard with 4 tabs (Dashboard, Markets, Analysis, Logs), navy/grey/white theme
-tui/widgets/             → DashboardPanel, MarketsPanel, AnalysisListPanel, AnalysisDetailPanel, LogPanel, CommandBar, detail_builders, charts
+web/server.py            → FastAPI backend, REST endpoints, BotEngine stub, log buffer
+frontend/                → React (Vite) dashboard: Dashboard, Markets, Analysis, Logs tabs + Chart.js charts
 scripts/setup_wallet.py  → Wallet setup helper
-scripts/dashboard.py     → Standalone dashboard launcher
+scripts/dashboard.py     → Standalone web dashboard launcher
 ```
 
 ### Implemented Signal Engine (3 providers, crypto-focused)
@@ -54,8 +54,8 @@ strategy/depth.py            → CLOB order book depth analysis, slippage estima
 ### Not Yet Implemented (build plan sections 7-11)
 ```
 monitoring/pnl.py        → P&L tracking, bankroll snapshots, performance metrics
-monitoring/health.py     → Health checks while bot is running (TUI-driven)
-monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
+monitoring/health.py     → Health checks while bot is running (web UI-driven)
+monitoring/notifications.py → Web log panel + Python logging (no Telegram)
 ```
 
 ### Kelly Criterion (strategy/kelly.py) — Section 5 COMPLETE
@@ -64,7 +64,7 @@ monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
 - Confidence blending: `blend_weight = max(confidence, MIN_CONFIDENCE_BLEND)` then `effective_prob = blend_weight * estimated_prob + (1 - blend_weight) * market_price` — floor prevents full edge dilution
 - Fee adjustment: Polymarket's 2% profit fee reduces effective odds (POLYMARKET_FEE_RATE setting)
 - Integrated into pipeline: every successful aggregation runs Kelly sizing + depth analysis
-- Results shown in TUI "Bets" tab with table + detail view
+- Results shown in web UI Analysis tab with table + detail view
 - Safety checks: edge threshold, positive Kelly, min bet $1, max position 10%, bankroll reserve $20, existing exposure
 
 ### Order Book Depth Analysis (strategy/depth.py)
@@ -138,39 +138,33 @@ monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
 - **Drift shrinkage**: Bayesian shrinkage toward zero based on t-statistic significance (prevents noisy 90d momentum from dominating)
 - **Confidence scoring**: penalizes vol regime instability, extreme probabilities, heavily-shrunk drift; boosts for Deribit IV availability
 
-### TUI Commands (command bar via ':' key)
-- `aggregate [question] [market_price]` — Full aggregation pipeline (signals + frontier model)
-- `signal-test [question]` — Run individual signal providers without aggregation
-- `categorize <question>` — Categorize a market question (keyword match first, LLM fallback)
-- `llm-test <prompt>` — Send a prompt to the cheap model
-- `refresh` — Re-run health checks and market fetch
+### Web UI Tabs (4 tabs)
+1. **Dashboard**: Bot status, connections (health checks), wallet, LLM costs (doughnut chart), open positions table
+2. **Markets**: Gamma API market browser with sort/limit controls, click row for detail panel
+3. **Analysis**: Horizontal split — market list (40%) + unified detail view (60%) with Chart.js charts (probability bars, vol comparison, price chart, Kelly breakdown, signal weights)
+4. **Logs**: Log viewer with level filtering, auto-scroll, polls every 5s
 
-### TUI Keybindings
-- `1-4` — Switch tabs (Dashboard, Markets, Analysis, Logs)
-- `s` — Start/Stop bot
-- `a` — Run aggregate on default test question (→ Analysis tab)
-- `r` — Refresh all
-- `:` — Toggle command bar
-- `q` — Quit
-
-### TUI Tabs (4 tabs, consolidated from 7)
-1. **Dashboard** (key `1`): Bot control, process phase, connections, wallet, LLM costs (merged Home + Costs)
-2. **Markets** (key `2`): Gamma API market browser + filter pipeline progress bar (merged Markets + pipeline progress)
-3. **Analysis** (key `3`): Horizontal split — market list (40%) + unified detail view (60%). Shows batch status, aggregation results, Kelly decisions, and full frontier reasoning in one place (merged Signals + Bets + In Progress + Detail Modal)
-4. **Logs** (key `4`): Log panel (unchanged)
+### Web UI Architecture
+- **Backend**: FastAPI on :8080 (`web/server.py`), REST endpoints proxying to existing backend functions
+- **Frontend**: React (Vite) on :5173 (dev), Chart.js via react-chartjs-2 for visualization
+- **Theme**: navy/grey/white palette (#0a1628, #0d1f3c, #8899aa, #e0e8f0, accent #4488cc)
+- **Dev workflow**: Vite dev server on :5173 (HMR) proxies /api → :8080. Production: `npm run build` → FastAPI serves `dist/`
+- **BotEngine stub**: `web/server.py` has BotEngine class — start/stop not yet wired to workers
+- **Command stubs**: POST /api/commands/* return 501 — will wire with workers later
+- **WebSocket**: /ws endpoint stubbed for future push updates (currently polling)
 
 ### Pipeline Workers (3 decoupled loops when bot is running)
-When the bot is started via `s` key, it launches 3 independent workers:
+When wired, the BotEngine will launch 3 independent workers:
 
 **Worker 1: Discovery Loop** (every `DISCOVERY_INTERVAL_MINUTES`, default 2h, group: `discovery-loop`)
 - Runs calibration check + full filter pipeline (discover → filter → categorize → extract → pre-screen → rank)
 - Caches ranked results in `_filtered_market_cache` for the aggregation worker
-- Posts `PipelineComplete` to Markets tab
+- Caches results for API endpoint
 
 **Worker 2: Aggregation Loop** (every `AGGREGATION_INTERVAL_MINUTES`, default 4h, group: `aggregation-loop`)
 - Reads from `_filtered_market_cache`, applies conditionId dedup
 - Runs `_aggregate_batch()` on top candidates (up to BATCH_SIZE=40)
-- Posts `BatchUpdate` to Analysis tab
+- Stores results in BotEngine.analysis_entries for API endpoint
 
 **Worker 3: Position Monitor Loop** (every `POSITION_CHECK_INTERVAL_MINUTES`, default 30min, group: `position-loop`)
 - Runs `executor.monitor_orders()` + `executor.manage_positions()`
@@ -180,7 +174,6 @@ All workers use cancellation-safe sleep (5s chunks checking `_bot_running`).
 No race conditions: all workers are coroutines in the same event loop.
 - The Analysis tab shows the current batch with per-market status (waiting/processing/done/skipped/error)
 - The Dashboard tab shows the current bot process phase (filtering/aggregating/monitoring/waiting)
-- The Markets tab shows filter pipeline progress bar when bot is running
 
 ## Critical Design Rules
 
@@ -210,14 +203,12 @@ No race conditions: all workers are coroutines in the same event loop.
 - Paper trades stored in same tables with `paper=True` column
 - All timestamps ISO 8601 UTC
 
-### TUI Behavior
+### Web UI Behavior
 - Theme: navy (#0a1628, #0d1f3c), grey (#8899aa, #667788), white (#e0e8f0), blue accent (#4488cc)
-- Bot Stop MUST cancel ALL worker groups (discovery-loop, aggregation-loop, position-loop, pipeline, health-loop, health-check, markets, costs) — no background tasks should survive a stop
-- Bot Start launches 3 workers (discovery-loop, aggregation-loop, position-loop) + health-loop, clears aggregated IDs
-- Health checks (wallet, RPC, OpenRouter) always run
+- Health checks (wallet, RPC, OpenRouter) via GET /api/health
 - Analysis tab shows current batch of markets being aggregated with live status per market
-- No modal screens — all detail views are inline in the Analysis tab's right pane
-- DrillDownRequest from Markets tab switches to Analysis tab + shows detail inline
+- All detail views are inline in the Analysis tab's right pane
+- Auto-refresh polling: Dashboard 30s, Analysis 15s, Logs 5s
 
 ### Code Standards
 - Type hints on all function signatures and return types
@@ -233,7 +224,8 @@ pip install -r requirements.txt
 cp .env.example .env  # then fill in secrets
 
 # Run
-python main.py --tui             # TUI dashboard (current primary interface)
+python main.py --web             # Web dashboard (API on :8080)
+cd frontend && npm run dev       # React dev server (HMR on :5173)
 python main.py                   # Live trading (NOT YET IMPLEMENTED)
 
 # Test
@@ -243,6 +235,11 @@ pytest tests/test_market_filter.py -v  # Market filter tests
 pytest tests/test_llm.py -v            # LLM client tests
 pytest tests/test_db.py -v             # Database tests
 
+# Frontend
+cd frontend && npm install       # Install React dependencies
+cd frontend && npm run build     # Production build → frontend/dist/
+cd frontend && npm run dev       # Dev server with HMR
+
 # Docker
 docker-compose up -d               # Production
 docker-compose logs -f              # Tail logs
@@ -251,9 +248,9 @@ docker-compose logs -f              # Tail logs
 ## Build Sequence
 This project is built section by section from `POLYMARKET_BOT_PLAN (1).md`. Each section is self-contained. Build in order: 0 → 1 → 2 → 3 → 4A → 4B → 4C → 4D → 5 → 6 → 7 → 8 → 9 → 10 → 11. Do not skip ahead. Run tests after each section before proceeding.
 
-**Current progress:** Sections 0-6 complete (core infra, LLM, wallet, DB, market filtering, TUI, full signal engine with aggregator, Kelly criterion, order execution). Section 7+ (monitoring, main loop) not yet implemented.
+**Current progress:** Sections 0-6 complete (core infra, LLM, wallet, DB, market filtering, web UI, full signal engine with aggregator, Kelly criterion, order execution). TUI replaced with React + FastAPI web dashboard. Section 7+ (monitoring, main loop) not yet implemented.
 
 ## File Naming
 - All Python files use snake_case
-- Config in `config/`, core infra in `core/`, signal providers in `signals/`, trading logic in `strategy/`, ops in `monitoring/`, one-off helpers in `scripts/`, TUI in `tui/`
+- Config in `config/`, core infra in `core/`, signal providers in `signals/`, trading logic in `strategy/`, ops in `monitoring/`, one-off helpers in `scripts/`, web backend in `web/`, React frontend in `frontend/`
 - Database file lives at `data/bot.db` (auto-create `data/` directory)

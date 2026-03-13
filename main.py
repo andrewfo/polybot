@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import sys
 
 logging.basicConfig(
@@ -19,14 +20,16 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    if "--tui" in sys.argv:
+    if "--web" in sys.argv:
+        import uvicorn
         from dotenv import load_dotenv
 
         load_dotenv()
 
-        from tui.app import TUIApp
+        from web.server import create_app
 
-        app = TUIApp()
-        app.run()
+        app = create_app()
+        port = int(os.environ.get("WEB_PORT", "8080"))
+        uvicorn.run(app, host="127.0.0.1", port=port)
     else:
         asyncio.run(main())

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Standalone entry point for the TUI dashboard.
+"""Standalone entry point for the web dashboard.
 
 Usage:
     python scripts/dashboard.py
@@ -15,12 +15,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from tui.app import TUIApp
+import uvicorn
+from web.server import create_app
 
 
 def main() -> None:
-    app = TUIApp()
-    app.run()
+    app = create_app()
+    port = int(os.environ.get("WEB_PORT", "8080"))
+    uvicorn.run(app, host="127.0.0.1", port=port)
 
 
 if __name__ == "__main__":

@@ -11,7 +11,8 @@ lxml
 schedule
 sqlite-utils
 python-telegram-bot
-textual>=0.85.0
+fastapi
+uvicorn[standard]
 pytest
 pytest-asyncio
 python-dateutil

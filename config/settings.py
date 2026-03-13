@@ -81,3 +81,6 @@ STALE_ORDER_MINUTES = int(os.getenv("STALE_ORDER_MINUTES", "15"))
 # --- Notifications ---
 NOTIFICATIONS_ENABLED = os.getenv("NOTIFICATIONS_ENABLED", "true").lower() == "true"
 TELEGRAM_ENABLED = os.getenv("TELEGRAM_ENABLED", "false").lower() == "true"
+
+# --- Web UI ---
+WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
