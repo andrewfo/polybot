@@ -26,7 +26,22 @@ from config.settings import (
     CHEAP_MODEL,
     DEPTH_ANALYSIS_ENABLED,
     DISCOVERY_INTERVAL_MINUTES,
+    KELLY_FRACTION,
+    MAX_ACCEPTABLE_SLIPPAGE,
+    MAX_DAILY_LOSS_PCT,
+    MAX_DIVERGENCE_ANY_CONFIDENCE,
+    MAX_DIVERGENCE_LOW_CONFIDENCE,
+    MAX_DRAWDOWN_PCT,
+    MAX_POSITION_PCT,
+    MAX_SIMULTANEOUS_POSITIONS,
+    MAX_SPREAD,
+    MIN_BANKROLL_RESERVE,
+    MIN_CONFIDENCE_BLEND,
+    MIN_DEPTH_USD,
+    MIN_EDGE_THRESHOLD,
+    MIN_MARKET_LIQUIDITY,
     PAPER_TRADING,
+    POLYMARKET_FEE_RATE,
     POSITION_CHECK_INTERVAL_MINUTES,
     TEST_BANKROLL,
 )
@@ -403,6 +418,19 @@ class BotEngine:
             "total_score": m.get("_total_score"),
         }
 
+        # Compute effective weights for each signal
+        from signals.aggregator import SIGNAL_WEIGHT_MULTIPLIERS, _compute_effective_weight
+        import math as _math
+
+        signal_probs = [
+            s.probability for s in result.individual_signals
+            if s.probability is not None and s.confidence > 0
+        ]
+        signals_stdev = 0.0
+        if len(signal_probs) >= 2:
+            mean_p = sum(signal_probs) / len(signal_probs)
+            signals_stdev = _math.sqrt(sum((p - mean_p) ** 2 for p in signal_probs) / len(signal_probs))
+
         # Store full analysis entry — include all raw signal data
         self.analysis_entries[cid].update({
             "status": "done",
@@ -418,6 +446,8 @@ class BotEngine:
                 "market_efficiency": result.market_efficiency,
                 "market_price": market_price,
                 "total_data_points": result.total_data_points,
+                "signals_stdev": round(signals_stdev, 4),
+                "signal_weight_multipliers": {k: round(v, 2) for k, v in SIGNAL_WEIGHT_MULTIPLIERS.items()},
                 "signals": [
                     {
                         "source": s.source,
@@ -427,6 +457,8 @@ class BotEngine:
                         "model_used": s.model_used,
                         "data_points": s.data_points,
                         "raw_data": s.raw_data,
+                        "effective_weight": round(_compute_effective_weight(s), 3) if s.probability is not None and s.confidence > 0 else 0,
+                        "base_multiplier": SIGNAL_WEIGHT_MULTIPLIERS.get(s.source, 1.0),
                     }
                     for s in result.individual_signals
                 ],
@@ -445,6 +477,28 @@ class BotEngine:
                 "expected_value": decision.expected_value,
                 "should_trade": decision.should_trade,
                 "skip_reason": decision.skip_reason,
+                "fee_rate": POLYMARKET_FEE_RATE,
+                "kelly_fraction_multiplier": KELLY_FRACTION,
+                "min_edge_threshold": MIN_EDGE_THRESHOLD,
+                "max_position_pct": MAX_POSITION_PCT,
+                "min_bankroll_reserve": MIN_BANKROLL_RESERVE,
+                "confidence_blend_floor": MIN_CONFIDENCE_BLEND,
+            },
+            "thresholds": {
+                "min_edge": MIN_EDGE_THRESHOLD,
+                "min_confidence": 0.25,
+                "max_spread": MAX_SPREAD,
+                "min_liquidity": MIN_MARKET_LIQUIDITY,
+                "max_slippage": MAX_ACCEPTABLE_SLIPPAGE,
+                "min_depth_usd": MIN_DEPTH_USD,
+                "max_drawdown": MAX_DRAWDOWN_PCT,
+                "max_daily_loss": MAX_DAILY_LOSS_PCT,
+                "max_positions": MAX_SIMULTANEOUS_POSITIONS,
+                "max_divergence_low_conf": MAX_DIVERGENCE_LOW_CONFIDENCE,
+                "max_divergence_any_conf": MAX_DIVERGENCE_ANY_CONFIDENCE,
+                "kelly_fraction": KELLY_FRACTION,
+                "fee_rate": POLYMARKET_FEE_RATE,
+                "confidence_blend_floor": MIN_CONFIDENCE_BLEND,
             },
             "depth": depth_data,
             "execution": exec_data,

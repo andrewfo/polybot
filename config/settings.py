@@ -52,6 +52,10 @@ RESOLUTION_SIGNAL_WEIGHT = float(os.getenv("RESOLUTION_SIGNAL_WEIGHT", "2.0"))
 # Serper.dev: 2,500 free searches/month (https://serper.dev)
 SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
 
+# Metaculus API token (required — their API returns 403 without auth)
+# Get one at https://www.metaculus.com/aib/  (free tier available)
+METACULUS_API_TOKEN = os.getenv("METACULUS_API_TOKEN", "")
+
 # Perplexity Sonar model via OpenRouter (search-grounded LLM)
 SONAR_MODEL = os.getenv("SONAR_MODEL", "perplexity/sonar")
 SONAR_RATE_LIMIT = int(os.getenv("SONAR_RATE_LIMIT", "20"))

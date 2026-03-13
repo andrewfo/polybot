@@ -4,14 +4,19 @@ import { api, AnalysisDetail as AnalysisDetailType } from '../api'
 import ProbabilityBars from './charts/ProbabilityBars'
 import VolComparison from './charts/VolComparison'
 import PriceChart from './charts/PriceChart'
-import KellyBreakdown from './charts/KellyBreakdown'
 import SignalWeights from './charts/SignalWeights'
+import EdgeWaterfall from './charts/EdgeWaterfall'
+import ConfidenceGauge from './charts/ConfidenceGauge'
+import SignalRadar from './charts/SignalRadar'
+import DecisionPipeline from './charts/DecisionPipeline'
+import DepthLadder from './charts/DepthLadder'
+import CrossPlatformBars from './charts/CrossPlatformBars'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function SectionHeader({ title, collapsed, onToggle }: { title: string; collapsed?: boolean; onToggle?: () => void }) {
+function SectionHeader({ title, collapsed, onToggle, badge }: { title: string; collapsed?: boolean; onToggle?: () => void; badge?: string }) {
   return (
     <h3
       onClick={onToggle}
@@ -28,6 +33,13 @@ function SectionHeader({ title, collapsed, onToggle }: { title: string; collapse
     >
       {onToggle && <span style={{ fontSize: 9, transition: 'transform 0.2s', transform: collapsed ? 'rotate(-90deg)' : 'rotate(0)' }}>&#9660;</span>}
       {title}
+      {badge && (
+        <span style={{
+          fontSize: 9, padding: '1px 6px', borderRadius: 10,
+          background: colors.accentDim, color: colors.textDim, fontWeight: 500,
+          marginLeft: 4,
+        }}>{badge}</span>
+      )}
     </h3>
   )
 }
@@ -43,12 +55,12 @@ function Badge({ text, color: fg }: { text: string; color: string }) {
   )
 }
 
-function Stat({ label, value, highlight, mono }: { label: string; value: string; highlight?: string; mono?: boolean }) {
+function Stat({ label, value, highlight, mono, small }: { label: string; value: string; highlight?: string; mono?: boolean; small?: boolean }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <span style={{ fontSize: 10, color: colors.textDim, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</span>
+      <span style={{ fontSize: small ? 9 : 10, color: colors.textDim, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</span>
       <span style={{
-        fontSize: 13, fontWeight: 600, color: highlight || colors.textPrimary,
+        fontSize: small ? 11 : 13, fontWeight: 600, color: highlight || colors.textPrimary,
         fontFamily: mono !== false ? "'JetBrains Mono', monospace" : 'inherit',
       }}>
         {value}
@@ -57,27 +69,30 @@ function Stat({ label, value, highlight, mono }: { label: string; value: string;
   )
 }
 
-function MetricRow({ label, value, highlight }: { label: string; value: string; highlight?: string }) {
+function MetricRow({ label, value, highlight, detail }: { label: string; value: string; highlight?: string; detail?: string }) {
   return (
     <div style={{
       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
       padding: '5px 0', borderBottom: `1px solid ${colors.border}`, fontSize: 12,
     }}>
       <span style={{ color: colors.textMuted }}>{label}</span>
-      <span style={{
-        fontWeight: 600, color: highlight || colors.textPrimary,
-        fontFamily: "'JetBrains Mono', monospace", fontSize: 12,
-      }}>
-        {value}
-      </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        {detail && <span style={{ fontSize: 10, color: colors.textDim }}>{detail}</span>}
+        <span style={{
+          fontWeight: 600, color: highlight || colors.textPrimary,
+          fontFamily: "'JetBrains Mono', monospace", fontSize: 12,
+        }}>
+          {value}
+        </span>
+      </div>
     </div>
   )
 }
 
-function InfoBox({ children }: { children: React.ReactNode }) {
+function InfoBox({ children, accent }: { children: React.ReactNode; accent?: string }) {
   return (
     <div style={{
-      background: colors.bgSecondary, border: `1px solid ${colors.border}`,
+      background: colors.bgSecondary, border: `1px solid ${accent ? accent + '33' : colors.border}`,
       borderRadius: 8, padding: 12, marginBottom: 8,
     }}>
       {children}
@@ -104,161 +119,256 @@ const fmtUsd = (v: unknown): string => {
 }
 
 // ---------------------------------------------------------------------------
-// Sub-components for each section
+// Sub-components for each signal source
 // ---------------------------------------------------------------------------
 
-function MarketMeta({ meta, marketPrice }: { meta: Record<string, unknown>; marketPrice: number }) {
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 10 }}>
-      <Stat label="Market Price" value={fmtPct(marketPrice)} highlight={colors.accent} />
-      <Stat label="Liquidity" value={fmtUsd(meta.liquidity)} />
-      <Stat label="24h Volume" value={fmtUsd(meta.volume_24h)} />
-      <Stat label="Spread" value={fmtPct(meta.spread)} />
-      <Stat label="Best Bid" value={fmtPct(meta.best_bid)} />
-      <Stat label="Best Ask" value={fmtPct(meta.best_ask)} />
-      <Stat label="Days Left" value={meta.days_remaining != null ? fmt(meta.days_remaining, 1) + 'd' : '--'} highlight={
-        meta.days_remaining != null && (meta.days_remaining as number) < 7 ? colors.warning : undefined
-      } />
-      <Stat label="Resolution Type" value={String(meta.resolution_type || '--')} mono={false} />
-      {meta.model_edge != null && <Stat label="Pre-screen Edge" value={fmtPct(meta.model_edge)} highlight={
-        (meta.model_edge as number) > 0 ? colors.success : colors.danger
-      } />}
-    </div>
-  )
-}
-
-function CoinInfo({ raw }: { raw: Record<string, unknown> }) {
+function CryptoSignalDetail({ raw }: { raw: Record<string, unknown> }) {
   const distance = raw.distance_pct as number | undefined
   const trend = raw.trend as string | undefined
   const trendColor = trend === 'upward' ? colors.success : trend === 'downward' ? colors.danger : colors.textMuted
 
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10 }}>
-      <Stat label="Coin" value={String(raw.coin_id || '--').toUpperCase()} mono={false} />
-      <Stat label="Current Price" value={fmtUsd(raw.current_price)} />
-      <Stat label="Target Price" value={fmtUsd(raw.target_price)} />
-      <Stat label="Direction" value={String(raw.target_direction || '--')} highlight={
-        raw.target_direction === 'above' ? colors.success : colors.danger
-      } />
-      <Stat label="Distance to Target" value={fmtPct(distance != null ? distance / 100 : null)} highlight={
-        distance != null && Math.abs(distance) < 5 ? colors.warning : undefined
-      } />
-      <Stat label="24h Change" value={fmtPct(raw.change_24h != null ? (raw.change_24h as number) / 100 : null)} highlight={
-        (raw.change_24h as number) > 0 ? colors.success : colors.danger
-      } />
-      <Stat label="Trend" value={String(trend || '--')} highlight={trendColor} />
-    </div>
-  )
-}
-
-function ProbabilityModels({ raw }: { raw: Record<string, unknown> }) {
   const barrier = raw.barrier_prob as number | undefined
   const terminal = raw.terminal_prob as number | undefined
   const selected = raw.model_prob as number | undefined
   const resType = raw.resolution_type as string | undefined
 
-  const bars: { label: string; value: number; color: string }[] = []
-  if (barrier != null && barrier > 0) bars.push({ label: `Barrier (touch)${resType === 'barrier' ? ' *' : ''}`, value: barrier, color: '#f59e0b' })
-  if (terminal != null && terminal > 0) bars.push({ label: `Terminal (at expiry)${resType === 'terminal' ? ' *' : ''}`, value: terminal, color: '#8b5cf6' })
-  if (selected != null && selected > 0) bars.push({ label: 'Selected Model', value: selected, color: colors.accent })
+  // Volatility data for chart
+  const volData: Record<string, number> = {}
+  if (raw.historical_vol != null) volData.historical = raw.historical_vol as number
+  if (raw.ewm_vol != null) volData.ewm = raw.ewm_vol as number
+  if (raw.short_term_vol != null) volData.short_term = raw.short_term_vol as number
+  if (raw.deribit_iv != null) volData.deribit_iv = raw.deribit_iv as number
+  if (raw.annualized_vol != null) volData.selected = raw.annualized_vol as number
 
-  if (bars.length === 0) return null
-  return (
-    <div>
-      <div style={{ fontSize: 10, color: colors.textDim, marginBottom: 6 }}>* = active model for this market</div>
-      <ProbabilityBars bars={bars} />
-    </div>
-  )
-}
-
-function VolBreakdown({ raw }: { raw: Record<string, unknown> }) {
-  const data: Record<string, number> = {}
-  if (raw.historical_vol != null) data.historical = raw.historical_vol as number
-  if (raw.ewm_vol != null) data.ewm = raw.ewm_vol as number
-  if (raw.short_term_vol != null) data.short_term = raw.short_term_vol as number
-  if (raw.deribit_iv != null) data.deribit_iv = raw.deribit_iv as number
-  if (raw.annualized_vol != null) data.selected = raw.annualized_vol as number
-
-  if (Object.keys(data).length === 0) return null
-  return (
-    <div>
-      <VolComparison data={data} />
-      <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 11, color: colors.textDim }}>
-        <span>Vol Source: <span style={{ color: colors.textMuted, fontWeight: 600 }}>{String(raw.vol_source || '--')}</span></span>
-        <span>Data Interval: <span style={{ color: colors.textMuted }}>{fmt(raw.avg_interval_hours, 1)}h</span></span>
-      </div>
-    </div>
-  )
-}
-
-function DriftAnalysis({ raw }: { raw: Record<string, unknown> }) {
+  // Drift
   const realized = raw.realized_drift as number | undefined
   const shrunk = raw.shrunk_drift as number | undefined
   const stderr = raw.drift_stderr as number | undefined
-
-  if (realized == null && shrunk == null) return null
-
   const shrinkPct = realized != null && shrunk != null && realized !== 0
-    ? ((1 - Math.abs(shrunk) / Math.abs(realized)) * 100)
-    : null
+    ? ((1 - Math.abs(shrunk) / Math.abs(realized)) * 100) : null
 
   return (
-    <InfoBox>
-      <div style={{ fontSize: 11, fontWeight: 600, color: colors.textMuted, marginBottom: 8, textTransform: 'uppercase' }}>
-        Drift (Bayesian Shrinkage)
+    <div>
+      {/* Coin Overview */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 8, marginBottom: 10 }}>
+        <Stat label="Coin" value={String(raw.coin_id || '--').toUpperCase()} mono={false} />
+        <Stat label="Current" value={fmtUsd(raw.current_price)} />
+        <Stat label="Target" value={fmtUsd(raw.target_price)} />
+        <Stat label="Direction" value={String(raw.target_direction || '--')} highlight={
+          raw.target_direction === 'above' ? colors.success : colors.danger
+        } />
+        <Stat label="Distance" value={fmtPct(distance != null ? distance / 100 : null)} highlight={
+          distance != null && Math.abs(distance) < 5 ? colors.warning : undefined
+        } />
+        <Stat label="24h Change" value={fmtPct(raw.change_24h)} highlight={
+          (raw.change_24h as number) > 0 ? colors.success : colors.danger
+        } />
+        <Stat label="Trend" value={String(trend || '--')} highlight={trendColor} />
+        <Stat label="Days Left" value={raw.days_remaining != null ? fmt(raw.days_remaining, 1) + 'd' : '--'} />
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-        <Stat label="Realized Drift" value={realized != null ? (realized * 100).toFixed(2) + '%' : '--'} />
-        <Stat label="Shrunk Drift" value={shrunk != null ? (shrunk * 100).toFixed(2) + '%' : '--'}
-          highlight={shrunk != null && Math.abs(shrunk) < 0.01 ? colors.textDim : undefined} />
-        <Stat label="Std Error" value={stderr != null ? (stderr * 100).toFixed(2) + '%' : '--'} />
-      </div>
-      {shrinkPct != null && (
-        <div style={{ marginTop: 8 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: colors.textDim, marginBottom: 3 }}>
-            <span>Shrinkage toward zero</span>
-            <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{shrinkPct.toFixed(0)}%</span>
+
+      {/* Probability Models — side by side comparison */}
+      {(barrier != null || terminal != null) && (
+        <InfoBox>
+          <div style={{ fontSize: 10, fontWeight: 600, color: colors.textMuted, marginBottom: 8, textTransform: 'uppercase' }}>
+            Probability Models
           </div>
-          <div style={{ height: 4, background: colors.border, borderRadius: 2, overflow: 'hidden' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
             <div style={{
-              height: '100%', width: `${Math.min(Math.max(shrinkPct, 0), 100)}%`,
-              background: shrinkPct > 70 ? colors.warning : colors.accent, borderRadius: 2,
-            }} />
+              padding: 8, borderRadius: 6, textAlign: 'center',
+              background: resType === 'barrier' ? '#f59e0b11' : 'transparent',
+              border: resType === 'barrier' ? '1px solid #f59e0b33' : `1px solid ${colors.border}`,
+            }}>
+              <div style={{ fontSize: 9, color: colors.textDim, marginBottom: 4 }}>BARRIER (touch)</div>
+              <div style={{
+                fontSize: 20, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace",
+                color: resType === 'barrier' ? '#f59e0b' : colors.textMuted,
+              }}>
+                {barrier != null ? (barrier * 100).toFixed(1) + '%' : '--'}
+              </div>
+              {resType === 'barrier' && <div style={{ fontSize: 8, color: '#f59e0b', marginTop: 2 }}>ACTIVE</div>}
+            </div>
+            <div style={{
+              padding: 8, borderRadius: 6, textAlign: 'center',
+              background: resType === 'terminal' ? '#8b5cf611' : 'transparent',
+              border: resType === 'terminal' ? '1px solid #8b5cf633' : `1px solid ${colors.border}`,
+            }}>
+              <div style={{ fontSize: 9, color: colors.textDim, marginBottom: 4 }}>TERMINAL (expiry)</div>
+              <div style={{
+                fontSize: 20, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace",
+                color: resType === 'terminal' ? '#8b5cf6' : colors.textMuted,
+              }}>
+                {terminal != null ? (terminal * 100).toFixed(1) + '%' : '--'}
+              </div>
+              {resType === 'terminal' && <div style={{ fontSize: 8, color: '#8b5cf6', marginTop: 2 }}>ACTIVE</div>}
+            </div>
+            <div style={{
+              padding: 8, borderRadius: 6, textAlign: 'center',
+              border: `1px solid ${colors.accent}33`,
+              background: colors.accentDim,
+            }}>
+              <div style={{ fontSize: 9, color: colors.textDim, marginBottom: 4 }}>SELECTED</div>
+              <div style={{
+                fontSize: 20, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace",
+                color: colors.accent,
+              }}>
+                {selected != null ? (selected * 100).toFixed(1) + '%' : '--'}
+              </div>
+            </div>
           </div>
-        </div>
+        </InfoBox>
       )}
-    </InfoBox>
+
+      {/* Volatility Comparison */}
+      {Object.keys(volData).length > 0 && (
+        <InfoBox>
+          <div style={{ fontSize: 10, fontWeight: 600, color: colors.textMuted, marginBottom: 8, textTransform: 'uppercase' }}>
+            Volatility Comparison
+          </div>
+          <VolComparison data={volData} />
+          <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 10, color: colors.textDim, flexWrap: 'wrap' }}>
+            <span>Source: <span style={{ color: colors.textMuted, fontWeight: 600 }}>{String(raw.vol_source || '--')}</span></span>
+            <span>Interval: <span style={{ color: colors.textMuted }}>{fmt(raw.avg_interval_hours, 1)}h avg</span></span>
+            <span>Selected: <span style={{ color: colors.accent, fontWeight: 600 }}>{fmtPct(raw.annualized_vol)}</span></span>
+          </div>
+        </InfoBox>
+      )}
+
+      {/* Drift Analysis with visual shrinkage bar */}
+      {(realized != null || shrunk != null) && (
+        <InfoBox>
+          <div style={{ fontSize: 10, fontWeight: 600, color: colors.textMuted, marginBottom: 8, textTransform: 'uppercase' }}>
+            Drift Analysis (Bayesian Shrinkage)
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 8 }}>
+            <Stat label="Realized" value={realized != null ? (realized * 100).toFixed(2) + '%/yr' : '--'} small />
+            <Stat label="Shrunk" value={shrunk != null ? (shrunk * 100).toFixed(2) + '%/yr' : '--'}
+              highlight={shrunk != null && Math.abs(shrunk) < 0.01 ? colors.textDim : undefined} small />
+            <Stat label="Std Error" value={stderr != null ? (stderr * 100).toFixed(2) + '%' : '--'} small />
+          </div>
+          {shrinkPct != null && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: colors.textDim, marginBottom: 3 }}>
+                <span>Shrinkage toward zero</span>
+                <span style={{ fontFamily: "'JetBrains Mono', monospace", color: shrinkPct > 70 ? colors.warning : colors.accent }}>{shrinkPct.toFixed(0)}%</span>
+              </div>
+              <div style={{ height: 6, background: colors.border, borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%', width: `${Math.min(Math.max(shrinkPct, 0), 100)}%`,
+                  background: shrinkPct > 70 ? colors.warning : colors.accent, borderRadius: 3,
+                  transition: 'width 0.4s ease',
+                }} />
+              </div>
+              <div style={{ fontSize: 9, color: colors.textDim, marginTop: 4 }}>
+                {shrinkPct > 70 ? 'High shrinkage — drift estimate is noisy, model relies mostly on volatility' :
+                 shrinkPct > 40 ? 'Moderate shrinkage — drift partially discounted' :
+                 'Low shrinkage — drift signal is statistically significant'}
+              </div>
+            </div>
+          )}
+        </InfoBox>
+      )}
+    </div>
   )
 }
 
-function DepthSection({ depth }: { depth: Record<string, unknown> }) {
-  if (!depth || Object.keys(depth).length === 0) return null
+function PredictionMarketsDetail({ raw, consensusProb }: { raw: Record<string, unknown>; consensusProb?: number }) {
+  const matched = (raw.matched_markets || []) as Record<string, unknown>[]
+  const allCandidates = raw.all_candidates as number | undefined
+  const platforms = raw.platforms_searched as string[] | undefined
+
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10 }}>
-        <Stat label="Total Depth" value={fmtUsd(depth.total_depth_usd)} />
-        <Stat label="Slippage" value={fmtPct(depth.slippage)} highlight={
-          (depth.slippage as number) > 0.02 ? colors.warning : colors.success
-        } />
-        <Stat label="Best Price" value={fmtPct(depth.best_price)} />
-        <Stat label="Avg Fill Price" value={fmtPct(depth.avg_fill_price)} />
-        <Stat label="Max Fillable" value={fmtUsd(depth.max_fillable_usd)} />
-        <Stat label="Price Levels" value={String(depth.levels || '--')} />
-      </div>
-      {Boolean(depth.was_adjusted) && (
-        <div style={{
-          marginTop: 8, padding: '6px 10px', borderRadius: 6,
-          background: colors.warningDim, fontSize: 11, color: colors.warning,
-        }}>
-          Bet size reduced from original Kelly size due to slippage. Adjusted to {fmtUsd(depth.adjusted_bet_usd)}.
+      {/* Cross-platform probability chart */}
+      {matched.length > 0 && (
+        <CrossPlatformBars
+          markets={matched.map(m => ({
+            platform: String(m.platform || '?'),
+            title: String(m.title || m.question || '?'),
+            probability: parseFloat(String(m.probability || 0)),
+            similarity: m.similarity != null ? parseFloat(String(m.similarity)) : undefined,
+            forecasters: m.forecasters != null ? Number(m.forecasters) : undefined,
+            volume: m.volume != null ? Number(m.volume) : undefined,
+          }))}
+          consensusProb={consensusProb}
+        />
+      )}
+
+      {/* Match details table */}
+      {matched.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          {matched.map((mm, i) => (
+            <div key={i} style={{
+              padding: '6px 8px', marginBottom: 4, borderRadius: 6,
+              background: 'rgba(0,0,0,0.2)', fontSize: 11,
+            }}>
+              <div style={{ color: colors.textSecondary, marginBottom: 3, lineHeight: 1.3 }}>
+                {String(mm.title || mm.question || '?')}
+              </div>
+              <div style={{ display: 'flex', gap: 10, color: colors.textDim, flexWrap: 'wrap', fontSize: 10 }}>
+                <span>Platform: <span style={{ color: colors.textMuted, fontWeight: 600 }}>{String(mm.platform || '?')}</span></span>
+                {mm.probability != null && (
+                  <span>Prob: <span style={{ fontFamily: "'JetBrains Mono', monospace", color: colors.accent }}>{fmtPct(mm.probability)}</span></span>
+                )}
+                {mm.similarity != null && (
+                  <span>Similarity: <span style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    color: (mm.similarity as number) > 0.6 ? colors.success : (mm.similarity as number) > 0.4 ? colors.warning : colors.textDim,
+                  }}>{fmt(mm.similarity, 3)}</span></span>
+                )}
+                {mm.forecasters != null && (
+                  <span>Forecasters: <span style={{ color: colors.textMuted }}>{String(mm.forecasters)}</span></span>
+                )}
+                {mm.volume != null && (
+                  <span>Volume: <span style={{ color: colors.textMuted }}>${Number(mm.volume).toLocaleString()}</span></span>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       )}
-      {Boolean(depth.skip_reason) && (
-        <div style={{
-          marginTop: 8, padding: '6px 10px', borderRadius: 6,
-          background: colors.dangerDim, fontSize: 11, color: colors.danger,
-        }}>
-          Depth skip: {String(depth.skip_reason)}
+
+      {/* Search metadata */}
+      <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 10, color: colors.textDim, flexWrap: 'wrap' }}>
+        {allCandidates != null && <span>Total candidates found: <span style={{ color: colors.textMuted }}>{allCandidates}</span></span>}
+        {platforms && <span>Platforms: <span style={{ color: colors.textMuted }}>{platforms.join(', ')}</span></span>}
+        {matched.length > 0 && allCandidates != null && (
+          <span>Match rate: <span style={{ color: colors.textMuted }}>{((matched.length / Math.max(allCandidates, 1)) * 100).toFixed(0)}%</span></span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function WebSearchDetail({ raw }: { raw: Record<string, unknown> }) {
+  const evidence = (raw.key_evidence || raw.evidence || []) as (string | Record<string, unknown>)[]
+  const sourcesFound = raw.sources_found as number | undefined
+  const searchQuery = raw.search_query as string | undefined
+
+  return (
+    <div>
+      {evidence.length > 0 && (
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: colors.textMuted, marginBottom: 6, textTransform: 'uppercase' }}>
+            Evidence ({evidence.length} items{sourcesFound != null ? `, ${sourcesFound} sources` : ''})
+          </div>
+          {evidence.map((ev, i) => {
+            const text = typeof ev === 'string' ? ev : String((ev as Record<string, unknown>).title || (ev as Record<string, unknown>).text || (ev as Record<string, unknown>).snippet || JSON.stringify(ev))
+            return (
+              <div key={i} style={{
+                padding: '6px 8px', marginBottom: 4, borderRadius: 6,
+                background: 'rgba(0,0,0,0.2)', fontSize: 11, color: colors.textSecondary,
+                borderLeft: `2px solid ${colors.warning}44`,
+              }}>
+                {text}
+              </div>
+            )
+          })}
+        </div>
+      )}
+      {searchQuery && (
+        <div style={{ fontSize: 10, color: colors.textDim, marginTop: 6 }}>
+          Query: <span style={{ color: colors.textMuted, fontStyle: 'italic' }}>"{searchQuery}"</span>
         </div>
       )}
     </div>
@@ -266,7 +376,7 @@ function DepthSection({ depth }: { depth: Record<string, unknown> }) {
 }
 
 function SignalCard({ signal, index }: { signal: Record<string, unknown>; index: number }) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(true) // Default expanded for more visibility
   const source = String(signal.source || '?')
   const prob = signal.probability as number | null
   const conf = signal.confidence as number | undefined
@@ -274,6 +384,8 @@ function SignalCard({ signal, index }: { signal: Record<string, unknown>; index:
   const reasoning = String(signal.reasoning || '')
   const model = String(signal.model_used || 'none')
   const dataPoints = signal.data_points as number | undefined
+  const effectiveWeight = signal.effective_weight as number | undefined
+  const baseMultiplier = signal.base_multiplier as number | undefined
 
   const palette = ['#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6', '#06b6d4']
   const cardColor = palette[index % palette.length]
@@ -290,18 +402,32 @@ function SignalCard({ signal, index }: { signal: Record<string, unknown>; index:
           justifyContent: 'space-between',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: cardColor }}>{source}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: cardColor }}>{source.replace(/_/g, ' ')}</span>
           {prob != null && (
-            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: colors.textPrimary }}>
+            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, fontWeight: 700, color: colors.textPrimary }}>
               {(prob * 100).toFixed(1)}%
             </span>
           )}
           {conf != null && (
-            <span style={{ fontSize: 11, color: colors.textDim }}>conf {(conf * 100).toFixed(0)}%</span>
+            <span style={{
+              fontSize: 10, padding: '1px 6px', borderRadius: 10,
+              background: conf > 0.5 ? colors.successDim : conf > 0.25 ? colors.warningDim : colors.dangerDim,
+              color: conf > 0.5 ? colors.success : conf > 0.25 ? colors.warning : colors.danger,
+            }}>
+              conf {(conf * 100).toFixed(0)}%
+            </span>
+          )}
+          {effectiveWeight != null && effectiveWeight > 0 && (
+            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 10, background: colors.accentDim, color: colors.textDim }}>
+              wt {effectiveWeight.toFixed(2)}
+            </span>
+          )}
+          {baseMultiplier != null && (
+            <span style={{ fontSize: 9, color: colors.textDim }}>{baseMultiplier}x base</span>
           )}
           {model !== 'none' && (
-            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 10, background: colors.accentDim, color: colors.textDim }}>
+            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 10, background: 'rgba(139,92,246,0.15)', color: '#8b5cf6' }}>
               {model}
             </span>
           )}
@@ -321,87 +447,33 @@ function SignalCard({ signal, index }: { signal: Record<string, unknown>; index:
             <pre style={{
               background: 'rgba(0,0,0,0.2)', borderRadius: 6, padding: 10, marginTop: 8,
               fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: colors.textSecondary,
-              whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 200, overflow: 'auto',
+              whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 150, overflow: 'auto',
               lineHeight: 1.4,
             }}>
               {reasoning}
             </pre>
           )}
 
-          {/* Source-specific raw data displays */}
+          {/* Source-specific displays */}
           {source === 'resolution_crypto' && Object.keys(raw).length > 0 && (
             <div style={{ marginTop: 10 }}>
-              <CoinInfo raw={raw} />
-              <div style={{ marginTop: 10 }}>
-                <ProbabilityModels raw={raw} />
-              </div>
-              <div style={{ marginTop: 10 }}>
-                <VolBreakdown raw={raw} />
-              </div>
-              <DriftAnalysis raw={raw} />
+              <CryptoSignalDetail raw={raw} />
             </div>
           )}
 
           {source === 'prediction_markets' && Object.keys(raw).length > 0 && (
             <div style={{ marginTop: 10 }}>
-              {Array.isArray(raw.matched_markets) && (
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: colors.textMuted, marginBottom: 6 }}>
-                    Matched Markets ({(raw.matched_markets as unknown[]).length})
-                  </div>
-                  {(raw.matched_markets as Record<string, unknown>[]).map((mm, i) => (
-                    <div key={i} style={{
-                      padding: '6px 8px', marginBottom: 4, borderRadius: 6,
-                      background: 'rgba(0,0,0,0.2)', fontSize: 11,
-                    }}>
-                      <div style={{ color: colors.textSecondary, marginBottom: 2 }}>{String(mm.title || mm.question || '?')}</div>
-                      <div style={{ display: 'flex', gap: 10, color: colors.textDim }}>
-                        <span>Platform: <span style={{ color: colors.textMuted }}>{String(mm.platform || mm.source || '?')}</span></span>
-                        {mm.probability != null && (
-                          <span>Prob: <span style={{ fontFamily: "'JetBrains Mono', monospace", color: colors.accent }}>{fmtPct(mm.probability)}</span></span>
-                        )}
-                        {mm.similarity != null && (
-                          <span>Similarity: <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{fmt(mm.similarity, 2)}</span></span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {raw.platforms_checked != null && (
-                <div style={{ fontSize: 10, color: colors.textDim, marginTop: 4 }}>
-                  Platforms checked: {String(raw.platforms_checked)}
-                </div>
-              )}
+              <PredictionMarketsDetail raw={raw} consensusProb={prob ?? undefined} />
             </div>
           )}
 
           {source === 'web_search' && Object.keys(raw).length > 0 && (
             <div style={{ marginTop: 10 }}>
-              {Array.isArray(raw.evidence) && (
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: colors.textMuted, marginBottom: 6 }}>
-                    Search Evidence ({(raw.evidence as unknown[]).length})
-                  </div>
-                  {(raw.evidence as Record<string, unknown>[]).map((ev, i) => (
-                    <div key={i} style={{
-                      padding: '6px 8px', marginBottom: 4, borderRadius: 6,
-                      background: 'rgba(0,0,0,0.2)', fontSize: 11, color: colors.textSecondary,
-                    }}>
-                      {String(ev.title || ev.text || ev.snippet || JSON.stringify(ev))}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {raw.search_query != null && (
-                <div style={{ fontSize: 10, color: colors.textDim, marginTop: 4 }}>
-                  Query: &quot;{String(raw.search_query)}&quot;
-                </div>
-              )}
+              <WebSearchDetail raw={raw} />
             </div>
           )}
 
-          {/* Fallback: show all raw_data as JSON for any source */}
+          {/* Fallback: show all raw_data as JSON for any other source */}
           {Object.keys(raw).length > 0 && !['resolution_crypto', 'prediction_markets', 'web_search'].includes(source) && (
             <details style={{ marginTop: 8 }}>
               <summary style={{ fontSize: 10, color: colors.textDim, cursor: 'pointer' }}>Raw Data</summary>
@@ -420,51 +492,6 @@ function SignalCard({ signal, index }: { signal: Record<string, unknown>; index:
   )
 }
 
-function KellyMath({ kelly }: { kelly: Record<string, unknown> }) {
-  const est = kelly.estimated_prob as number | undefined
-  const mkt = kelly.market_price as number | undefined
-  const eff = kelly.effective_prob as number | undefined
-  const conf = kelly.confidence as number | undefined
-  const rawK = kelly.raw_kelly as number | undefined
-  const fracK = kelly.fractional_kelly as number | undefined
-  const bet = kelly.bet_size as number | undefined
-  const bank = kelly.bankroll as number | undefined
-  const edge = kelly.edge as number | undefined
-  const ev = kelly.expected_value as number | undefined
-  const side = String(kelly.side || '--')
-  const shouldTrade = kelly.should_trade as boolean | undefined
-  const skipReason = kelly.skip_reason as string | undefined
-
-  return (
-    <div>
-      {/* Step-by-step math */}
-      <InfoBox>
-        <div style={{ fontSize: 11, fontWeight: 600, color: colors.textMuted, marginBottom: 8, textTransform: 'uppercase' }}>
-          Kelly Formula Steps
-        </div>
-        <MetricRow label="1. Frontier estimate (p)" value={fmtPct(est)} />
-        <MetricRow label="2. Market price (m)" value={fmtPct(mkt)} />
-        <MetricRow label="3. Confidence" value={fmtPct(conf)} />
-        <MetricRow label="4. Blend: eff = conf*p + (1-conf)*m" value={fmtPct(eff)} highlight={colors.accent} />
-        <MetricRow label="5. Edge = eff - m" value={fmtPct(edge)} highlight={
-          edge != null && edge > 0 ? colors.success : colors.danger
-        } />
-        <MetricRow label="6. Full Kelly f* = edge/odds" value={fmtPct(rawK)} />
-        <MetricRow label="7. Fractional (0.25x)" value={fmtPct(fracK)} highlight={colors.accent} />
-        <MetricRow label="8. Bankroll" value={fmtUsd(bank)} />
-        <MetricRow label="9. Bet = bankroll * f(0.25)" value={fmtUsd(bet)} highlight={colors.accentLight} />
-        {ev != null && <MetricRow label="10. Expected Value" value={fmtUsd(ev)} highlight={ev > 0 ? colors.success : colors.danger} />}
-      </InfoBox>
-
-      <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Badge text={side} color={side.includes('YES') ? colors.success : colors.danger} />
-        <Badge text={shouldTrade ? 'TRADE' : 'SKIP'} color={shouldTrade ? colors.success : colors.warning} />
-        {skipReason && <span style={{ fontSize: 11, color: colors.textDim }}>{skipReason}</span>}
-      </div>
-    </div>
-  )
-}
-
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -475,11 +502,15 @@ export default function AnalysisDetail({ conditionId }: { conditionId: string })
 
   // Collapsible sections
   const [showMeta, setShowMeta] = useState(true)
+  const [showPipeline, setShowPipeline] = useState(true)
   const [showProbs, setShowProbs] = useState(true)
+  const [showRadar, setShowRadar] = useState(true)
   const [showSignals, setShowSignals] = useState(true)
+  const [showCrypto, setShowCrypto] = useState(true)
   const [showKelly, setShowKelly] = useState(true)
   const [showDepth, setShowDepth] = useState(true)
   const [showFrontier, setShowFrontier] = useState(true)
+  const [showThresholds, setShowThresholds] = useState(false) // collapsed by default
 
   useEffect(() => {
     setData(null)
@@ -503,70 +534,162 @@ export default function AnalysisDetail({ conditionId }: { conditionId: string })
   )
 
   // Extract data layers
-  const market = (data.market_data || data.market || {}) as Record<string, unknown>
   const meta = (data.market_meta || {}) as Record<string, unknown>
   const agg = (data.aggregation || {}) as Record<string, unknown>
   const kelly = (data.kelly || data.decision || {}) as Record<string, unknown>
   const exec = (data.execution || {}) as Record<string, unknown>
   const depth = (data.depth || {}) as Record<string, unknown>
   const signals = (agg.signals || data.signals || []) as Record<string, unknown>[]
+  const thresholds = (data.thresholds || {}) as Record<string, unknown>
 
-  const question = (market.question || data.question || conditionId) as string
-  const marketPrice = parseFloat(String(agg.market_price || market.market_price || market.yes_price || 0))
-  const estimate = parseFloat(String(agg.final_probability || agg.estimated_prob || 0))
+  const question = (data.question || conditionId) as string
+  const marketPrice = parseFloat(String(agg.market_price || 0))
+  const estimate = parseFloat(String(agg.final_probability || 0))
   const preliminary = parseFloat(String(agg.preliminary_probability || 0))
-  const effective = parseFloat(String(kelly.effective_prob || agg.effective_prob || estimate))
+  const effective = parseFloat(String(kelly.effective_prob || estimate))
   const confidence = parseFloat(String(agg.confidence || 0))
   const agreement = String(agg.signals_agreement || '--')
   const efficiency = String(agg.market_efficiency || '--')
+  const signalsStdev = parseFloat(String(agg.signals_stdev || 0))
 
-  // Build probability comparison bars
+  const divergence = Math.abs(estimate - marketPrice)
+  const divColor = divergence < 0.1 ? colors.success : divergence < 0.2 ? colors.warning : colors.danger
+  const edge = parseFloat(String(kelly.edge || 0))
+
+  // Crypto raw data
+  const cryptoSignal = signals.find(s => s.source === 'resolution_crypto')
+  const cryptoRaw = (cryptoSignal?.raw_data || {}) as Record<string, unknown>
+  const priceHistory = (cryptoRaw.price_history || data.price_history || []) as { date: string; price: number }[]
+  const targetPrice = parseFloat(String(cryptoRaw.target_price || 0))
+
+  const reasoning = String(agg.reasoning || data.reasoning || '')
+
+  // Build probability waterfall steps
+  const waterfallSteps = [
+    { label: 'Market', value: marketPrice, color: colors.textMuted },
+  ]
+  if (preliminary > 0) waterfallSteps.push({ label: 'Preliminary', value: preliminary, color: '#8b5cf6' })
+  waterfallSteps.push({ label: 'Frontier', value: estimate, color: colors.accent })
+  waterfallSteps.push({ label: 'Blended', value: effective, color: colors.success })
+
+  // Build probability comparison bars (including individual signals)
   const probBars: { label: string; value: number; color: string }[] = [
     { label: 'Market', value: marketPrice, color: colors.textMuted },
   ]
   if (preliminary > 0) probBars.push({ label: 'Preliminary', value: preliminary, color: '#8b5cf6' })
   probBars.push({ label: 'Frontier', value: estimate, color: colors.accent })
   probBars.push({ label: 'Effective (blended)', value: effective, color: colors.success })
-  if (Array.isArray(signals)) {
-    for (const s of signals) {
-      const p = parseFloat(String(s.probability || 0))
-      if (p > 0) {
-        probBars.push({ label: String(s.source || '?'), value: p, color: colors.warning })
-      }
+  const signalPalette = ['#22c55e', '#3b82f6', '#f59e0b']
+  for (let i = 0; i < signals.length; i++) {
+    const s = signals[i]
+    const p = parseFloat(String(s.probability || 0))
+    if (p > 0) {
+      probBars.push({ label: String(s.source || '?').replace(/_/g, ' '), value: p, color: signalPalette[i % signalPalette.length] })
     }
   }
 
   // Build weight data
   const weightData: { label: string; weight: number }[] = []
-  if (Array.isArray(signals)) {
-    for (const s of signals) {
-      const w = parseFloat(String(s.effective_weight || s.weight || s.confidence || 0))
-      if (w > 0) {
-        weightData.push({ label: String(s.source || '?'), weight: w })
-      }
+  for (const s of signals) {
+    const w = parseFloat(String(s.effective_weight || 0))
+    if (w > 0) {
+      weightData.push({ label: String(s.source || '?').replace(/_/g, ' '), weight: w })
     }
   }
 
-  // Crypto raw data (from resolution_crypto signal)
-  const cryptoSignal = signals.find(s => s.source === 'resolution_crypto')
-  const cryptoRaw = (cryptoSignal?.raw_data || {}) as Record<string, unknown>
-  const hasCryptoData = Object.keys(cryptoRaw).length > 0
+  // Build decision pipeline gates
+  const pipelineGates: { name: string; status: 'pass' | 'fail' | 'warn' | 'skip'; value?: string; threshold?: string }[] = []
 
-  // Price history (from crypto raw data)
-  const priceHistory = (cryptoRaw.price_history || data.price_history || []) as { date: string; price: number }[]
-  const targetPrice = parseFloat(String(cryptoRaw.target_price || market._target_price || 0))
+  // Signal collection
+  const usableSignals = signals.filter(s => s.probability != null && (s.confidence as number) > 0)
+  pipelineGates.push({
+    name: 'Signals Collected',
+    status: usableSignals.length > 0 ? 'pass' : 'fail',
+    value: `${usableSignals.length}/${signals.length} usable`,
+  })
 
-  const reasoning = String(agg.reasoning || agg.frontier_reasoning || data.reasoning || '')
-  const divergence = Math.abs(estimate - marketPrice)
-  const divColor = divergence < 0.1 ? colors.success : divergence < 0.2 ? colors.warning : colors.danger
+  // Signal agreement
+  pipelineGates.push({
+    name: 'Signal Agreement',
+    status: agreement === 'agree' ? 'pass' : agreement === 'mixed' ? 'warn' : 'fail',
+    value: `${agreement} (stdev ${(signalsStdev * 100).toFixed(1)}%)`,
+  })
+
+  // Frontier confidence
+  const minConf = 0.25
+  pipelineGates.push({
+    name: 'Frontier Confidence',
+    status: confidence >= minConf ? (confidence >= 0.5 ? 'pass' : 'warn') : 'fail',
+    value: fmtPct(confidence),
+    threshold: `min ${fmtPct(minConf)}`,
+  })
+
+  // Divergence check
+  const maxDivLow = parseFloat(String(thresholds.max_divergence_low_conf || 0.40))
+  const maxDivAny = parseFloat(String(thresholds.max_divergence_any_conf || 0.50))
+  const divThreshold = confidence < 0.7 ? maxDivLow : maxDivAny
+  pipelineGates.push({
+    name: 'Divergence Check',
+    status: divergence <= divThreshold ? 'pass' : 'fail',
+    value: fmtPct(divergence),
+    threshold: `max ${fmtPct(divThreshold)}`,
+  })
+
+  // Edge threshold
+  const minEdge = parseFloat(String(thresholds.min_edge || kelly.min_edge_threshold || 0.03))
+  pipelineGates.push({
+    name: 'Edge Threshold',
+    status: Math.abs(edge) >= minEdge ? 'pass' : 'fail',
+    value: fmtPct(edge),
+    threshold: `min ${fmtPct(minEdge)}`,
+  })
+
+  // Kelly sizing
+  const betSize = parseFloat(String(kelly.bet_size || 0))
+  pipelineGates.push({
+    name: 'Kelly Bet Size',
+    status: betSize >= 1 ? 'pass' : 'fail',
+    value: fmtUsd(betSize),
+    threshold: 'min $1.00',
+  })
+
+  // Depth check
+  const totalDepth = parseFloat(String(depth.total_depth_usd || 0))
+  const minDepth = parseFloat(String(thresholds.min_depth_usd || 50))
+  if (Object.keys(depth).length > 0) {
+    pipelineGates.push({
+      name: 'Order Book Depth',
+      status: totalDepth >= minDepth ? 'pass' : 'fail',
+      value: fmtUsd(totalDepth),
+      threshold: `min ${fmtUsd(minDepth)}`,
+    })
+
+    const slippage = parseFloat(String(depth.slippage || 0))
+    const maxSlip = parseFloat(String(thresholds.max_slippage || 0.03))
+    pipelineGates.push({
+      name: 'Slippage',
+      status: slippage <= maxSlip ? 'pass' : 'warn',
+      value: fmtPct(slippage),
+      threshold: `max ${fmtPct(maxSlip)}`,
+    })
+  }
+
+  // Final decision
+  const shouldTrade = kelly.should_trade as boolean | undefined
+  pipelineGates.push({
+    name: 'Final Decision',
+    status: shouldTrade ? 'pass' : 'fail',
+    value: shouldTrade ? 'TRADE' : 'SKIP',
+    threshold: kelly.skip_reason ? String(kelly.skip_reason) : undefined,
+  })
 
   return (
     <div>
       {/* Header: Question + quick stats */}
       <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 10, lineHeight: 1.4 }}>{question}</div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
         <span style={{
-          fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: colors.textDim,
+          fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: colors.textDim,
           background: colors.accentDim, padding: '2px 8px', borderRadius: 10,
         }}>
           {conditionId.slice(0, 20)}...
@@ -578,18 +701,72 @@ export default function AnalysisDetail({ conditionId }: { conditionId: string })
           efficiency === 'underpriced' ? colors.success : efficiency === 'overpriced' ? colors.danger : colors.textMuted
         } />
         <Badge text={`DIV ${(divergence * 100).toFixed(1)}%`} color={divColor} />
+        <Badge text={`EDGE ${edge > 0 ? '+' : ''}${(edge * 100).toFixed(1)}%`} color={edge > 0 ? colors.success : colors.danger} />
         {agg.total_data_points != null && (
           <span style={{ fontSize: 10, color: colors.textDim }}>{String(agg.total_data_points)} data points</span>
         )}
       </div>
 
-      {/* 1. Market Metadata */}
+      {/* Quick summary row: gauges */}
+      <div style={{
+        display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'space-around',
+        padding: '12px 0', marginBottom: 4, flexWrap: 'wrap',
+      }}>
+        <ConfidenceGauge value={confidence} label="Confidence" thresholds={{ low: 0.25, medium: 0.5 }} />
+        <ConfidenceGauge value={marketPrice} label="Market Price" thresholds={{ low: 0.2, medium: 0.5 }} />
+        <ConfidenceGauge value={estimate} label="Frontier Est." thresholds={{ low: 0.2, medium: 0.5 }} />
+        <ConfidenceGauge value={effective} label="Effective" thresholds={{ low: 0.2, medium: 0.5 }} />
+      </div>
+
+      {/* 1. Decision Pipeline — the full pass/fail gate visualization */}
+      <SectionHeader title="Decision Pipeline" collapsed={!showPipeline} onToggle={() => setShowPipeline(!showPipeline)} badge={shouldTrade ? 'TRADE' : 'SKIP'} />
+      {showPipeline && <DecisionPipeline gates={pipelineGates} />}
+
+      {/* 2. Market Metadata */}
       {Object.keys(meta).length > 0 && (
         <>
           <SectionHeader title="Market Overview" collapsed={!showMeta} onToggle={() => setShowMeta(!showMeta)} />
-          {showMeta && <MarketMeta meta={meta} marketPrice={marketPrice} />}
+          {showMeta && (
+            <div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 8 }}>
+                <Stat label="Market Price" value={fmtPct(marketPrice)} highlight={colors.accent} />
+                <Stat label="Liquidity" value={fmtUsd(meta.liquidity)} />
+                <Stat label="24h Volume" value={fmtUsd(meta.volume_24h)} />
+                <Stat label="Spread" value={fmtPct(meta.spread)} highlight={
+                  (meta.spread as number) > 0.08 ? colors.warning : undefined
+                } />
+                <Stat label="Best Bid" value={fmtPct(meta.best_bid)} />
+                <Stat label="Best Ask" value={fmtPct(meta.best_ask)} />
+                <Stat label="Days Left" value={meta.days_remaining != null ? fmt(meta.days_remaining, 1) + 'd' : '--'} highlight={
+                  meta.days_remaining != null && (meta.days_remaining as number) < 7 ? colors.warning : undefined
+                } />
+                <Stat label="Resolution Type" value={String(meta.resolution_type || '--')} mono={false} />
+                {meta.model_edge != null && <Stat label="Pre-screen Edge" value={fmtPct(meta.model_edge)} highlight={
+                  (meta.model_edge as number) > 0 ? colors.success : colors.danger
+                } />}
+                {meta.time_score != null && <Stat label="Time Score" value={String(meta.time_score)} />}
+                {meta.total_score != null && <Stat label="Total Score" value={fmt(meta.total_score, 1)} />}
+              </div>
+
+              {/* Resolution params detail */}
+              {meta.resolution_params != null && typeof meta.resolution_params === 'object' && (
+                <details style={{ marginTop: 8 }}>
+                  <summary style={{ fontSize: 10, color: colors.textDim, cursor: 'pointer' }}>Resolution Parameters</summary>
+                  <div style={{
+                    display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
+                    gap: 6, marginTop: 6,
+                  }}>
+                    {Object.entries(meta.resolution_params as Record<string, unknown>).map(([k, v]) => (
+                      <Stat key={k} label={k.replace(/_/g, ' ')} value={String(v ?? '--')} small />
+                    ))}
+                  </div>
+                </details>
+              )}
+            </div>
+          )}
         </>
       )}
+
       {/* Fallback for manual aggregates without meta */}
       {Object.keys(meta).length === 0 && (
         <div style={{
@@ -607,22 +784,57 @@ export default function AnalysisDetail({ conditionId }: { conditionId: string })
         </div>
       )}
 
-      {/* 2. Probability Comparison */}
-      <SectionHeader title="Probability Comparison" collapsed={!showProbs} onToggle={() => setShowProbs(!showProbs)} />
+      {/* 3. Probability Journey — waterfall + bars */}
+      <SectionHeader title="Probability Journey" collapsed={!showProbs} onToggle={() => setShowProbs(!showProbs)} />
       {showProbs && (
         <>
+          <div style={{ fontSize: 10, color: colors.textDim, marginBottom: 6, textTransform: 'uppercase' }}>
+            Edge Decomposition Waterfall
+          </div>
+          <EdgeWaterfall steps={waterfallSteps} />
+          <div style={{ marginTop: 12, fontSize: 10, color: colors.textDim, marginBottom: 6, textTransform: 'uppercase' }}>
+            All Probability Estimates
+          </div>
           <ProbabilityBars bars={probBars} />
           {weightData.length > 0 && (
-            <div style={{ marginTop: 8 }}>
-              <div style={{ fontSize: 10, color: colors.textDim, marginBottom: 4, textTransform: 'uppercase' }}>Signal Weights</div>
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 10, color: colors.textDim, marginBottom: 4, textTransform: 'uppercase' }}>
+                Signal Effective Weights (confidence x multiplier)
+              </div>
               <SignalWeights data={weightData} />
+              {agg.signal_weight_multipliers != null && typeof agg.signal_weight_multipliers === 'object' && (
+                <div style={{ display: 'flex', gap: 10, marginTop: 4, fontSize: 9, color: colors.textDim, flexWrap: 'wrap' }}>
+                  {Object.entries(agg.signal_weight_multipliers as Record<string, number>).map(([k, v]) => (
+                    <span key={k}>{k.replace(/_/g, ' ')}: <span style={{ color: colors.textMuted }}>{v}x</span></span>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </>
       )}
 
-      {/* 3. Individual Signal Details */}
-      <SectionHeader title={`Signal Providers (${signals.length})`} collapsed={!showSignals} onToggle={() => setShowSignals(!showSignals)} />
+      {/* 4. Signal Radar Comparison */}
+      {signals.length >= 2 && (
+        <>
+          <SectionHeader title="Signal Radar Comparison" collapsed={!showRadar} onToggle={() => setShowRadar(!showRadar)} />
+          {showRadar && (
+            <SignalRadar
+              signals={signals.map(s => ({
+                source: String(s.source || '?'),
+                probability: s.probability as number | null,
+                confidence: parseFloat(String(s.confidence || 0)),
+                data_points: parseInt(String(s.data_points || 0)),
+                effective_weight: parseFloat(String(s.effective_weight || 0)),
+              }))}
+              marketPrice={marketPrice}
+            />
+          )}
+        </>
+      )}
+
+      {/* 5. Individual Signal Details */}
+      <SectionHeader title={`Signal Providers (${signals.length})`} collapsed={!showSignals} onToggle={() => setShowSignals(!showSignals)} badge={`${usableSignals.length} usable`} />
       {showSignals && (
         <div>
           {signals.map((s, i) => (
@@ -631,32 +843,120 @@ export default function AnalysisDetail({ conditionId }: { conditionId: string })
         </div>
       )}
 
-      {/* 4. Crypto Model Deep Dive (only if resolution_crypto data available) */}
-      {hasCryptoData && (
+      {/* 6. Crypto Price Chart (if available) */}
+      {priceHistory.length > 0 && (
         <>
-          <SectionHeader title="Crypto Model Data" />
-          {priceHistory.length > 0 && <PriceChart data={priceHistory} target={targetPrice} />}
-          {/* Coin Info is already shown inside resolution_crypto signal card */}
+          <SectionHeader title="Price History" collapsed={!showCrypto} onToggle={() => setShowCrypto(!showCrypto)} />
+          {showCrypto && <PriceChart data={priceHistory} target={targetPrice} />}
         </>
       )}
 
-      {/* 5. Kelly Sizing (full math) */}
+      {/* 7. Kelly Sizing (full math + visual) */}
       {Object.keys(kelly).length > 0 && (
         <>
-          <SectionHeader title="Kelly Criterion Sizing" collapsed={!showKelly} onToggle={() => setShowKelly(!showKelly)} />
-          {showKelly && <KellyMath kelly={kelly} />}
+          <SectionHeader title="Kelly Criterion Sizing" collapsed={!showKelly} onToggle={() => setShowKelly(!showKelly)} badge={String(kelly.side || '')} />
+          {showKelly && (
+            <div>
+              <InfoBox>
+                <div style={{ fontSize: 10, fontWeight: 600, color: colors.textMuted, marginBottom: 8, textTransform: 'uppercase' }}>
+                  Kelly Formula Steps
+                </div>
+                <MetricRow label="1. Frontier estimate (p)" value={fmtPct(kelly.estimated_prob)} />
+                <MetricRow label="2. Market price (m)" value={fmtPct(kelly.market_price)} />
+                <MetricRow label="3. Confidence (c)" value={fmtPct(kelly.confidence)} />
+                <MetricRow
+                  label="4. Confidence blend floor"
+                  value={fmtPct(kelly.confidence_blend_floor)}
+                  detail={`blend_wt = max(c, floor) = ${fmtPct(Math.max(confidence, parseFloat(String(kelly.confidence_blend_floor || 0.5))))}`}
+                />
+                <MetricRow label="5. Effective prob = blend*p + (1-blend)*m" value={fmtPct(kelly.effective_prob)} highlight={colors.accent} />
+                <MetricRow label="6. Edge = effective - market" value={fmtPct(kelly.edge)} highlight={
+                  edge > 0 ? colors.success : colors.danger
+                } />
+                <MetricRow label="7. Fee rate" value={fmtPct(kelly.fee_rate)} detail="reduces effective odds" />
+                <MetricRow label="8. Full Kelly f*" value={fmtPct(kelly.raw_kelly)} />
+                <MetricRow
+                  label={`9. Fractional (${kelly.kelly_fraction_multiplier || 0.25}x)`}
+                  value={fmtPct(kelly.fractional_kelly)}
+                  highlight={colors.accent}
+                />
+                <MetricRow label="10. Bankroll" value={fmtUsd(kelly.bankroll)} />
+                <MetricRow
+                  label="11. Reserve"
+                  value={fmtUsd(kelly.min_bankroll_reserve)}
+                  detail={`available: ${fmtUsd(parseFloat(String(kelly.bankroll || 0)) - parseFloat(String(kelly.min_bankroll_reserve || 20)))}`}
+                />
+                <MetricRow
+                  label="12. Max position"
+                  value={fmtPct(kelly.max_position_pct)}
+                  detail={`cap: ${fmtUsd(parseFloat(String(kelly.bankroll || 0)) * parseFloat(String(kelly.max_position_pct || 0.1)))}`}
+                />
+                <MetricRow label="13. Bet size" value={fmtUsd(kelly.bet_size)} highlight={colors.accentLight} />
+                {kelly.expected_value != null && (
+                  <MetricRow label="14. Expected Value" value={fmtUsd(kelly.expected_value)} highlight={
+                    (kelly.expected_value as number) > 0 ? colors.success : colors.danger
+                  } />
+                )}
+              </InfoBox>
+
+              {/* Visual Kelly fraction bar */}
+              <div style={{ marginTop: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: colors.textDim, marginBottom: 3 }}>
+                  <span>Kelly fraction of bankroll</span>
+                  <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{fmtPct(kelly.fractional_kelly)}</span>
+                </div>
+                <div style={{ height: 8, background: colors.border, borderRadius: 4, overflow: 'hidden', position: 'relative' }}>
+                  {/* Full Kelly indicator */}
+                  <div style={{
+                    position: 'absolute', left: `${Math.min(parseFloat(String(kelly.raw_kelly || 0)) * 100, 100)}%`,
+                    top: 0, bottom: 0, width: 2, background: colors.textDim, zIndex: 1,
+                  }} />
+                  {/* Fractional Kelly bar */}
+                  <div style={{
+                    height: '100%', width: `${Math.min(parseFloat(String(kelly.fractional_kelly || 0)) * 100, 100)}%`,
+                    background: colors.accent, borderRadius: 4,
+                    transition: 'width 0.4s ease',
+                  }} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 8, color: colors.textDim, marginTop: 2 }}>
+                  <span>0%</span>
+                  <span>Full Kelly: {fmtPct(kelly.raw_kelly)}</span>
+                  <span>100%</span>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <Badge text={String(kelly.side || '--')} color={String(kelly.side || '').includes('YES') ? colors.success : colors.danger} />
+                <Badge text={shouldTrade ? 'TRADE' : 'SKIP'} color={shouldTrade ? colors.success : colors.warning} />
+                {kelly.skip_reason != null && <span style={{ fontSize: 11, color: colors.textDim }}>{String(kelly.skip_reason)}</span>}
+              </div>
+            </div>
+          )}
         </>
       )}
 
-      {/* 6. Depth Analysis */}
+      {/* 8. Depth Analysis (enhanced) */}
       {Object.keys(depth).length > 0 && (
         <>
           <SectionHeader title="Order Book Depth" collapsed={!showDepth} onToggle={() => setShowDepth(!showDepth)} />
-          {showDepth && <DepthSection depth={depth} />}
+          {showDepth && (
+            <DepthLadder
+              totalDepth={parseFloat(String(depth.total_depth_usd || 0))}
+              slippage={parseFloat(String(depth.slippage || 0))}
+              bestPrice={parseFloat(String(depth.best_price || 0))}
+              avgFillPrice={parseFloat(String(depth.avg_fill_price || 0))}
+              maxFillable={parseFloat(String(depth.max_fillable_usd || 0))}
+              levels={parseInt(String(depth.levels || 0))}
+              adjustedBet={depth.adjusted_bet_usd != null ? parseFloat(String(depth.adjusted_bet_usd)) : undefined}
+              wasAdjusted={Boolean(depth.was_adjusted)}
+              thresholdSlippage={parseFloat(String(thresholds.max_slippage || 0.03))}
+              thresholdMinDepth={parseFloat(String(thresholds.min_depth_usd || 50))}
+            />
+          )}
         </>
       )}
 
-      {/* 7. Execution */}
+      {/* 9. Execution */}
       {exec.status != null && (
         <>
           <SectionHeader title="Execution" />
@@ -677,7 +977,7 @@ export default function AnalysisDetail({ conditionId }: { conditionId: string })
         </>
       )}
 
-      {/* 8. Frontier Reasoning */}
+      {/* 10. Frontier Reasoning */}
       {(reasoning || confidence > 0) && (
         <>
           <SectionHeader title="Frontier Model Reasoning" collapsed={!showFrontier} onToggle={() => setShowFrontier(!showFrontier)} />
@@ -695,6 +995,14 @@ export default function AnalysisDetail({ conditionId }: { conditionId: string })
                     Pre-frontier: <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{fmtPct(preliminary)}</span>
                   </span>
                 )}
+                <span style={{ fontSize: 12, color: colors.textMuted }}>
+                  Shift: <span style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    color: Math.abs(estimate - preliminary) > 0.1 ? colors.warning : colors.textDim,
+                  }}>
+                    {preliminary > 0 ? (estimate > preliminary ? '+' : '') + ((estimate - preliminary) * 100).toFixed(1) + '%' : '--'}
+                  </span>
+                </span>
               </div>
 
               {reasoning && (
@@ -717,6 +1025,26 @@ export default function AnalysisDetail({ conditionId }: { conditionId: string })
                 </pre>
               )}
             </>
+          )}
+        </>
+      )}
+
+      {/* 11. Thresholds & Settings (collapsed by default) */}
+      {Object.keys(thresholds).length > 0 && (
+        <>
+          <SectionHeader title="Active Thresholds & Settings" collapsed={!showThresholds} onToggle={() => setShowThresholds(!showThresholds)} badge={`${Object.keys(thresholds).length} params`} />
+          {showThresholds && (
+            <InfoBox>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                {Object.entries(thresholds).map(([k, v]) => (
+                  <MetricRow
+                    key={k}
+                    label={k.replace(/_/g, ' ')}
+                    value={typeof v === 'number' ? (v < 1 && v > 0 ? fmtPct(v) : String(v)) : String(v)}
+                  />
+                ))}
+              </div>
+            </InfoBox>
           )}
         </>
       )}

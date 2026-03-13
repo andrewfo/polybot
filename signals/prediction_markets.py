@@ -12,6 +12,7 @@ from typing import Any, Optional
 
 import aiohttp
 
+from config import settings
 from core import db
 from core.llm import LLMClient
 from signals.base import SignalProvider, SignalResult
@@ -25,15 +26,32 @@ CACHE_TTL_SECONDS = 1800  # 30 minutes
 USER_AGENT = "polymarket-bot/1.0 (signal research)"
 
 # API endpoints
-METACULUS_API = "https://www.metaculus.com/api/questions/"
+METACULUS_API = "https://www.metaculus.com/api2/questions/"
 KALSHI_API = "https://api.elections.kalshi.com/trade-api/v2"
 POLYMARKET_GAMMA_API = "https://gamma-api.polymarket.com/markets"
+
+# Log once per process if Metaculus is skipped
+_metaculus_skip_logged = False
 
 
 async def _search_metaculus(
     session: aiohttp.ClientSession, query: str, max_results: int = 5
 ) -> list[dict[str, Any]]:
-    """Search Metaculus for questions matching the query."""
+    """Search Metaculus for questions matching the query.
+
+    Requires METACULUS_API_TOKEN in settings. If not configured, silently
+    skips (logs once per process to avoid spam).
+    """
+    global _metaculus_skip_logged
+
+    token = settings.METACULUS_API_TOKEN
+    if not token:
+        if not _metaculus_skip_logged:
+            logger.info("Metaculus API token not configured — skipping Metaculus. "
+                        "Set METACULUS_API_TOKEN env var to enable.")
+            _metaculus_skip_logged = True
+        return []
+
     matches: list[dict[str, Any]] = []
     try:
         params = {
@@ -42,12 +60,19 @@ async def _search_metaculus(
             "status": "open",
             "type": "binary",
         }
+        headers = {
+            "User-Agent": USER_AGENT,
+            "Authorization": f"Token {token}",
+        }
         async with session.get(
             METACULUS_API,
             params=params,
-            headers={"User-Agent": USER_AGENT},
+            headers=headers,
             timeout=aiohttp.ClientTimeout(total=15),
         ) as resp:
+            if resp.status == 403:
+                logger.warning("Metaculus API returned 403 — check METACULUS_API_TOKEN is valid")
+                return []
             if resp.status != 200:
                 logger.warning("Metaculus API returned %d for query '%s'", resp.status, query)
                 return []
@@ -402,7 +427,7 @@ class PredictionMarketsSignalProvider(SignalProvider):
         match_count_factor = min(1.0, len(scored_matches) / 3.0)  # 3+ matches = full credit
         confidence = min(0.9, avg_sim * 0.6 + match_count_factor * 0.4)
 
-        matched_markets = [m for m, _ in scored_matches]
+        matched_markets = [{**m, "similarity": round(sim, 3)} for m, sim in scored_matches]
         platforms = list({m.get("platform", "?") for m in matched_markets})
         reasoning = (
             f"Cross-platform consensus from {len(scored_matches)} matching markets "
