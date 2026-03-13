@@ -5,6 +5,7 @@ from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.widgets import Static
 
+from tui.messages import ExecutionUpdate
 from tui.widgets.charts import C_DIM, C_RED
 from tui.widgets.detail_builders import build_full_analysis
 
@@ -25,6 +26,10 @@ class AnalysisDetailPanel(VerticalScroll):
     }
     """
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._current_entry = None
+
     def compose(self) -> ComposeResult:
         yield Static(
             f"[{C_DIM}]Select a market from the list to see full analysis details.[/]",
@@ -34,11 +39,29 @@ class AnalysisDetailPanel(VerticalScroll):
 
     def show_entry(self, entry: "AnalysisEntry") -> None:  # noqa: F821
         """Render the full analysis for the given entry."""
+        self._current_entry = entry
+        self._render_current()
+
+    def on_execution_update(self, event: ExecutionUpdate) -> None:
+        """Re-render if the currently-viewed entry got an execution update."""
+        if (
+            self._current_entry
+            and self._current_entry.condition_id == event.condition_id
+        ):
+            # Entry fields are updated by AnalysisListPanel before this fires
+            self.call_later(self._render_current)
+
+    def _render_current(self) -> None:
+        """Render the current entry."""
+        if not self._current_entry:
+            return
+        entry = self._current_entry
         try:
             content = build_full_analysis(
                 market_data=entry.market_data,
                 aggregation=entry.aggregation,
                 decision=entry.decision,
+                entry=entry,
             )
         except Exception as e:
             logger.error("Failed to build analysis view: %s", e, exc_info=True)

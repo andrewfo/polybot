@@ -199,6 +199,28 @@ class BatchUpdate(Message):
         self.statuses = statuses        # condition_id -> "waiting"|"processing"|"done"|"skipped"|"error"
 
 
+class ExecutionUpdate(Message):
+    """Result of executing a trade (paper or live)."""
+    def __init__(
+        self,
+        condition_id: str,
+        trade_id: str | None,
+        status: str,          # "filled" | "pending" | "blocked" | "error"
+        price: float = 0.0,
+        size: float = 0.0,
+        paper: bool = True,
+        reason: str = "",
+    ) -> None:
+        super().__init__()
+        self.condition_id = condition_id
+        self.trade_id = trade_id
+        self.status = status
+        self.price = price
+        self.size = size
+        self.paper = paper
+        self.reason = reason
+
+
 class AnalysisSelectionChanged(Message):
     """Posted when a row in the analysis list is selected — carries the AnalysisEntry."""
     def __init__(self, entry: Any) -> None:

@@ -33,6 +33,7 @@ from tui.messages import (
     ConnectionUpdate,
     CostUpdate,
     DrillDownRequest,
+    ExecutionUpdate,
     LogMessage,
     MarketsUpdate,
     PipelineComplete,
@@ -640,7 +641,11 @@ class TUIApp(App):
                         )
 
                         # Kelly bet sizing + depth analysis
-                        await self._run_kelly(mkt, cond_id, question, agg_result, market_price)
+                        decision = await self._run_kelly(mkt, cond_id, question, agg_result, market_price)
+
+                        # Execute trade if Kelly says go
+                        if decision and decision.should_trade:
+                            await self._run_execution(decision, mkt, cond_id)
                     else:
                         statuses[cond_id] = "skipped"
                         self.post_message(SignalUpdate(
@@ -753,6 +758,83 @@ class TUIApp(App):
         except Exception as e:
             logger.warning("Kelly sizing failed for '%s': %s", question[:50], e)
             return None
+
+    # -----------------------------------------------------------------
+    # Order execution helper
+    # -----------------------------------------------------------------
+
+    async def _run_execution(
+        self,
+        decision: Any,
+        mkt: dict[str, Any],
+        cond_id: str,
+    ) -> None:
+        """Execute a trade via PaperExecutor or TradeExecutor."""
+        from config.settings import PAPER_TRADING, TEST_BANKROLL
+        from strategy.executor import AutoStopError, PaperExecutor
+
+        try:
+            if PAPER_TRADING:
+                executor = PaperExecutor()
+            else:
+                from core.client import ClobClientWrapper
+                from strategy.executor import TradeExecutor
+                client = ClobClientWrapper()
+                executor = TradeExecutor(client)
+
+            bankroll = TEST_BANKROLL
+            trade_id = await executor.execute_trade(decision, mkt, bankroll)
+
+            if trade_id:
+                # Compute fill details
+                from strategy.executor import compute_limit_price
+                price, _token = compute_limit_price(decision, mkt)
+                size = decision.bet_size_usd / price if price > 0 else 0
+
+                status = "filled" if PAPER_TRADING else "pending"
+                self.post_message(ExecutionUpdate(
+                    condition_id=cond_id,
+                    trade_id=trade_id,
+                    status=status,
+                    price=price,
+                    size=size,
+                    paper=PAPER_TRADING,
+                ))
+                logger.info(
+                    "Executed %s: %s %s @ %.4f ($%.2f)",
+                    "PAPER" if PAPER_TRADING else "LIVE",
+                    decision.side, decision.market_question[:40],
+                    price, decision.bet_size_usd,
+                )
+            else:
+                self.post_message(ExecutionUpdate(
+                    condition_id=cond_id,
+                    trade_id=None,
+                    status="blocked",
+                    paper=PAPER_TRADING,
+                    reason="Blocked by risk guardrail",
+                ))
+        except AutoStopError as e:
+            logger.critical("AutoStop triggered: %s", e)
+            self.post_message(ExecutionUpdate(
+                condition_id=cond_id,
+                trade_id=None,
+                status="error",
+                paper=PAPER_TRADING,
+                reason=f"AUTO-STOP: {e}",
+            ))
+            # Stop the bot on critical guardrail failure
+            self._bot_running = False
+            self.post_message(BotStatusUpdate(running=False))
+        except Exception as e:
+            logger.error("Execution failed: %s", e, exc_info=True)
+            self.post_message(ExecutionUpdate(
+                condition_id=cond_id,
+                trade_id=None,
+                status="error",
+                paper=PAPER_TRADING,
+                reason=str(e)[:100],
+            ))
 
     # -----------------------------------------------------------------
     # Command bar workers

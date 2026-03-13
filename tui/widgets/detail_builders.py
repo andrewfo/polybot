@@ -354,10 +354,49 @@ def _build_frontier_section(agg: AggregatedSignal) -> str:
     return "\n".join(lines)
 
 
+def _build_execution_section(entry: Any) -> str:
+    """Execution result: trade status, price, size, trade ID."""
+    if not entry or not entry.execution_status:
+        return ""
+
+    status = entry.execution_status
+    status_colors = {
+        "filled": C_GREEN,
+        "pending": C_YELLOW,
+        "blocked": "#cc8844",
+        "error": C_RED,
+    }
+    status_color = status_colors.get(status, C_DIM)
+    mode = "PAPER" if entry.execution_paper else "LIVE"
+
+    lines = [
+        "",
+        _section_header("ORDER EXECUTION"),
+        "",
+        f"[bold {status_color}]{status.upper()}[/]  [{C_DIM}]({mode})[/]",
+    ]
+
+    if entry.trade_id:
+        lines.append(f"[{C_MUTED}]Trade ID:[/]  [{C_TEXT}]{esc(entry.trade_id[:16])}...[/]")
+
+    if entry.execution_price > 0:
+        lines.append(
+            f"[{C_MUTED}]Price:[/]     [{C_TEXT}]{entry.execution_price:.4f}[/]    "
+            f"[{C_MUTED}]Size:[/] [{C_TEXT}]{entry.execution_size:.2f} shares[/]    "
+            f"[{C_MUTED}]Cost:[/] [{C_TEXT}]${entry.execution_price * entry.execution_size:.2f}[/]"
+        )
+
+    if entry.execution_reason:
+        lines.append(f"[{C_DIM}]{esc(entry.execution_reason)}[/]")
+
+    return "\n".join(lines)
+
+
 def build_full_analysis(
     market_data: dict[str, Any],
     aggregation: AggregatedSignal | None = None,
     decision: Any | None = None,
+    entry: Any | None = None,
 ) -> str:
     """Build the complete unified detail view for a market.
 
@@ -394,7 +433,11 @@ def build_full_analysis(
         if decision is not None:
             sections.append(_build_kelly_section(decision))
 
-        # 5. Frontier reasoning
+        # 5. Order execution
+        if entry is not None and entry.execution_status:
+            sections.append(_build_execution_section(entry))
+
+        # 6. Frontier reasoning
         sections.append(_build_frontier_section(aggregation))
 
     elif market_data.get("_category"):

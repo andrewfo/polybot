@@ -14,6 +14,7 @@ from tui.messages import (
     AnalysisSelectionChanged,
     BatchUpdate,
     BetUpdate,
+    ExecutionUpdate,
     SignalUpdate,
 )
 
@@ -26,6 +27,12 @@ class AnalysisEntry:
     status: str = "waiting"  # waiting | processing | done | skipped | error
     aggregation: Any = None  # AggregatedSignal | None
     decision: Any = None     # TradeDecision | None
+    execution_status: str = ""  # "" | "filled" | "pending" | "blocked" | "error"
+    trade_id: str = ""
+    execution_price: float = 0.0
+    execution_size: float = 0.0
+    execution_paper: bool = True
+    execution_reason: str = ""
 
 
 STATUS_ICONS = {
@@ -141,6 +148,20 @@ class AnalysisListPanel(Vertical):
         self._rebuild_table()
         self._update_counts()
 
+    def on_execution_update(self, event: ExecutionUpdate) -> None:
+        """Attach execution result to the entry."""
+        cid = event.condition_id
+        if cid and cid in self._entries:
+            entry = self._entries[cid]
+            entry.execution_status = event.status
+            entry.trade_id = event.trade_id or ""
+            entry.execution_price = event.price
+            entry.execution_size = event.size
+            entry.execution_paper = event.paper
+            entry.execution_reason = event.reason
+            self._rebuild_table()
+            self._update_counts()
+
     def on_signal_update(self, event: SignalUpdate) -> None:
         """Update status based on signal stage updates (for manual tests)."""
         # For manual signal-test/aggregate, entries may not have conditionId
@@ -172,7 +193,10 @@ class AnalysisListPanel(Vertical):
     def _update_counts(self) -> None:
         self._trade_count = 0
         self._skip_count = 0
+        exec_count = 0
         for entry in self._entries.values():
+            if entry.execution_status in ("filled", "pending"):
+                exec_count += 1
             if entry.decision:
                 if entry.decision.should_trade:
                     self._trade_count += 1
@@ -182,9 +206,10 @@ class AnalysisListPanel(Vertical):
             status = self.query_one("#analysis-status", Label)
             total = len(self._entries)
             done = sum(1 for e in self._entries.values() if e.status in ("done", "skipped", "error"))
-            status.update(
-                f"{done}/{total} analyzed  |  {self._trade_count} trades, {self._skip_count} skips"
-            )
+            parts = [f"{done}/{total} analyzed", f"{self._trade_count} trades", f"{self._skip_count} skips"]
+            if exec_count > 0:
+                parts.append(f"{exec_count} executed")
+            status.update("  |  ".join(parts))
         except Exception:
             pass
 
@@ -200,8 +225,17 @@ class AnalysisListPanel(Vertical):
             icon, color = STATUS_ICONS.get(entry.status, ("\u2022", "#8899aa"))
             status_text = Text(icon, style=color)
 
-            # Decision column
-            if entry.decision:
+            # Decision column — show execution status if available
+            if entry.execution_status == "filled":
+                label = "PAPER" if entry.execution_paper else "LIVE"
+                dec_text = Text(f"\u2714 {label}", style="#44aa66 bold")
+            elif entry.execution_status == "pending":
+                dec_text = Text("\u23f3 PEND", style="#ccaa44 bold")
+            elif entry.execution_status == "blocked":
+                dec_text = Text("BLOCK", style="#cc8844")
+            elif entry.execution_status == "error":
+                dec_text = Text("XERR", style="#cc4444")
+            elif entry.decision:
                 if entry.decision.should_trade:
                     dec_text = Text("TRADE", style="#44aa66 bold")
                 else:

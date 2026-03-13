@@ -13,6 +13,7 @@ from tui.messages import (
     BotToggle,
     ConnectionUpdate,
     CostUpdate,
+    ExecutionUpdate,
     WalletUpdate,
 )
 from tui.state import ConnectionStatus
@@ -138,6 +139,11 @@ class DashboardPanel(Vertical):
         yield Static(id="wallet-gas", classes="kv-line")
         yield Static(id="positions-count", classes="kv-line")
 
+        # Trading summary
+        yield Static("TRADING", classes="section-title")
+        yield Static("No trades yet", id="trading-summary", classes="kv-line")
+        yield DataTable(id="trades-table")
+
         # LLM costs summary
         yield Static("LLM COSTS", classes="section-title")
         yield Static("Today: $0.0000    Month: $0.0000    Calls: 0", id="cost-summary-line", classes="kv-line")
@@ -180,6 +186,11 @@ class DashboardPanel(Vertical):
         pass  # Uptime removed in favour of compact layout
 
     def on_mount(self) -> None:
+        # Init trades table
+        trades_table = self.query_one("#trades-table", DataTable)
+        trades_table.add_columns("Status", "Side", "Price", "Size", "Market")
+        trades_table.cursor_type = "row"
+
         # Init cost tables
         model_table = self.query_one("#model-table", DataTable)
         model_table.add_columns("Model", "Calls", "Input Tok", "Output Tok", "Cost")
@@ -256,6 +267,37 @@ class DashboardPanel(Vertical):
                 cycle_label.update(f"Cycle #{event.cycle}")
             else:
                 cycle_label.update("")
+        except Exception:
+            pass
+
+    def on_execution_update(self, event: ExecutionUpdate) -> None:
+        """Add executed trade to the trades table."""
+        try:
+            trades_table = self.query_one("#trades-table", DataTable)
+            status_icons = {
+                "filled": "[#44aa66]\u2714 FILLED[/#44aa66]",
+                "pending": "[#ccaa44]\u23f3 PENDING[/#ccaa44]",
+                "blocked": "[#cc8844]BLOCKED[/#cc8844]",
+                "error": "[#cc4444]ERROR[/#cc4444]",
+            }
+            status_str = status_icons.get(event.status, event.status)
+            mode = "[#667788]paper[/#667788]" if event.paper else "[#4488cc]live[/#4488cc]"
+
+            price_str = f"{event.price:.4f}" if event.price > 0 else "---"
+            size_str = f"${event.price * event.size:.2f}" if event.price > 0 and event.size > 0 else "---"
+            reason = event.reason[:40] if event.reason else ""
+
+            trades_table.add_row(
+                f"{status_str} {mode}",
+                reason if event.status in ("blocked", "error") else "BUY",
+                price_str,
+                size_str,
+                reason if event.status in ("blocked", "error") else (event.trade_id or "")[:12],
+            )
+
+            # Update summary line
+            summary = self.query_one("#trading-summary", Static)
+            summary.update(f"Trades this session: {trades_table.row_count}")
         except Exception:
             pass
 
