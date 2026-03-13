@@ -141,6 +141,7 @@ class BotEngine:
                     batch_categorize_markets,
                     discover_markets,
                     extract_resolution_params,
+                    filter_computable_markets,
                     filter_markets,
                     pre_screen_crypto_edge,
                     rank_candidates,
@@ -160,6 +161,9 @@ class BotEngine:
                     )
                     if params:
                         m["_resolution_params"] = params
+
+                # Gate: only keep markets our math can actually model
+                crypto = filter_computable_markets(crypto)
 
                 # Pre-screen with CoinGecko math
                 crypto = await pre_screen_crypto_edge(crypto)

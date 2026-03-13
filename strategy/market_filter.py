@@ -17,6 +17,7 @@ from config.settings import (
     MAX_MARKET_LIQUIDITY,
     MAX_SPREAD,
     MARKET_CACHE_REFRESH_SECONDS,
+    MIN_24H_VOLUME,
     MIN_HOURS_TO_RESOLUTION,
     MIN_MARKET_LIQUIDITY,
 )
@@ -290,14 +291,15 @@ async def filter_markets(
 ) -> list[dict[str, Any]]:
     """Apply filtering pipeline to narrow down candidate markets.
 
-    Filters in order (per spec):
+    Filters in order:
     1. Binary only (YES/NO markets)
     2. Liquidity band (MIN_MARKET_LIQUIDITY to MAX_MARKET_LIQUIDITY)
     3. Time to resolution (MIN_HOURS_TO_RESOLUTION to MAX_DAYS_TO_RESOLUTION)
     4. Near-certain filter: drop if best outcome price <= 0.02 or >= 0.98
     5. Spread filter: drop if spread > MAX_SPREAD (Gamma data only, no CLOB fallback)
-    6. Not already at max position
-    7. Sort survivors by volume_24hr descending
+    6. Minimum 24h volume filter (MIN_24H_VOLUME)
+    7. Not already at max position
+    8. Sort survivors by volume_24hr descending
     """
     initial_count = len(markets)
     logger.info("Starting filter pipeline with %d markets", initial_count)
@@ -358,7 +360,16 @@ async def filter_markets(
     _log_filter_step("spread", len(markets), len(filtered))
     markets = filtered
 
-    # 6. Not already at max position
+    # 6. Minimum 24h volume
+    filtered = []
+    for m in markets:
+        volume = _get_volume_24h(m)
+        if volume >= MIN_24H_VOLUME:
+            filtered.append(m)
+    _log_filter_step("min_24h_volume", len(markets), len(filtered))
+    markets = filtered
+
+    # 7. Not already at max position
     open_positions = db.get_open_positions()
     position_market_ids = {p["market_id"] for p in open_positions if p.get("size", 0) > 0}
     filtered = []
@@ -368,7 +379,7 @@ async def filter_markets(
             filtered.append(m)
     _log_filter_step("max_position", len(markets), len(filtered))
 
-    # 7. Sort by volume_24hr descending
+    # 8. Sort by volume_24hr descending
     filtered.sort(key=lambda m: _get_volume_24h(m), reverse=True)
 
     logger.info(
@@ -635,6 +646,80 @@ async def extract_resolution_params(
         return None
 
 
+def validate_resolution_params(market: dict[str, Any]) -> tuple[bool, str]:
+    """Check if extracted resolution params are usable by our math models.
+
+    Our barrier/terminal probability models require:
+    - A valid CoinGecko coin_id
+    - A numeric target_value (price target)
+    - A direction of "above" or "below"
+
+    Markets about crypto events (regulations, exchange actions, protocol
+    upgrades, adoption metrics, etc.) don't have these and can't be modeled.
+
+    Returns:
+        (is_valid, reason) — True if we can compute probability, else False + reason.
+    """
+    params = market.get("_resolution_params")
+    if not params:
+        return False, "no resolution params extracted"
+
+    coin_id = params.get("coin_id")
+    if not coin_id:
+        return False, "no coin_id — cannot fetch price data"
+
+    target_value = params.get("target_value")
+    if target_value is None:
+        return False, "no target_value — no price target to model"
+
+    # Validate target_value is numeric
+    try:
+        tv = float(target_value)
+        if tv <= 0:
+            return False, f"target_value={tv} is not a positive price"
+    except (TypeError, ValueError):
+        return False, f"target_value={target_value!r} is not numeric"
+
+    direction = params.get("target_direction", "")
+    if direction not in ("above", "below"):
+        return False, f"target_direction={direction!r} — must be 'above' or 'below'"
+
+    resolution_type = params.get("resolution_type", "")
+    if resolution_type not in ("barrier", "terminal"):
+        return False, f"resolution_type={resolution_type!r} — must be 'barrier' or 'terminal'"
+
+    return True, "ok"
+
+
+def filter_computable_markets(
+    markets: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Remove crypto markets that our math models cannot handle.
+
+    This is the critical gate: only markets with a valid coin_id,
+    numeric target_value, and above/below direction pass through.
+    Markets about crypto events, regulations, adoption, etc. are dropped.
+    """
+    valid = []
+    rejected = 0
+    for m in markets:
+        ok, reason = validate_resolution_params(m)
+        if ok:
+            valid.append(m)
+        else:
+            rejected += 1
+            logger.debug(
+                "Rejected '%s': %s",
+                m.get("question", "")[:80], reason,
+            )
+
+    logger.info(
+        "Computability filter: %d → %d markets (%d rejected as non-computable)",
+        len(markets), len(valid), rejected,
+    )
+    return valid
+
+
 async def pre_screen_crypto_edge(
     markets: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -682,9 +767,8 @@ async def pre_screen_crypto_edge(
             resolution_type = params.get("resolution_type", "barrier")
 
             if not coin_id or target_value is None:
-                # Crypto market without clean price target (regulation, protocol events, etc.)
-                # Give a baseline edge so it still gets aggregated via web_search + prediction_markets
-                m["_model_edge"] = 0.05
+                # Crypto market without clean price target — our math can't model this
+                # Don't give baseline edge; these will be filtered out
                 continue
 
             try:

@@ -36,6 +36,7 @@ def _make_market(
     category: str = "",
     yes_price: float = 0.55,
     spread: float | None = 0.02,
+    _resolution_params: dict | None = None,
 ) -> dict:
     now = datetime.now(timezone.utc)
     end = now + timedelta(days=days_until_end)
@@ -55,6 +56,8 @@ def _make_market(
     }
     if category:
         m["_category"] = category
+    if _resolution_params is not None:
+        m["_resolution_params"] = _resolution_params
     return m
 
 
@@ -435,7 +438,11 @@ class TestDiscoverMarkets:
         assert markets[0]["tokens"][0]["token_id"] == "tok_0"
 
 
-from strategy.market_filter import _is_crypto_keyword_match
+from strategy.market_filter import (
+    _is_crypto_keyword_match,
+    filter_computable_markets,
+    validate_resolution_params,
+)
 from core.llm import LLMClient
 
 
@@ -473,6 +480,130 @@ class TestCryptoKeywordMatch:
 
     def test_empty_question(self) -> None:
         assert _is_crypto_keyword_match("") is False
+
+
+# ---------------------------------------------------------------------------
+# Computability filter tests
+# ---------------------------------------------------------------------------
+
+class TestValidateResolutionParams:
+    """Test that resolution params are validated for math model compatibility."""
+
+    def test_valid_barrier_params(self) -> None:
+        m = _make_market(_resolution_params={
+            "coin_id": "bitcoin", "target_value": 100000,
+            "target_direction": "above", "resolution_type": "barrier",
+        })
+        ok, reason = validate_resolution_params(m)
+        assert ok is True
+
+    def test_valid_terminal_params(self) -> None:
+        m = _make_market(_resolution_params={
+            "coin_id": "ethereum", "target_value": 5000,
+            "target_direction": "below", "resolution_type": "terminal",
+        })
+        ok, reason = validate_resolution_params(m)
+        assert ok is True
+
+    def test_no_resolution_params(self) -> None:
+        m = _make_market()
+        ok, reason = validate_resolution_params(m)
+        assert ok is False
+        assert "no resolution params" in reason
+
+    def test_no_coin_id(self) -> None:
+        m = _make_market(_resolution_params={
+            "coin_id": None, "target_value": 100000,
+            "target_direction": "above", "resolution_type": "barrier",
+        })
+        ok, reason = validate_resolution_params(m)
+        assert ok is False
+        assert "coin_id" in reason
+
+    def test_no_target_value(self) -> None:
+        m = _make_market(_resolution_params={
+            "coin_id": "bitcoin", "target_value": None,
+            "target_direction": "above", "resolution_type": "barrier",
+        })
+        ok, reason = validate_resolution_params(m)
+        assert ok is False
+        assert "target_value" in reason
+
+    def test_non_numeric_target(self) -> None:
+        m = _make_market(_resolution_params={
+            "coin_id": "bitcoin", "target_value": "approval",
+            "target_direction": "above", "resolution_type": "barrier",
+        })
+        ok, reason = validate_resolution_params(m)
+        assert ok is False
+        assert "not numeric" in reason
+
+    def test_negative_target(self) -> None:
+        m = _make_market(_resolution_params={
+            "coin_id": "bitcoin", "target_value": -100,
+            "target_direction": "above", "resolution_type": "barrier",
+        })
+        ok, reason = validate_resolution_params(m)
+        assert ok is False
+        assert "not a positive price" in reason
+
+    def test_direction_other_rejected(self) -> None:
+        m = _make_market(_resolution_params={
+            "coin_id": "bitcoin", "target_value": 100000,
+            "target_direction": "other", "resolution_type": "barrier",
+        })
+        ok, reason = validate_resolution_params(m)
+        assert ok is False
+        assert "target_direction" in reason
+
+    def test_bad_resolution_type(self) -> None:
+        m = _make_market(_resolution_params={
+            "coin_id": "bitcoin", "target_value": 100000,
+            "target_direction": "above", "resolution_type": "unknown",
+        })
+        ok, reason = validate_resolution_params(m)
+        assert ok is False
+        assert "resolution_type" in reason
+
+
+class TestFilterComputableMarkets:
+    """Test that non-computable markets are filtered out."""
+
+    def test_keeps_valid_markets(self) -> None:
+        m1 = _make_market(condition_id="a", question="Will BTC hit $100k?",
+                          _resolution_params={
+                              "coin_id": "bitcoin", "target_value": 100000,
+                              "target_direction": "above", "resolution_type": "barrier",
+                          })
+        m2 = _make_market(condition_id="b", question="Will ETH drop below $2000?",
+                          _resolution_params={
+                              "coin_id": "ethereum", "target_value": 2000,
+                              "target_direction": "below", "resolution_type": "terminal",
+                          })
+        result = filter_computable_markets([m1, m2])
+        assert len(result) == 2
+
+    def test_rejects_event_markets(self) -> None:
+        # Crypto event question — no price target
+        m1 = _make_market(condition_id="a", question="Will SEC approve Bitcoin ETF?",
+                          _resolution_params={
+                              "coin_id": None, "target_value": None,
+                              "target_direction": "other", "resolution_type": "barrier",
+                          })
+        # Valid price target
+        m2 = _make_market(condition_id="b", question="Will BTC hit $100k?",
+                          _resolution_params={
+                              "coin_id": "bitcoin", "target_value": 100000,
+                              "target_direction": "above", "resolution_type": "barrier",
+                          })
+        result = filter_computable_markets([m1, m2])
+        assert len(result) == 1
+        assert result[0]["condition_id"] == "b"
+
+    def test_rejects_markets_without_params(self) -> None:
+        m = _make_market(condition_id="a", question="Will Binance get hacked?")
+        result = filter_computable_markets([m])
+        assert len(result) == 0
 
 
 class TestCategorizeMarketKeywords:
