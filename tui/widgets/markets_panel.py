@@ -1,23 +1,47 @@
-"""Markets tab — browse active markets from Gamma API."""
+"""Markets tab — browse active markets from Gamma API with pipeline progress bar."""
 
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 from textual.app import ComposeResult
 from textual.containers import Vertical, Horizontal
-from textual.widgets import DataTable, Button, Static
+from textual.widgets import DataTable, Button, Static, ProgressBar, Label
 from textual.reactive import reactive
 
-from tui.messages import DrillDownRequest, MarketsUpdate
+from tui.messages import DrillDownRequest, MarketsUpdate, PipelineStageUpdate, PipelineComplete
+
+STAGE_NAMES = ["discover", "filter", "categorize", "extract", "prescreen", "rank"]
+STAGE_WEIGHTS = [0.08, 0.15, 0.25, 0.12, 0.25, 0.15]
 
 
 class MarketsPanel(Vertical):
-    """Active markets browser with sortable DataTable."""
+    """Active markets browser with sortable DataTable and filter progress bar."""
 
     DEFAULT_CSS = """
     MarketsPanel {
         height: 1fr;
         background: #0a1628;
+    }
+    MarketsPanel .progress-area {
+        height: auto;
+        max-height: 4;
+        padding: 0 2;
+        border-bottom: solid #2a3a5a;
+    }
+    MarketsPanel .progress-area.idle {
+        max-height: 1;
+    }
+    MarketsPanel .progress-area .stage-label {
+        height: 1;
+        color: #667788;
+    }
+    MarketsPanel .progress-area .stage-label.active {
+        text-style: bold;
+        color: #e0e8f0;
+    }
+    MarketsPanel .progress-area ProgressBar {
+        margin: 0;
     }
     MarketsPanel .controls {
         height: 3;
@@ -44,8 +68,12 @@ class MarketsPanel(Vertical):
     def __init__(self) -> None:
         super().__init__()
         self._market_data: list[dict[str, Any]] = []
+        self._filtering = False
 
     def compose(self) -> ComposeResult:
+        with Vertical(classes="progress-area idle", id="filter-progress-area"):
+            yield Label("", id="filter-stage-label", classes="stage-label")
+            yield ProgressBar(id="filter-progress", total=100, show_eta=False)
         with Horizontal(classes="controls"):
             yield Button("Volume", id="sort-volume", variant="primary")
             yield Button("Liquidity", id="sort-liquidity")
@@ -70,6 +98,62 @@ class MarketsPanel(Vertical):
             self.post_message(DrillDownRequest(
                 market_data=self._market_data[row_index],
             ))
+
+    def on_pipeline_stage_update(self, event: PipelineStageUpdate) -> None:
+        """Update the filter progress bar."""
+        prog = event.progress
+        try:
+            area = self.query_one("#filter-progress-area")
+            label = self.query_one("#filter-stage-label", Label)
+            bar = self.query_one("#filter-progress", ProgressBar)
+
+            if not prog.running:
+                area.add_class("idle")
+                label.remove_class("active")
+                label.update("")
+                bar.update(progress=0)
+                self._filtering = False
+                return
+
+            self._filtering = True
+            area.remove_class("idle")
+            label.add_class("active")
+
+            stage_idx = prog.stage_index
+            base_progress = sum(STAGE_WEIGHTS[:stage_idx]) * 100
+            if prog.items_total > 0 and prog.items_processed > 0:
+                intra = (prog.items_processed / prog.items_total) * STAGE_WEIGHTS[stage_idx] * 100
+            else:
+                intra = 0
+            total_progress = min(base_progress + intra, 100)
+            bar.update(progress=total_progress)
+
+            items_str = ""
+            if prog.items_total > 0:
+                items_str = f" ({prog.items_processed}/{prog.items_total})"
+
+            label.update(
+                f"Filtering: {prog.current_stage}{items_str}  [{stage_idx + 1}/{prog.total_stages}]"
+            )
+        except Exception:
+            pass
+
+    def on_pipeline_complete(self, event: PipelineComplete) -> None:
+        """Collapse progress bar when filtering is done."""
+        try:
+            area = self.query_one("#filter-progress-area")
+            label = self.query_one("#filter-stage-label", Label)
+            bar = self.query_one("#filter-progress", ProgressBar)
+
+            bar.update(progress=100)
+            label.update(
+                f"Filter done: {event.discovered} found, {event.filtered} in batch, {len(event.results)} ranked"
+            )
+            label.remove_class("active")
+            self._filtering = False
+            # Collapse after a brief moment (stays visible for readability)
+        except Exception:
+            pass
 
     def on_markets_update(self, event: MarketsUpdate) -> None:
         self._market_data = list(event.markets)

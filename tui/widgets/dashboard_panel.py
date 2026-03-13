@@ -1,84 +1,98 @@
-"""Home tab — connection health, wallet, positions, uptime, bot toggle, process status."""
+"""Dashboard tab — bot control, health, wallet, and LLM costs in one panel."""
 
 from datetime import datetime, timezone
 
 from textual.app import ComposeResult
 from textual.containers import Vertical, Horizontal
-from textual.widgets import Static, Button
+from textual.widgets import Static, Button, DataTable
 from textual.reactive import reactive
 
-from tui.messages import BotProcessUpdate, BotStatusUpdate, BotToggle, ConnectionUpdate, WalletUpdate
+from tui.messages import (
+    BotProcessUpdate,
+    BotStatusUpdate,
+    BotToggle,
+    ConnectionUpdate,
+    CostUpdate,
+    WalletUpdate,
+)
 from tui.state import ConnectionStatus
 
 
-class StatusPanel(Vertical):
-    """Home tab showing connection health, wallet info, bot start/stop, and current process."""
+class DashboardPanel(Vertical):
+    """Combined Home + Costs panel: bot control, health, wallet, LLM spend."""
 
     DEFAULT_CSS = """
-    StatusPanel {
+    DashboardPanel {
         height: 1fr;
         padding: 1 2;
         background: #0a1628;
     }
-    StatusPanel .section-title {
+    DashboardPanel .section-title {
         text-style: bold;
         color: #e0e8f0;
         margin: 1 0 0 0;
     }
-    StatusPanel .conn-row {
+    DashboardPanel .conn-row {
         height: 1;
         margin: 0 0 0 2;
         color: #8899aa;
     }
-    StatusPanel .wallet-info {
-        margin: 0 0 0 2;
-    }
-    StatusPanel .kv-line {
+    DashboardPanel .kv-line {
         height: 1;
         margin: 0 0 0 2;
         color: #8899aa;
     }
-    StatusPanel #bot-toggle-row {
+    DashboardPanel #bot-toggle-row {
         height: 3;
         margin: 1 0 0 2;
     }
-    StatusPanel #bot-toggle {
+    DashboardPanel #bot-toggle {
         min-width: 20;
     }
-    StatusPanel #bot-toggle.bot-stopped {
+    DashboardPanel #bot-toggle.bot-stopped {
         background: #1a3a2a;
         color: #44aa66;
         border: tall #44aa66;
     }
-    StatusPanel #bot-toggle.bot-running {
+    DashboardPanel #bot-toggle.bot-running {
         background: #3a1a1a;
         color: #cc4444;
         border: tall #cc4444;
     }
-    StatusPanel #bot-status-line {
+    DashboardPanel #bot-status-line {
         height: 1;
         margin: 0 0 0 2;
         color: #8899aa;
     }
-    StatusPanel .process-box {
+    DashboardPanel .process-box {
         height: auto;
         margin: 0 0 0 2;
         padding: 1 2;
         border: solid #2a3a5a;
         background: #0d1f3c;
     }
-    StatusPanel #process-phase {
+    DashboardPanel #process-phase {
         height: 1;
         text-style: bold;
         color: #e0e8f0;
     }
-    StatusPanel #process-detail {
+    DashboardPanel #process-detail {
         height: 1;
         color: #8899aa;
     }
-    StatusPanel #process-cycle {
+    DashboardPanel #process-cycle {
         height: 1;
         color: #667788;
+    }
+    DashboardPanel .cost-summary {
+        margin: 0 0 0 2;
+        height: 1;
+        color: #8899aa;
+    }
+    DashboardPanel DataTable {
+        height: auto;
+        max-height: 10;
+        margin: 0 0 0 0;
     }
     """
 
@@ -99,6 +113,7 @@ class StatusPanel(Vertical):
         self._started_at = datetime.now(timezone.utc)
 
     def compose(self) -> ComposeResult:
+        # Bot control section
         yield Static("BOT CONTROL", classes="section-title")
         yield Static(id="bot-status-line")
         with Horizontal(id="bot-toggle-row"):
@@ -110,6 +125,7 @@ class StatusPanel(Vertical):
             yield Static("Bot is stopped. Press s to start.", id="process-detail")
             yield Static("", id="process-cycle")
 
+        # Health + wallet in compact form
         yield Static("CONNECTIONS", classes="section-title")
         yield Static(id="conn-polymarket", classes="conn-row")
         yield Static(id="conn-polygon", classes="conn-row")
@@ -120,13 +136,13 @@ class StatusPanel(Vertical):
         yield Static(id="wallet-usdc", classes="kv-line")
         yield Static(id="wallet-matic", classes="kv-line")
         yield Static(id="wallet-gas", classes="kv-line")
-
-        yield Static("POSITIONS", classes="section-title")
         yield Static(id="positions-count", classes="kv-line")
 
-        yield Static("BOT INFO", classes="section-title")
-        yield Static(id="bot-mode", classes="kv-line")
-        yield Static(id="bot-uptime", classes="kv-line")
+        # LLM costs summary
+        yield Static("LLM COSTS", classes="section-title")
+        yield Static("Today: $0.0000    Month: $0.0000    Calls: 0", id="cost-summary-line", classes="kv-line")
+        yield DataTable(id="model-table")
+        yield DataTable(id="task-table")
 
     def _format_conn(self, status: ConnectionStatus) -> str:
         icon = "[#44aa66]\u25cf[/#44aa66]" if status.healthy else "[#cc4444]\u25cf[/#cc4444]"
@@ -155,20 +171,26 @@ class StatusPanel(Vertical):
             gas_str = "[#44aa66]OK[/#44aa66]" if self._has_gas else "[#cc4444]LOW[/#cc4444]"
             self.query_one("#wallet-gas", Static).update(f"Gas Status:     {gas_str}")
             self.query_one("#positions-count", Static).update(f"Open Positions: {self._positions_count}")
-            self.query_one("#bot-mode", Static).update(f"Mode:           Paper Trading")
         except Exception:
             pass
 
         self._refresh_uptime()
 
     def _refresh_uptime(self) -> None:
-        try:
-            elapsed = datetime.now(timezone.utc) - self._started_at
-            hours, remainder = divmod(int(elapsed.total_seconds()), 3600)
-            minutes, seconds = divmod(remainder, 60)
-            self.query_one("#bot-uptime", Static).update(f"Uptime:         {hours}h {minutes}m {seconds}s")
-        except Exception:
-            pass
+        pass  # Uptime removed in favour of compact layout
+
+    def on_mount(self) -> None:
+        # Init cost tables
+        model_table = self.query_one("#model-table", DataTable)
+        model_table.add_columns("Model", "Calls", "Input Tok", "Output Tok", "Cost")
+        model_table.cursor_type = "row"
+
+        task_table = self.query_one("#task-table", DataTable)
+        task_table.add_columns("Task", "Calls", "Cost")
+        task_table.cursor_type = "row"
+
+        self._refresh_display()
+        self._refresh_bot_toggle()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "bot-toggle":
@@ -194,7 +216,6 @@ class StatusPanel(Vertical):
                 btn.remove_class("bot-running")
                 btn.add_class("bot-stopped")
                 status_line.update("[#cc4444]\u25cf STOPPED[/#cc4444]   Press [b]s[/b] or click Start to begin")
-                # Reset process display
                 try:
                     self.query_one("#process-phase", Static).update("Idle")
                     self.query_one("#process-detail", Static).update("Bot is stopped. Press s to start.")
@@ -203,11 +224,6 @@ class StatusPanel(Vertical):
                     pass
         except Exception:
             pass
-
-    def on_mount(self) -> None:
-        self._refresh_display()
-        self._refresh_bot_toggle()
-        self.set_interval(10, self._refresh_uptime)
 
     def on_connection_update(self, event: ConnectionUpdate) -> None:
         self._connections[event.status.name] = event.status
@@ -223,7 +239,6 @@ class StatusPanel(Vertical):
         self._refresh_display()
 
     def on_bot_process_update(self, event: BotProcessUpdate) -> None:
-        """Update the current process display on the home tab."""
         try:
             phase_label = self.query_one("#process-phase", Static)
             detail_label = self.query_one("#process-detail", Static)
@@ -241,5 +256,33 @@ class StatusPanel(Vertical):
                 cycle_label.update(f"Cycle #{event.cycle}")
             else:
                 cycle_label.update("")
+        except Exception:
+            pass
+
+    def on_cost_update(self, event: CostUpdate) -> None:
+        try:
+            self.query_one("#cost-summary-line", Static).update(
+                f"Today: ${event.daily:.4f}    Month: ${event.monthly:.4f}    Calls: {event.total_calls}"
+            )
+        except Exception:
+            pass
+
+        # Model breakdown
+        try:
+            model_table = self.query_one("#model-table", DataTable)
+            model_table.clear()
+            for model, calls, inp, outp, cost in event.model_breakdown:
+                if len(model) > 36:
+                    model = model[:33] + "..."
+                model_table.add_row(model, str(calls), str(inp), str(outp), f"${cost:.4f}")
+        except Exception:
+            pass
+
+        # Task breakdown
+        try:
+            task_table = self.query_one("#task-table", DataTable)
+            task_table.clear()
+            for task, calls, cost in event.task_breakdown:
+                task_table.add_row(task, str(calls), f"${cost:.4f}")
         except Exception:
             pass

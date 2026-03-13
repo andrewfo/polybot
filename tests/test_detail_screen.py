@@ -1,4 +1,4 @@
-"""Tests for market detail screen and raw evidence formatting."""
+"""Tests for market detail builders and raw evidence formatting."""
 
 import pytest
 
@@ -7,11 +7,11 @@ from signals.aggregator import (
     AggregatedSignal,
     _format_raw_evidence,
 )
-from tui.widgets.detail_screen import (
+from tui.widgets.detail_builders import (
     _build_frontier_section,
     _build_market_info,
-    _build_math_section,
-    _build_signals_section,
+    _build_probability_section,
+    build_full_analysis,
 )
 
 
@@ -131,7 +131,7 @@ class TestFormatRawEvidence:
 
 
 # ---------------------------------------------------------------------------
-# Detail screen section builder tests
+# Detail builders tests
 # ---------------------------------------------------------------------------
 
 class TestBuildMarketInfo:
@@ -162,42 +162,25 @@ class TestBuildMarketInfo:
         assert "unknown" in result  # category
 
 
-class TestBuildSignalsSection:
-    """Tests for _build_signals_section()."""
+class TestBuildProbabilitySection:
+    """Tests for _build_probability_section()."""
 
-    def test_with_resolution_source(self) -> None:
+    def test_with_signals(self) -> None:
         signals = [
             _make_signal(source="resolution_crypto", probability=0.7, confidence=0.8),
             _make_signal(source="web_search", probability=0.6, confidence=0.5),
         ]
         agg = _make_aggregation(signals=signals)
-        result = _build_signals_section(agg)
-        assert "RESOLUTION_CRYPTO" in result
-        assert "RESOLUTION SOURCE" in result
-        assert "WEB_SEARCH" in result
+        result = _build_probability_section(agg)
+        assert "PROBABILITY COMPARISON" in result
+        assert "Preliminary" in result
+        assert "Frontier" in result
 
-    def test_shows_weights(self) -> None:
+    def test_shows_agreement(self) -> None:
         signals = [_make_signal(source="web_search", confidence=0.7)]
         agg = _make_aggregation(signals=signals)
-        result = _build_signals_section(agg)
-        assert "0.70 \u00d7 1.5x = 1.05" in result
-
-
-class TestBuildMathSection:
-    """Tests for _build_math_section()."""
-
-    def test_shows_multipliers(self) -> None:
-        signals = [
-            _make_signal(source="web_search", probability=0.6, confidence=0.7),
-            _make_signal(source="resolution_crypto", probability=0.8, confidence=0.9),
-        ]
-        agg = _make_aggregation(signals=signals)
-        result = _build_math_section(agg)
-        assert "web_search" in result
-        assert "resolution_crypto" in result
-        assert "Weighted Sum" in result
-        assert "Total Weight" in result
-        assert "Preliminary Est" in result
+        result = _build_probability_section(agg)
+        assert "agree" in result
 
 
 class TestBuildFrontierSection:
@@ -207,8 +190,8 @@ class TestBuildFrontierSection:
         agg = _make_aggregation(final_probability=0.65, market_price=0.50)
         result = _build_frontier_section(agg)
         assert "15%" in result  # divergence shown in bar
-        assert "agree" in result
-        assert "underpriced" in result
+        assert "FRONTIER REASONING" in result
+        assert "Strong evidence" in result
 
     def test_skipped_shows_reason(self) -> None:
         agg = _make_aggregation()
@@ -217,3 +200,31 @@ class TestBuildFrontierSection:
         result = _build_frontier_section(agg)
         assert "SKIPPED" in result
         assert "Low confidence" in result
+
+
+class TestBuildFullAnalysis:
+    """Tests for the unified build_full_analysis() entry point."""
+
+    def test_no_aggregation(self) -> None:
+        market = {"question": "Test?"}
+        result = build_full_analysis(market)
+        assert "Test?" in result
+        assert "No aggregation data" in result
+
+    def test_with_aggregation(self) -> None:
+        market = {"question": "Will BTC hit $150k?", "conditionId": "abc"}
+        signals = [
+            _make_signal(source="resolution_crypto", probability=0.7, confidence=0.8),
+            _make_signal(source="web_search", probability=0.6, confidence=0.5),
+        ]
+        agg = _make_aggregation(signals=signals)
+        result = build_full_analysis(market, aggregation=agg)
+        assert "MARKET INFO" in result
+        assert "PROBABILITY COMPARISON" in result
+        assert "FRONTIER REASONING" in result
+        assert "Strong evidence" in result
+
+    def test_with_category_no_aggregation(self) -> None:
+        market = {"question": "Test?", "_category": "crypto"}
+        result = build_full_analysis(market)
+        assert "insufficient signals" in result

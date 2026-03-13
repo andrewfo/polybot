@@ -29,14 +29,15 @@ async def test_app_mounts(app):
         assert app.query_one("Header") is not None
         assert app.query_one("Footer") is not None
         assert app.query_one("TabbedContent") is not None
-        assert app.query_one("StatusPanel") is not None
+        from tui.widgets.dashboard_panel import DashboardPanel
+        assert app.query_one(DashboardPanel) is not None
 
 
 @pytest.mark.asyncio
 async def test_log_message_appears(app):
     """LogMessage should appear in the LogPanel's RichLog."""
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("5")
+        await pilot.press("4")
 
         app.post_message(LogMessage(level="INFO", logger_name="test", text="Hello from test"))
         await pilot.pause()
@@ -49,9 +50,9 @@ async def test_log_message_appears(app):
 
 @pytest.mark.asyncio
 async def test_pipeline_stage_update(app):
-    """PipelineStageUpdate should update the stage label."""
+    """PipelineStageUpdate should update the filter progress on Markets tab."""
     async with app.run_test(size=(120, 40)) as pilot:
-        await pilot.press("3")
+        await pilot.press("2")
 
         progress = PipelineProgress(
             running=True,
@@ -67,13 +68,15 @@ async def test_pipeline_stage_update(app):
         await pilot.pause()
         await pilot.pause()
 
-        label = app.query_one("#stage-label", Label)
-        assert "categorize" in str(label.content).lower()
+        label = app.query_one("#filter-stage-label", Label)
+        # Label stores text in _label reactive — check the render output
+        label_text = str(label.render())
+        assert "categorize" in label_text.lower()
 
 
 @pytest.mark.asyncio
 async def test_connection_update_changes_display(app):
-    """ConnectionUpdate should update the status panel indicators."""
+    """ConnectionUpdate should update the dashboard panel indicators."""
     async with app.run_test(size=(120, 40)) as pilot:
         app.post_message(ConnectionUpdate(
             ConnectionStatus("Polymarket API", True, datetime.now(timezone.utc))
@@ -81,8 +84,8 @@ async def test_connection_update_changes_display(app):
         await pilot.pause()
         await pilot.pause()
 
-        from tui.widgets.status_panel import StatusPanel
-        panel = app.query_one(StatusPanel)
+        from tui.widgets.dashboard_panel import DashboardPanel
+        panel = app.query_one(DashboardPanel)
         status = panel._connections.get("Polymarket API")
         assert status is not None
         assert status.healthy is True
@@ -102,16 +105,16 @@ async def test_tab_switching(app):
 
         await pilot.press("3")
         await pilot.pause()
-        assert tc.active == "progress"
+        assert tc.active == "analysis"
 
         await pilot.press("1")
         await pilot.pause()
-        assert tc.active == "home"
+        assert tc.active == "dashboard"
 
 
 @pytest.mark.asyncio
 async def test_batch_update_populates_table(app):
-    """BatchUpdate should populate the In Progress results DataTable."""
+    """BatchUpdate should populate the Analysis list DataTable."""
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.press("3")
 
@@ -131,5 +134,5 @@ async def test_batch_update_populates_table(app):
         await pilot.pause()
         await pilot.pause()
 
-        table = app.query_one("#results-table", DataTable)
+        table = app.query_one("#analysis-table", DataTable)
         assert table.row_count == 1

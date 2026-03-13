@@ -197,3 +197,10 @@ class BatchUpdate(Message):
         self.markets = markets          # top 20 filtered markets
         self.current_index = current_index  # -1 = not started, 0..N = processing index
         self.statuses = statuses        # condition_id -> "waiting"|"processing"|"done"|"skipped"|"error"
+
+
+class AnalysisSelectionChanged(Message):
+    """Posted when a row in the analysis list is selected — carries the AnalysisEntry."""
+    def __init__(self, entry: Any) -> None:
+        super().__init__()
+        self.entry = entry  # AnalysisEntry from analysis_list_panel

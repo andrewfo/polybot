@@ -1,15 +1,14 @@
-"""Market detail modal — drill-down view with full signal evidence and charts."""
+"""Unified detail view builders — single source of truth for market analysis rendering.
+
+Consolidates builder functions previously spread across detail_screen.py and bets_panel.py
+into one entry point: build_full_analysis(market_data, aggregation, decision).
+"""
 
 import json
 from datetime import datetime, timezone
 from typing import Any
 
 from rich.markup import escape as esc
-from textual.app import ComposeResult
-from textual.binding import Binding
-from textual.containers import VerticalScroll
-from textual.screen import ModalScreen
-from textual.widgets import Static
 
 from signals.aggregator import (
     AggregatedSignal,
@@ -17,10 +16,10 @@ from signals.aggregator import (
     _compute_effective_weight,
     _format_raw_evidence,
 )
-from signals.temporal import build_date_context, compute_urgency_tier
+from signals.temporal import build_date_context
 from tui.widgets.charts import (
-    comparison_bars,
     horizontal_bar,
+    kelly_breakdown,
     probability_comparison,
     signal_weights_table,
     vol_comparison,
@@ -45,8 +44,14 @@ def _safe_json_loads(val: Any) -> Any:
     return val
 
 
+def _section_header(title: str) -> str:
+    """Render a clean section header: '  TITLE ──────────'."""
+    bar = "\u2500" * max(1, 56 - len(title))
+    return f"[bold {C_TEXT}]  {title} {bar}[/]"
+
+
 def _build_market_info(market: dict[str, Any]) -> str:
-    """Section A: Market info block with visual indicators."""
+    """Market header: question, prices, liquidity, time remaining."""
     question = market.get("question", "???")
     condition_id = market.get("conditionId", market.get("condition_id", "???"))
     category = market.get("_category", "unknown")
@@ -90,7 +95,6 @@ def _build_market_info(market: dict[str, Any]) -> str:
     urgency = ctx.get("urgency_tier", "unknown")
     days_str = f"{int(days)} days" if days is not None else "unknown"
 
-    # Urgency color
     urgency_colors = {
         "imminent": C_RED, "short_term": C_YELLOW,
         "medium": C_ACCENT, "long": C_DIM,
@@ -98,14 +102,13 @@ def _build_market_info(market: dict[str, Any]) -> str:
     urg_color = urgency_colors.get(urgency, C_DIM)
 
     lines = [
-        f"[bold {C_TEXT}]{'═' * 60}[/]",
+        _section_header("MARKET INFO"),
+        "",
         f"[bold {C_TEXT}]{esc(question)}[/]",
         f"[{C_DIM}]ID: {esc(condition_id)}  |  Category: {esc(category)}[/]",
-        f"[{C_DIM}]{'─' * 60}[/]",
         "",
     ]
 
-    # Price bar (visual YES/NO split)
     if yes_p_val is not None:
         yes_bar = horizontal_bar(yes_p_val, 1.0, 25, C_GREEN, show_value=False)
         no_bar_val = no_p_val if no_p_val is not None else 1.0 - yes_p_val
@@ -127,23 +130,30 @@ def _build_market_info(market: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _build_signals_section(agg: AggregatedSignal) -> str:
-    """Section B: Individual signals with raw evidence and visual comparison."""
+def _build_probability_section(
+    agg: AggregatedSignal,
+    decision: Any | None = None,
+) -> str:
+    """Probability comparison bars + signal weights table."""
     lines = [
         "",
-        f"[bold {C_TEXT}]╔══ PROBABILITY COMPARISON ══╗[/]",
+        _section_header("PROBABILITY COMPARISON"),
     ]
 
-    # Visual probability bars
     signal_list = [
         (s.source, s.probability, s.confidence)
         for s in agg.individual_signals
         if s.probability is not None
     ]
+
+    # Use decision's effective_prob if available, otherwise use preliminary
+    effective = decision.effective_prob if decision else agg.preliminary_probability
+    raw_est = decision.estimated_prob if decision else agg.final_probability
+
     lines.append(probability_comparison(
         market_price=agg.market_price,
-        raw_estimate=agg.final_probability,
-        effective_prob=agg.preliminary_probability,
+        raw_estimate=raw_est,
+        effective_prob=effective,
         signals=signal_list,
     ))
 
@@ -156,53 +166,37 @@ def _build_signals_section(agg: AggregatedSignal) -> str:
         signal_rows.append((signal.source, signal.probability, signal.confidence, mult, ew))
     lines.append(signal_weights_table(signal_rows))
 
-    # Individual signal details
-    lines.append("")
-    lines.append(f"[bold {C_TEXT}]╔══ SIGNAL DETAILS ══╗[/]")
-
-    for signal in agg.individual_signals:
-        resolution_tag = f" [{C_RED}](RESOLUTION SOURCE)[/]" if signal.source.startswith("resolution_") else ""
-        multiplier = SIGNAL_WEIGHT_MULTIPLIERS.get(signal.source, 1.0)
-        ew = _compute_effective_weight(signal)
-
-        lines.append("")
-        lines.append(f"[bold {C_ACCENT}]── {signal.source.upper()}{resolution_tag} ──[/]")
-
-        if signal.probability is not None:
-            prob_bar = horizontal_bar(signal.probability, 1.0, 20, C_ACCENT)
-            lines.append(f"  [{C_MUTED}]Probability:[/]  {prob_bar}")
-        else:
-            lines.append(f"  [{C_MUTED}]Probability:[/]  [{C_DIM}]--- (no data)[/]")
-
-        conf_bar = horizontal_bar(signal.confidence, 1.0, 20, C_YELLOW)
-        lines.append(f"  [{C_MUTED}]Confidence:[/]   {conf_bar}")
-        lines.append(f"  [{C_MUTED}]Weight:[/]       [{C_TEXT}]{signal.confidence:.2f} × {multiplier:.1f}x = {ew:.2f}[/]")
-        lines.append(f"  [{C_MUTED}]Data Points:[/]  [{C_TEXT}]{signal.data_points}[/]")
-        lines.append(f"  [{C_MUTED}]Reasoning:[/]    [{C_TEXT}]{esc(signal.reasoning)}[/]")
-
-        # Raw evidence
-        evidence = _format_raw_evidence(signal)
-        if evidence:
-            lines.append(f"  [{C_MUTED}]Raw Evidence:[/]")
-            lines.append(f"[{C_DIM}]{esc(evidence)}[/]")
+    # Preliminary vs final + agreement
+    lines.extend([
+        "",
+        f"[{C_MUTED}]Preliminary (weighted avg):  [{C_TEXT}]{agg.preliminary_probability:.4f}[/]",
+        f"[{C_MUTED}]Frontier final:              [{C_TEXT}]{agg.final_probability:.4f}[/]",
+        f"[{C_MUTED}]Signals agreement:           [{C_TEXT}]{agg.signals_agreement}[/]",
+        f"[{C_MUTED}]Market efficiency:           [{C_TEXT}]{agg.market_efficiency}[/]",
+    ])
 
     return "\n".join(lines)
 
 
-def _build_crypto_section(agg: AggregatedSignal) -> str:
-    """Section B2: Crypto-specific data with vol chart and model comparison."""
-    crypto_raw = None
+def _get_crypto_raw_data(agg: AggregatedSignal) -> dict[str, Any] | None:
+    """Extract raw crypto resolution data from the aggregation."""
+    if not agg or not agg.individual_signals:
+        return None
     for signal in agg.individual_signals:
         if signal.source == "resolution_crypto" and signal.raw_data:
-            crypto_raw = signal.raw_data
-            break
+            return signal.raw_data
+    return None
 
+
+def _build_crypto_section(agg: AggregatedSignal) -> str:
+    """Crypto model data: price/target, vol comparison, barrier/terminal."""
+    crypto_raw = _get_crypto_raw_data(agg)
     if not crypto_raw:
         return ""
 
     lines = [
         "",
-        f"[bold {C_TEXT}]╔══ CRYPTO MODEL DATA ══╗[/]",
+        _section_header("CRYPTO MODEL DATA"),
     ]
 
     current = crypto_raw.get("current_price")
@@ -260,7 +254,7 @@ def _build_crypto_section(agg: AggregatedSignal) -> str:
         lines.append(f"  [{C_MUTED}]Barrier (any touch): [/]  {b_bar}")
 
         selected_label = "barrier" if res_type == "barrier" else "terminal"
-        lines.append(f"  [{C_GREEN}]→ Using {selected_label} model[/]")
+        lines.append(f"  [{C_GREEN}]-> Using {selected_label} model[/]")
 
     # Days remaining + trend
     days = crypto_raw.get("days_remaining")
@@ -273,42 +267,59 @@ def _build_crypto_section(agg: AggregatedSignal) -> str:
     return "\n".join(lines)
 
 
-def _build_math_section(agg: AggregatedSignal) -> str:
-    """Section C: Aggregation math breakdown with visual indicators."""
+def _build_kelly_section(decision: Any) -> str:
+    """Kelly decision summary: side, edge, bet size, EV, depth."""
+    from config.settings import POLYMARKET_FEE_RATE, TEST_BANKROLL
+
+    trade_color = C_GREEN if decision.should_trade else C_RED
+    status = "TRADE" if decision.should_trade else f"SKIP \u2014 {esc(decision.skip_reason)}"
+
     lines = [
         "",
-        f"[bold {C_TEXT}]╔══ AGGREGATION MATH ══╗[/]",
+        _section_header("KELLY SIZING"),
         "",
+        f"[bold {trade_color}]Decision: {status}[/]",
+        f"[{C_DIM}]Token: {esc(decision.token_id)}[/]",
     ]
 
-    total_weight = 0.0
-    weighted_sum = 0.0
-    for signal in agg.individual_signals:
-        if signal.probability is None or signal.confidence <= 0:
-            continue
-        multiplier = SIGNAL_WEIGHT_MULTIPLIERS.get(signal.source, 1.0)
-        ew = _compute_effective_weight(signal)
-        total_weight += ew
-        weighted_sum += signal.probability * ew
-        contrib = signal.probability * ew
-        lines.append(
-            f"  [{C_MUTED}]{signal.source:<20}[/] "
-            f"[{C_TEXT}]{signal.probability:.4f} × {ew:.2f} = {contrib:.4f}[/]"
-        )
+    if decision.should_trade:
+        depth_info = ""
+        if decision.depth_adjusted:
+            depth_info = f"  [{C_YELLOW}][depth-adjusted, slippage={decision.depth_slippage:.1%}][/{C_YELLOW}]"
+        elif decision.depth_total_usd > 0:
+            depth_info = f"  [{C_DIM}][depth=${decision.depth_total_usd:.0f}, slippage={decision.depth_slippage:.1%}][/{C_DIM}]"
 
-    lines.append(f"  [{C_BG}]{'─' * 50}[/]")
-    lines.append(f"  [{C_MUTED}]Weighted Sum:[/]       [{C_TEXT}]{weighted_sum:.4f}[/]")
-    lines.append(f"  [{C_MUTED}]Total Weight:[/]       [{C_TEXT}]{total_weight:.4f}[/]")
-    lines.append(f"  [{C_MUTED}]Preliminary Est:[/]    [{C_TEXT}]{agg.preliminary_probability:.4f}[/]")
+        lines.extend([
+            f"[{C_MUTED}]Side:[/]     [{C_TEXT}]{decision.side}[/]",
+            f"[{C_MUTED}]Edge:[/]     [{C_TEXT}]{decision.edge:.2%}[/]",
+            f"[{C_MUTED}]Bet:[/]      [{C_TEXT}]${decision.bet_size_usd:.2f}[/]{depth_info}",
+            f"[{C_MUTED}]EV:[/]       [{C_TEXT}]${decision.expected_value:.2f}[/]",
+            f"[{C_MUTED}]Kelly:[/]    [{C_TEXT}]{decision.adjusted_fraction:.1%}[/]",
+        ])
+
+    # Full Kelly math breakdown
+    lines.append("")
+    lines.append(kelly_breakdown(
+        estimated_prob=decision.estimated_prob,
+        effective_prob=decision.effective_prob,
+        market_price=decision.market_price,
+        confidence=decision.confidence,
+        edge=decision.edge,
+        full_kelly=decision.full_kelly_fraction,
+        adjusted_kelly=decision.adjusted_fraction,
+        bet_size=decision.bet_size_usd,
+        bankroll=TEST_BANKROLL,
+        side=decision.side,
+        fee_rate=POLYMARKET_FEE_RATE,
+    ))
 
     return "\n".join(lines)
 
 
 def _build_frontier_section(agg: AggregatedSignal) -> str:
-    """Section D: Frontier model decision with visual divergence indicator."""
+    """Frontier reasoning: full text, divergence indicator."""
     divergence = abs(agg.final_probability - agg.market_price)
 
-    # Divergence color
     if divergence > 0.30:
         div_color = C_RED
     elif divergence > 0.15:
@@ -318,11 +329,10 @@ def _build_frontier_section(agg: AggregatedSignal) -> str:
 
     lines = [
         "",
-        f"[bold {C_TEXT}]╔══ FRONTIER MODEL DECISION ══╗[/]",
+        _section_header("FRONTIER REASONING"),
         "",
     ]
 
-    # Final probability bar
     prob_bar = horizontal_bar(agg.final_probability, 1.0, 25, C_ACCENT)
     lines.append(f"[{C_MUTED}]Final Probability:[/]   {prob_bar}")
 
@@ -334,10 +344,6 @@ def _build_frontier_section(agg: AggregatedSignal) -> str:
 
     lines.extend([
         "",
-        f"[{C_MUTED}]Signals Agreement:[/]   [{C_TEXT}]{agg.signals_agreement}[/]",
-        f"[{C_MUTED}]Market Efficiency:[/]   [{C_TEXT}]{agg.market_efficiency}[/]",
-        "",
-        f"[{C_MUTED}]Reasoning:[/]",
         f"[{C_TEXT}]{esc(agg.reasoning)}[/]",
     ])
 
@@ -348,54 +354,56 @@ def _build_frontier_section(agg: AggregatedSignal) -> str:
     return "\n".join(lines)
 
 
-class MarketDetailScreen(ModalScreen[None]):
-    """Full-screen drill-down modal for market details with charts."""
+def build_full_analysis(
+    market_data: dict[str, Any],
+    aggregation: AggregatedSignal | None = None,
+    decision: Any | None = None,
+) -> str:
+    """Build the complete unified detail view for a market.
 
-    BINDINGS = [
-        Binding("escape", "dismiss", "Close"),
-    ]
+    Single entry point that renders all sections:
+    1. Market info (question, prices, liquidity, time remaining)
+    2. Probability comparison bars + signal weights table
+    3. Crypto model data (if crypto)
+    4. Kelly decision summary (if decision available)
+    5. Frontier reasoning (full text)
 
-    DEFAULT_CSS = """
-    MarketDetailScreen {
-        align: center middle;
-    }
-    MarketDetailScreen > VerticalScroll {
-        width: 90%;
-        height: 90%;
-        background: #0a1628;
-        border: solid #4488cc;
-        padding: 1 2;
-    }
-    MarketDetailScreen Static {
-        color: #8899aa;
-        width: 1fr;
-    }
+    Args:
+        market_data: Gamma API market dict
+        aggregation: AggregatedSignal from frontier model (or None)
+        decision: TradeDecision from Kelly sizing (or None)
+
+    Returns:
+        Rich markup string for rendering in a Static widget.
     """
+    sections: list[str] = []
 
-    def __init__(
-        self,
-        market_data: dict[str, Any],
-        aggregation: AggregatedSignal | None = None,
-    ) -> None:
-        super().__init__()
-        self._market_data = market_data
-        self._aggregation = aggregation
+    # 1. Market info
+    sections.append(_build_market_info(market_data))
 
-    def compose(self) -> ComposeResult:
-        content = _build_market_info(self._market_data)
+    if aggregation is not None:
+        # 2. Probability comparison + signal weights
+        sections.append(_build_probability_section(aggregation, decision))
 
-        if self._aggregation is not None:
-            content += "\n" + _build_signals_section(self._aggregation)
-            content += "\n" + _build_crypto_section(self._aggregation)
-            content += "\n" + _build_math_section(self._aggregation)
-            content += "\n" + _build_frontier_section(self._aggregation)
-        elif self._market_data.get("_category"):
-            content += f"\n\n[{C_YELLOW}]Aggregation ran but returned no result (insufficient signals or low frontier confidence).[/]"
-            content += f"\n[{C_DIM}]Category: {self._market_data.get('_category', 'unknown')}[/]"
-        else:
-            content += f"\n\n[{C_DIM}]No aggregation data available. Run aggregate to see full signal details.[/]"
+        # 3. Crypto model data
+        crypto = _build_crypto_section(aggregation)
+        if crypto:
+            sections.append(crypto)
 
-        content += f"\n\n[dim]Press Escape to close[/]"
+        # 4. Kelly sizing
+        if decision is not None:
+            sections.append(_build_kelly_section(decision))
 
-        with VerticalScroll():
-            yield Static(content, markup=True)
+        # 5. Frontier reasoning
+        sections.append(_build_frontier_section(aggregation))
+
+    elif market_data.get("_category"):
+        sections.append(
+            f"\n\n[{C_YELLOW}]Aggregation ran but returned no result "
+            f"(insufficient signals or low frontier confidence).[/]"
+        )
+        sections.append(f"[{C_DIM}]Category: {market_data.get('_category', 'unknown')}[/]")
+    else:
+        sections.append(f"\n\n[{C_DIM}]No aggregation data available. Run aggregate to see full signal details.[/]")
+
+    return "\n".join(sections)

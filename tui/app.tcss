@@ -144,21 +144,17 @@ RichLog {
     border: solid #2a3a5a;
 }
 
-/* Detail screen modal */
-MarketDetailScreen {
-    align: center middle;
-    background: rgba(10, 22, 40, 0.90);
+/* Analysis tab — horizontal split */
+.analysis-split {
+    height: 1fr;
 }
 
-MarketDetailScreen > VerticalScroll {
-    width: 90%;
-    height: 90%;
-    background: #0a1628;
-    border: solid #4488cc;
-    padding: 1 2;
+.analysis-list {
+    width: 40%;
+    border-right: solid #2a3a5a;
 }
 
-MarketDetailScreen Static {
-    color: #8899aa;
-    width: 1fr;
+.analysis-detail {
+    width: 60%;
+    background: #0d1f3c;
 }

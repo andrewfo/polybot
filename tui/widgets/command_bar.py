@@ -36,7 +36,7 @@ class CommandBar(Horizontal):
 
     def compose(self) -> ComposeResult:
         yield Input(placeholder=":command (aggregate, signal-test, categorize, llm-test, refresh)", id="cmd-input")
-        yield Static("aggregate [q] [price] | signal-test [q] | categorize <q> | llm-test <p> | refresh", classes="cmd-hint")
+        yield Static("aggregate [q] [price] | signal-test [q] | categorize <q> | llm-test <p> | refresh  [1-4: tabs]", classes="cmd-hint")
 
     def toggle(self) -> None:
         """Show/hide the command bar."""

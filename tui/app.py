@@ -12,6 +12,7 @@ import aiohttp
 from config.settings import CHEAP_MODEL
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.containers import Horizontal
 from textual.widgets import Header, Footer, TabbedContent, TabPane
 
 # Ensure project root is on sys.path
@@ -22,6 +23,7 @@ if _project_root not in sys.path:
 from tui.log_handler import TUILogHandler
 from tui.messages import (
     AggregationResult,
+    AnalysisSelectionChanged,
     BatchUpdate,
     BetUpdate,
     BotProcessUpdate,
@@ -40,13 +42,11 @@ from tui.messages import (
 )
 from tui.state import ConnectionStatus, PipelineProgress
 from tui.widgets.command_bar import CommandBar
-from tui.widgets.costs_panel import CostsPanel
+from tui.widgets.dashboard_panel import DashboardPanel
 from tui.widgets.log_panel import LogPanel
 from tui.widgets.markets_panel import MarketsPanel
-from tui.widgets.pipeline_panel import PipelinePanel
-from tui.widgets.bets_panel import BetsPanel
-from tui.widgets.signals_panel import SignalsPanel
-from tui.widgets.status_panel import StatusPanel
+from tui.widgets.analysis_list_panel import AnalysisListPanel
+from tui.widgets.analysis_detail_panel import AnalysisDetailPanel
 
 logger = logging.getLogger(__name__)
 
@@ -63,13 +63,10 @@ class TUIApp(App):
 
     BINDINGS = [
         Binding("q", "quit", "Quit", priority=True),
-        Binding("1", "switch_tab('home')", "Home", show=True),
+        Binding("1", "switch_tab('dashboard')", "Dashboard", show=True),
         Binding("2", "switch_tab('markets')", "Markets", show=True),
-        Binding("3", "switch_tab('progress')", "In Progress", show=True),
-        Binding("4", "switch_tab('costs')", "Costs", show=True),
-        Binding("5", "switch_tab('signals')", "Signals", show=True),
-        Binding("6", "switch_tab('bets')", "Bets", show=True),
-        Binding("7", "switch_tab('logs')", "Logs", show=True),
+        Binding("3", "switch_tab('analysis')", "Analysis", show=True),
+        Binding("4", "switch_tab('logs')", "Logs", show=True),
         Binding("s", "toggle_bot", "Start/Stop"),
         Binding("a", "run_aggregate_default", "Aggregate"),
         Binding("r", "refresh", "Refresh"),
@@ -78,19 +75,15 @@ class TUIApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with TabbedContent(initial="home"):
-            with TabPane("Home", id="home"):
-                yield StatusPanel()
+        with TabbedContent(initial="dashboard"):
+            with TabPane("Dashboard", id="dashboard"):
+                yield DashboardPanel()
             with TabPane("Markets", id="markets"):
                 yield MarketsPanel()
-            with TabPane("In Progress", id="progress"):
-                yield PipelinePanel()
-            with TabPane("Costs", id="costs"):
-                yield CostsPanel()
-            with TabPane("Signals", id="signals"):
-                yield SignalsPanel()
-            with TabPane("Bets", id="bets"):
-                yield BetsPanel()
+            with TabPane("Analysis", id="analysis"):
+                with Horizontal(classes="analysis-split"):
+                    yield AnalysisListPanel(classes="analysis-list")
+                    yield AnalysisDetailPanel(classes="analysis-detail")
             with TabPane("Logs", id="logs"):
                 yield LogPanel()
         yield CommandBar()
@@ -429,14 +422,14 @@ class TUIApp(App):
                 logger.info("Cycle %d: Aggregating %d markets (skipped %d already processed)",
                             cycle, len(batch), len(ranked) - len(batch))
 
-                # Post batch to In Progress tab
+                # Post batch to Analysis tab
                 statuses: dict[str, str] = {}
                 for m in batch:
                     cond_id = m.get("conditionId", m.get("condition_id", ""))
                     statuses[cond_id] = "waiting"
                 self.post_message(BatchUpdate(markets=batch, current_index=-1, statuses=dict(statuses)))
 
-                # Switch to In Progress tab
+                # Post pipeline complete to Markets tab progress bar
                 self.post_message(PipelineComplete(
                     results=ranked,
                     discovered=len(ranked),
@@ -621,7 +614,7 @@ class TUIApp(App):
                         **resolution_kwargs,
                     )
 
-                    # Post aggregation result for drill-down storage
+                    # Post aggregation result for Analysis tab
                     self.post_message(AggregationResult(
                         market_data=mkt,
                         aggregation=agg_result,
@@ -824,9 +817,9 @@ class TUIApp(App):
     def run_signal_test(self, question: str = "") -> None:
         q = question or self.DEFAULT_SIGNAL_TEST_QUESTION
         self.run_worker(self._do_signal_test(q), group="signal-test")
-        # Switch to signals tab
+        # Switch to analysis tab
         tc = self.query_one(TabbedContent)
-        tc.active = "signals"
+        tc.active = "analysis"
 
     async def _do_signal_test(self, question: str) -> None:
         """Run all signal providers on a question and emit live updates."""
@@ -835,6 +828,12 @@ class TUIApp(App):
         from signals.resolution_crypto import CryptoResolutionProvider
         from signals.web_search import WebSearchSignalProvider
         from strategy.market_filter import categorize_market, extract_resolution_params
+
+        # Add manual entry to analysis list
+        try:
+            self.query_one(AnalysisListPanel).add_manual_entry(question, "manual-st")
+        except Exception:
+            pass
 
         def _make_progress_cb(source_name: str):
             def on_progress(mkt_question: str, stage: str, detail: str = "") -> None:
@@ -930,8 +929,9 @@ class TUIApp(App):
         except ValueError:
             price = 0.50
         self.run_worker(self._do_aggregate(q, price), group="aggregate")
+        # Switch to analysis tab
         tc = self.query_one(TabbedContent)
-        tc.active = "signals"
+        tc.active = "analysis"
 
     async def _do_aggregate(self, question: str, market_price: float) -> None:
         """Run full aggregation pipeline: all signals + frontier model."""
@@ -941,6 +941,12 @@ class TUIApp(App):
         from signals.resolution_crypto import CryptoResolutionProvider
         from signals.web_search import WebSearchSignalProvider
         from strategy.market_filter import categorize_market, extract_resolution_params
+
+        # Add manual entry to analysis list
+        try:
+            self.query_one(AnalysisListPanel).add_manual_entry(question)
+        except Exception:
+            pass
 
         def _make_progress_cb(source_name: str):
             def on_progress(mkt_question: str, stage: str, detail: str = "") -> None:
@@ -992,8 +998,8 @@ class TUIApp(App):
                     **resolution_kwargs,
                 )
 
-                # Post aggregation result for drill-down storage
-                agg_market = {"condition_id": "", "question": question, "_category": category}
+                # Post aggregation result
+                agg_market = {"condition_id": "manual", "question": question, "_category": category}
                 self.post_message(AggregationResult(
                     market_data=agg_market,
                     aggregation=result,
@@ -1097,85 +1103,83 @@ class TUIApp(App):
     # -----------------------------------------------------------------
 
     def on_log_message(self, event: LogMessage) -> None:
-        """Route log messages to the log panel."""
         try:
             self.query_one(LogPanel).on_log_message(event)
         except Exception:
             pass
 
     def on_connection_update(self, event: ConnectionUpdate) -> None:
-        """Route connection updates to the status panel."""
         try:
-            self.query_one(StatusPanel).on_connection_update(event)
+            self.query_one(DashboardPanel).on_connection_update(event)
         except Exception:
             pass
 
     def on_wallet_update(self, event: WalletUpdate) -> None:
-        """Route wallet updates to the status panel."""
         try:
-            self.query_one(StatusPanel).on_wallet_update(event)
+            self.query_one(DashboardPanel).on_wallet_update(event)
         except Exception:
             pass
 
     def on_markets_update(self, event: MarketsUpdate) -> None:
-        """Route markets data to the markets panel."""
         try:
             self.query_one(MarketsPanel).on_markets_update(event)
         except Exception:
             pass
 
     def on_cost_update(self, event: CostUpdate) -> None:
-        """Route cost data to the costs panel."""
         try:
-            self.query_one(CostsPanel).on_cost_update(event)
+            self.query_one(DashboardPanel).on_cost_update(event)
         except Exception:
             pass
 
     def on_pipeline_stage_update(self, event: PipelineStageUpdate) -> None:
-        """Route pipeline progress to the pipeline panel."""
         try:
-            self.query_one(PipelinePanel).on_pipeline_stage_update(event)
+            self.query_one(MarketsPanel).on_pipeline_stage_update(event)
         except Exception:
             pass
 
     def on_pipeline_complete(self, event: PipelineComplete) -> None:
-        """Route pipeline completion to the pipeline panel."""
         try:
-            self.query_one(PipelinePanel).on_pipeline_complete(event)
+            self.query_one(MarketsPanel).on_pipeline_complete(event)
         except Exception:
             pass
 
     def on_signal_update(self, event: SignalUpdate) -> None:
-        """Route signal updates to the signals panel."""
         try:
-            self.query_one(SignalsPanel).on_signal_update(event)
+            self.query_one(AnalysisListPanel).on_signal_update(event)
         except Exception:
             pass
 
     def on_bot_status_update(self, event: BotStatusUpdate) -> None:
-        """Route bot status to the status panel."""
         try:
-            self.query_one(StatusPanel).on_bot_status_update(event)
+            self.query_one(DashboardPanel).on_bot_status_update(event)
         except Exception:
             pass
 
     def on_aggregation_result(self, event: AggregationResult) -> None:
-        """Route aggregation results to the signals panel for drill-down storage."""
         try:
-            self.query_one(SignalsPanel).on_aggregation_result(event)
+            self.query_one(AnalysisListPanel).on_aggregation_result(event)
         except Exception:
             pass
 
     def on_drill_down_request(self, event: DrillDownRequest) -> None:
-        """Push a detail screen when a row is selected."""
-        from tui.widgets.detail_screen import MarketDetailScreen
-        self.push_screen(MarketDetailScreen(
+        """Switch to analysis tab and show the market detail."""
+        from tui.widgets.analysis_list_panel import AnalysisEntry
+        # Create a temporary entry for drill-down from Markets tab
+        entry = AnalysisEntry(
+            condition_id=event.market_data.get("conditionId", event.market_data.get("condition_id", "drilldown")),
             market_data=event.market_data,
+            status="done" if event.aggregation else "waiting",
             aggregation=event.aggregation,
-        ))
+        )
+        tc = self.query_one(TabbedContent)
+        tc.active = "analysis"
+        try:
+            self.query_one(AnalysisDetailPanel).show_entry(entry)
+        except Exception:
+            pass
 
     def on_command_result(self, event: CommandResult) -> None:
-        """Route command results to the log panel and switch to logs tab."""
         try:
             self.query_one(LogPanel).on_command_result(event)
         except Exception:
@@ -1184,22 +1188,26 @@ class TUIApp(App):
         tc.active = "logs"
 
     def on_bot_process_update(self, event: BotProcessUpdate) -> None:
-        """Route bot process updates to the status panel."""
         try:
-            self.query_one(StatusPanel).on_bot_process_update(event)
+            self.query_one(DashboardPanel).on_bot_process_update(event)
         except Exception:
             pass
 
     def on_batch_update(self, event: BatchUpdate) -> None:
-        """Route batch updates to the pipeline (In Progress) panel."""
         try:
-            self.query_one(PipelinePanel).on_batch_update(event)
+            self.query_one(AnalysisListPanel).on_batch_update(event)
         except Exception:
             pass
 
     def on_bet_update(self, event: BetUpdate) -> None:
-        """Route Kelly bet decisions to the bets panel."""
         try:
-            self.query_one(BetsPanel).on_bet_update(event)
+            self.query_one(AnalysisListPanel).on_bet_update(event)
+        except Exception:
+            pass
+
+    def on_analysis_selection_changed(self, event: AnalysisSelectionChanged) -> None:
+        """Show detail for the selected analysis entry."""
+        try:
+            self.query_one(AnalysisDetailPanel).show_entry(event.entry)
         except Exception:
             pass

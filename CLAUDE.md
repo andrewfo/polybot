@@ -22,8 +22,8 @@ core/client.py           → Polymarket CLOB wrapper for ORDER EXECUTION ONLY (n
 core/wallet.py           → Wallet balance checks, gas monitoring
 core/db.py               → SQLite tables: trades, positions, signals, bankroll, llm_costs, market_cache
 strategy/market_filter.py→ Gamma API discovery, filtering, LLM categorization (crypto-only gate), ranking
-tui/app.py               → Textual TUI dashboard with 7 tabs (Home, Markets, In Progress, Costs, Signals, Bets, Logs), navy/grey/white theme
-tui/widgets/             → StatusPanel, MarketsPanel, PipelinePanel (In Progress), CostsPanel, SignalsPanel, BetsPanel, LogPanel, CommandBar
+tui/app.py               → Textual TUI dashboard with 4 tabs (Dashboard, Markets, Analysis, Logs), navy/grey/white theme
+tui/widgets/             → DashboardPanel, MarketsPanel, AnalysisListPanel, AnalysisDetailPanel, LogPanel, CommandBar, detail_builders, charts
 scripts/setup_wallet.py  → Wallet setup helper
 scripts/dashboard.py     → Standalone dashboard launcher
 ```
@@ -136,11 +136,18 @@ monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
 - `refresh` — Re-run health checks and market fetch
 
 ### TUI Keybindings
-- `1-7` — Switch tabs (Home, Markets, In Progress, Costs, Signals, Bets, Logs)
+- `1-4` — Switch tabs (Dashboard, Markets, Analysis, Logs)
 - `s` — Start/Stop bot
-- `a` — Run aggregate on default test question
+- `a` — Run aggregate on default test question (→ Analysis tab)
 - `r` — Refresh all
 - `:` — Toggle command bar
+- `q` — Quit
+
+### TUI Tabs (4 tabs, consolidated from 7)
+1. **Dashboard** (key `1`): Bot control, process phase, connections, wallet, LLM costs (merged Home + Costs)
+2. **Markets** (key `2`): Gamma API market browser + filter pipeline progress bar (merged Markets + pipeline progress)
+3. **Analysis** (key `3`): Horizontal split — market list (40%) + unified detail view (60%). Shows batch status, aggregation results, Kelly decisions, and full frontier reasoning in one place (merged Signals + Bets + In Progress + Detail Modal)
+4. **Logs** (key `4`): Log panel (unchanged)
 
 ### Pipeline Loop (when bot is running)
 When the bot is started via `s` key, it runs a continuous loop:
@@ -150,8 +157,9 @@ When the bot is started via `s` key, it runs a continuous loop:
 3. **Dedup**: Skip markets already aggregated in previous cycles (tracked by conditionId)
 4. **Repeat**: After top 40 are done, discard remaining and re-filter
 5. If all top markets are already processed, clear history and re-filter
-6. The "In Progress" tab shows the current batch with per-market status (waiting/processing/done/skipped/error)
-7. The Home tab shows the current bot process phase (filtering/aggregating/waiting)
+6. The Analysis tab shows the current batch with per-market status (waiting/processing/done/skipped/error)
+7. The Dashboard tab shows the current bot process phase (filtering/aggregating/waiting)
+8. The Markets tab shows filter pipeline progress bar when bot is running
 
 ## Critical Design Rules
 
@@ -186,7 +194,9 @@ When the bot is started via `s` key, it runs a continuous loop:
 - Bot Stop MUST cancel ALL worker groups (pipeline-loop, pipeline, health-loop, health-check, markets, costs) — no background tasks should survive a stop
 - Bot Start restarts health-loop and pipeline-loop, clears aggregated IDs
 - Health checks (wallet, RPC, OpenRouter) always run
-- "In Progress" tab (formerly Filter) shows current batch of markets being aggregated with live status per market
+- Analysis tab shows current batch of markets being aggregated with live status per market
+- No modal screens — all detail views are inline in the Analysis tab's right pane
+- DrillDownRequest from Markets tab switches to Analysis tab + shows detail inline
 
 ### Code Standards
 - Type hints on all function signatures and return types
