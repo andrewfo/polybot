@@ -150,6 +150,7 @@ def calculate_kelly(
             market_id, token_id, market_question, side,
             estimated_prob, effective_prob, market_price, edge, confidence,
             reason="bet too small (< $1)",
+            full_kelly_f=full_kelly_f,
         )
 
     # --- Safety check 4: cap to MAX_POSITION_PCT ---
@@ -169,6 +170,7 @@ def calculate_kelly(
                 market_id, token_id, market_question, side,
                 estimated_prob, effective_prob, market_price, edge, confidence,
                 reason="bet too small after reserve (< $1)",
+                full_kelly_f=full_kelly_f,
             )
         logger.info(
             "Reduced bet to $%.2f to maintain $%.0f reserve",
@@ -184,6 +186,7 @@ def calculate_kelly(
                 market_id, token_id, market_question, side,
                 estimated_prob, effective_prob, market_price, edge, confidence,
                 reason="existing position at max exposure",
+                full_kelly_f=full_kelly_f,
             )
         if bet_size > remaining_room:
             logger.info(
@@ -196,6 +199,7 @@ def calculate_kelly(
                     market_id, token_id, market_question, side,
                     estimated_prob, effective_prob, market_price, edge, confidence,
                     reason="bet too small after existing exposure (< $1)",
+                    full_kelly_f=full_kelly_f,
                 )
 
     expected_value = edge * bet_size
@@ -237,6 +241,7 @@ def _skip(
     edge: float,
     confidence: float,
     reason: str,
+    full_kelly_f: float = 0.0,
 ) -> TradeDecision:
     """Build a TradeDecision that says 'don't trade' with a reason."""
     logger.info(
@@ -252,8 +257,8 @@ def _skip(
         effective_prob=effective_prob,
         market_price=market_price,
         edge=edge,
-        full_kelly_fraction=0.0,
-        adjusted_fraction=0.0,
+        full_kelly_fraction=full_kelly_f,
+        adjusted_fraction=full_kelly_f * KELLY_FRACTION if full_kelly_f > 0 else 0.0,
         bet_size_usd=0.0,
         expected_value=0.0,
         confidence=confidence,

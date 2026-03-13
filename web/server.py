@@ -335,12 +335,15 @@ class BotEngine:
             return
 
         # Run Kelly sizing
-        try:
-            from core.wallet import Wallet
-            w = await asyncio.to_thread(Wallet)
-            bankroll = await asyncio.to_thread(w.get_usdc_balance)
-        except Exception:
+        if PAPER_TRADING:
             bankroll = TEST_BANKROLL
+        else:
+            try:
+                from core.wallet import Wallet
+                w = await asyncio.to_thread(Wallet)
+                bankroll = await asyncio.to_thread(w.get_usdc_balance)
+            except Exception:
+                bankroll = TEST_BANKROLL
 
         tokens = m.get("clobTokenIds", "[]")
         if isinstance(tokens, str):
@@ -412,7 +415,7 @@ class BotEngine:
                 pass
 
         market_meta = {
-            "liquidity": m.get("liquidityNum"),
+            "liquidity": m.get("liquidity", m.get("liquidityNum")),
             "volume_24h": m.get("volume24hr"),
             "spread": m.get("spread"),
             "best_bid": m.get("bestBid"),
