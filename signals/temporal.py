@@ -46,11 +46,11 @@ def compute_urgency_tier(days_remaining: float) -> str:
 
     Returns one of: 'imminent', 'short_term', 'medium', 'long'.
     """
-    if days_remaining < 7:
+    if days_remaining < 5:
         return "imminent"
-    elif days_remaining < 30:
+    elif days_remaining < 14:
         return "short_term"
-    elif days_remaining < 90:
+    elif days_remaining < 30:
         return "medium"
     else:
         return "long"
@@ -154,7 +154,7 @@ def build_frontier_system_prompt(
         # Calibration guidance by urgency
         if urgency == "imminent":
             lines.append(
-                "CALIBRATION: This market resolves in less than 7 days. "
+                "CALIBRATION: This market resolves in less than 5 days. "
                 "Probabilities should be extreme (close to 0 or 1) unless there is genuine "
                 "uncertainty about the outcome. Near-resolution markets have very little time "
                 "for conditions to change — anchor heavily to current observable facts and the "
@@ -162,19 +162,19 @@ def build_frontier_system_prompt(
             )
         elif urgency == "short_term":
             lines.append(
-                "CALIBRATION: This market resolves in 7-30 days. "
+                "CALIBRATION: This market resolves in 5-14 days. "
                 "Moderate uncertainty is appropriate, but most major factors are likely already known. "
                 "Only diverge from the market price with concrete, recent evidence."
             )
         elif urgency == "medium":
             lines.append(
-                "CALIBRATION: This market resolves in 30-90 days. "
+                "CALIBRATION: This market resolves in 14-30 days. "
                 "More uncertainty is appropriate. Trends, momentum, and structural factors matter. "
                 "You may diverge from the market price if signal evidence is strong and consistent."
             )
         else:  # long
             lines.append(
-                "CALIBRATION: This market resolves in more than 90 days. "
+                "CALIBRATION: This market resolves in more than 30 days. "
                 "High uncertainty is expected. Base rates and structural factors dominate. "
                 "Be cautious about overweighting recent news for long-dated events."
             )

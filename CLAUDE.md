@@ -103,12 +103,12 @@ monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
 ### Market Filter Pipeline (strategy/market_filter.py)
 1. Binary only (2 tokens)
 2. Liquidity band: `MIN_MARKET_LIQUIDITY` ($500) to `MAX_MARKET_LIQUIDITY` ($500k)
-3. Time to resolution: `MIN_HOURS_TO_RESOLUTION` (24h) to `MAX_DAYS_TO_RESOLUTION` (90d)
+3. Time to resolution: `MIN_HOURS_TO_RESOLUTION` (72h) to `MAX_DAYS_TO_RESOLUTION` (30d)
 4. Near-certain price: drop if any outcome price <= 0.02 or >= 0.98
 5. Spread: drop if spread > `MAX_SPREAD` (0.10) — Gamma data only
 6. Skip markets with existing positions
 7. Pre-screen with CoinGecko math: compute barrier/terminal probability, compare to market price, attach `_model_edge`
-8. Rank by edge potential (model-vs-market divergence), then by score (time, liquidity, price range, volume)
+8. Rank by time score (3-7d=5, 7-14d=4, 14-21d=2, 21-30d=1), then model edge, then total score
 
 ## Signal Aggregator (signals/aggregator.py)
 - Collects signals from 3 providers (resolution_crypto, web_search, prediction_markets)
@@ -159,17 +159,28 @@ monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
 3. **Analysis** (key `3`): Horizontal split — market list (40%) + unified detail view (60%). Shows batch status, aggregation results, Kelly decisions, and full frontier reasoning in one place (merged Signals + Bets + In Progress + Detail Modal)
 4. **Logs** (key `4`): Log panel (unchanged)
 
-### Pipeline Loop (when bot is running)
-When the bot is started via `s` key, it runs a continuous loop:
-0. **Calibration check**: `check_and_record_resolutions()` updates calibration data for any newly resolved markets
-1. **Filter**: Discover (volume + newest sort) → filter → categorize (keyword match first, LLM fallback) → extract → pre-screen (CoinGecko math) → rank by edge potential
-2. **Aggregate**: Take top 40 markets with highest model-vs-market edge, run full signal aggregation on each
-3. **Dedup**: Skip markets already aggregated in previous cycles (tracked by conditionId)
-4. **Repeat**: After top 40 are done, discard remaining and re-filter
-5. If all top markets are already processed, clear history and re-filter
-6. The Analysis tab shows the current batch with per-market status (waiting/processing/done/skipped/error)
-7. The Dashboard tab shows the current bot process phase (filtering/aggregating/waiting)
-8. The Markets tab shows filter pipeline progress bar when bot is running
+### Pipeline Workers (3 decoupled loops when bot is running)
+When the bot is started via `s` key, it launches 3 independent workers:
+
+**Worker 1: Discovery Loop** (every `DISCOVERY_INTERVAL_MINUTES`, default 2h, group: `discovery-loop`)
+- Runs calibration check + full filter pipeline (discover → filter → categorize → extract → pre-screen → rank)
+- Caches ranked results in `_filtered_market_cache` for the aggregation worker
+- Posts `PipelineComplete` to Markets tab
+
+**Worker 2: Aggregation Loop** (every `AGGREGATION_INTERVAL_MINUTES`, default 4h, group: `aggregation-loop`)
+- Reads from `_filtered_market_cache`, applies conditionId dedup
+- Runs `_aggregate_batch()` on top candidates (up to BATCH_SIZE=40)
+- Posts `BatchUpdate` to Analysis tab
+
+**Worker 3: Position Monitor Loop** (every `POSITION_CHECK_INTERVAL_MINUTES`, default 30min, group: `position-loop`)
+- Runs `executor.monitor_orders()` + `executor.manage_positions()`
+- Uses PaperExecutor or TradeExecutor based on PAPER_TRADING setting
+
+All workers use cancellation-safe sleep (5s chunks checking `_bot_running`).
+No race conditions: all workers are coroutines in the same event loop.
+- The Analysis tab shows the current batch with per-market status (waiting/processing/done/skipped/error)
+- The Dashboard tab shows the current bot process phase (filtering/aggregating/monitoring/waiting)
+- The Markets tab shows filter pipeline progress bar when bot is running
 
 ## Critical Design Rules
 
@@ -201,8 +212,8 @@ When the bot is started via `s` key, it runs a continuous loop:
 
 ### TUI Behavior
 - Theme: navy (#0a1628, #0d1f3c), grey (#8899aa, #667788), white (#e0e8f0), blue accent (#4488cc)
-- Bot Stop MUST cancel ALL worker groups (pipeline-loop, pipeline, health-loop, health-check, markets, costs) — no background tasks should survive a stop
-- Bot Start restarts health-loop and pipeline-loop, clears aggregated IDs
+- Bot Stop MUST cancel ALL worker groups (discovery-loop, aggregation-loop, position-loop, pipeline, health-loop, health-check, markets, costs) — no background tasks should survive a stop
+- Bot Start launches 3 workers (discovery-loop, aggregation-loop, position-loop) + health-loop, clears aggregated IDs
 - Health checks (wallet, RPC, OpenRouter) always run
 - Analysis tab shows current batch of markets being aggregated with live status per market
 - No modal screens — all detail views are inline in the Analysis tab's right pane

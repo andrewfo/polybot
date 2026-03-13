@@ -221,6 +221,13 @@ class ExecutionUpdate(Message):
         self.reason = reason
 
 
+class PositionsUpdate(Message):
+    """Updated open positions from DB for dashboard display."""
+    def __init__(self, positions: list[dict[str, Any]]) -> None:
+        super().__init__()
+        self.positions = positions
+
+
 class AnalysisSelectionChanged(Message):
     """Posted when a row in the analysis list is selected — carries the AnalysisEntry."""
     def __init__(self, entry: Any) -> None:

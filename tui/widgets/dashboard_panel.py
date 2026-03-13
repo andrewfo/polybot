@@ -14,6 +14,7 @@ from tui.messages import (
     ConnectionUpdate,
     CostUpdate,
     ExecutionUpdate,
+    PositionsUpdate,
     WalletUpdate,
 )
 from tui.state import ConnectionStatus
@@ -95,6 +96,14 @@ class DashboardPanel(Vertical):
         max-height: 10;
         margin: 0 0 0 0;
     }
+    DashboardPanel #positions-table {
+        max-height: 12;
+    }
+    DashboardPanel .no-positions {
+        height: 1;
+        margin: 0 0 0 2;
+        color: #667788;
+    }
     """
 
     bot_running: reactive[bool] = reactive(False)
@@ -138,6 +147,11 @@ class DashboardPanel(Vertical):
         yield Static(id="wallet-matic", classes="kv-line")
         yield Static(id="wallet-gas", classes="kv-line")
         yield Static(id="positions-count", classes="kv-line")
+
+        # Positions detail section
+        yield Static("POSITIONS", classes="section-title")
+        yield Static("Waiting for health check...", id="no-positions-label", classes="no-positions")
+        yield DataTable(id="positions-table")
 
         # Trading summary
         yield Static("TRADING", classes="section-title")
@@ -186,6 +200,12 @@ class DashboardPanel(Vertical):
         pass  # Uptime removed in favour of compact layout
 
     def on_mount(self) -> None:
+        # Init positions table
+        positions_table = self.query_one("#positions-table", DataTable)
+        positions_table.add_columns("Market", "Side", "Entry", "Current", "Size($)", "PnL($)", "PnL(%)")
+        positions_table.cursor_type = "row"
+        positions_table.display = False  # Hidden until we get data
+
         # Init trades table
         trades_table = self.query_one("#trades-table", DataTable)
         trades_table.add_columns("Status", "Side", "Price", "Size", "Market")
@@ -259,6 +279,7 @@ class DashboardPanel(Vertical):
                 "idle": "\u23f8 Idle",
                 "filtering": "\u2699 Filtering Markets...",
                 "aggregating": "\u26a1 Aggregating Signals...",
+                "monitoring": "\ud83d\udcca Monitoring Positions...",
                 "waiting": "\u23f3 Waiting for next cycle...",
             }
             phase_label.update(phase_icons.get(event.phase, event.phase))
@@ -298,6 +319,64 @@ class DashboardPanel(Vertical):
             # Update summary line
             summary = self.query_one("#trading-summary", Static)
             summary.update(f"Trades this session: {trades_table.row_count}")
+        except Exception:
+            pass
+
+    def on_positions_update(self, event: PositionsUpdate) -> None:
+        """Repopulate the positions table from DB data."""
+        try:
+            positions_table = self.query_one("#positions-table", DataTable)
+            no_label = self.query_one("#no-positions-label", Static)
+
+            positions_table.clear()
+
+            if not event.positions:
+                positions_table.display = False
+                no_label.update("No open positions")
+                no_label.display = True
+                return
+
+            no_label.display = False
+            positions_table.display = True
+
+            for p in event.positions:
+                question = p.get("market_question") or p.get("market_id", "???")
+                if len(question) > 40:
+                    question = question[:37] + "..."
+                side = p.get("side", "?")
+                entry = p.get("entry_price", 0.0)
+                current = p.get("current_price", entry)
+                size = p.get("size_usd", 0.0)
+
+                # Calculate PnL
+                if entry > 0:
+                    pnl_usd = (current - entry) * (size / entry) if entry else 0.0
+                    pnl_pct = ((current - entry) / entry) * 100
+                else:
+                    pnl_usd = 0.0
+                    pnl_pct = 0.0
+
+                # Use unrealized_pnl from DB if available
+                if "unrealized_pnl" in p and p["unrealized_pnl"] is not None:
+                    pnl_usd = p["unrealized_pnl"]
+
+                # Color PnL
+                if pnl_usd >= 0:
+                    pnl_usd_str = f"[#44aa66]+${pnl_usd:.2f}[/#44aa66]"
+                    pnl_pct_str = f"[#44aa66]+{pnl_pct:.1f}%[/#44aa66]"
+                else:
+                    pnl_usd_str = f"[#cc4444]-${abs(pnl_usd):.2f}[/#cc4444]"
+                    pnl_pct_str = f"[#cc4444]{pnl_pct:.1f}%[/#cc4444]"
+
+                positions_table.add_row(
+                    question,
+                    side,
+                    f"{entry:.4f}",
+                    f"{current:.4f}",
+                    f"${size:.2f}",
+                    pnl_usd_str,
+                    pnl_pct_str,
+                )
         except Exception:
             pass
 

@@ -38,6 +38,7 @@ from tui.messages import (
     MarketsUpdate,
     PipelineComplete,
     PipelineStageUpdate,
+    PositionsUpdate,
     SignalUpdate,
     WalletUpdate,
 )
@@ -96,6 +97,12 @@ class TUIApp(App):
     _aggregated_ids: set[str] = set()
     _cycle_count: int = 0
 
+    # Decoupled worker state
+    _filtered_market_cache: list[dict] = []
+    _last_discovery_time: datetime | None = None
+    _last_aggregation_time: datetime | None = None
+    _last_position_check_time: datetime | None = None
+
     def on_mount(self) -> None:
         """Attach log handler and kick off background workers."""
         self._aggregated_ids = set()
@@ -131,15 +138,33 @@ class TUIApp(App):
         self._bot_running = running
         self.post_message(BotStatusUpdate(running))
         if running:
-            logger.info("Bot STARTED — pipeline loop active")
+            logger.info("Bot STARTED — 3 decoupled workers launching")
             self._aggregated_ids = set()
+            # Seed aggregated IDs from existing positions to avoid re-processing
+            try:
+                from core.db import get_open_positions
+                for p in get_open_positions():
+                    if p.get("market_id"):
+                        self._aggregated_ids.add(p["market_id"])
+                if self._aggregated_ids:
+                    logger.info("Seeded %d existing position IDs into dedup set", len(self._aggregated_ids))
+            except Exception:
+                pass
             self._cycle_count = 0
+            self._filtered_market_cache = []
+            self._last_discovery_time = None
+            self._last_aggregation_time = None
+            self._last_position_check_time = None
             self._start_health_loop()
-            self._start_pipeline_loop()
-            self.post_message(BotProcessUpdate("filtering", "Starting first filter cycle..."))
+            self._start_discovery_loop()
+            self._start_aggregation_loop()
+            self._start_position_loop()
+            self.post_message(BotProcessUpdate("filtering", "Starting discovery..."))
         else:
             logger.info("Bot STOPPED — all workers cancelled")
-            self.workers.cancel_group(self, "pipeline-loop")
+            self.workers.cancel_group(self, "discovery-loop")
+            self.workers.cancel_group(self, "aggregation-loop")
+            self.workers.cancel_group(self, "position-loop")
             self.workers.cancel_group(self, "pipeline")
             self.workers.cancel_group(self, "health-loop")
             self.workers.cancel_group(self, "health-check")
@@ -227,7 +252,7 @@ class TUIApp(App):
                 ConnectionStatus("Polygon RPC", True, now)
             ))
 
-            # Also send wallet update
+            # Also send wallet + positions update
             from core.db import get_open_positions
             positions = get_open_positions()
             self.post_message(WalletUpdate(
@@ -237,6 +262,7 @@ class TUIApp(App):
                 positions_count=len(positions),
                 address=wallet.address,
             ))
+            self.post_message(PositionsUpdate(positions=positions))
         except Exception as e:
             self.post_message(ConnectionUpdate(
                 ConnectionStatus("Polygon RPC", False, now, str(e)[:60])
@@ -363,15 +389,18 @@ class TUIApp(App):
             logger.error("Failed to load cost data: %s", e)
 
     # -----------------------------------------------------------------
-    # Pipeline loop — filter → aggregate top 20 → repeat
+    # Worker 1: Discovery loop (every DISCOVERY_INTERVAL_MINUTES)
     # -----------------------------------------------------------------
 
-    def _start_pipeline_loop(self) -> None:
-        self.run_worker(self._pipeline_loop(), exclusive=True, group="pipeline-loop")
+    def _start_discovery_loop(self) -> None:
+        self.run_worker(self._discovery_loop(), exclusive=True, group="discovery-loop")
 
-    async def _pipeline_loop(self) -> None:
-        """Continuous loop: filter markets → aggregate top 20 → repeat while bot is running."""
+    async def _discovery_loop(self) -> None:
+        """Periodic market discovery: calibration check → filter → cache results."""
+        from config.settings import DISCOVERY_INTERVAL_MINUTES
+
         await asyncio.sleep(3)  # Brief startup delay
+        interval_seconds = DISCOVERY_INTERVAL_MINUTES * 60
 
         while self._bot_running:
             self._cycle_count += 1
@@ -387,23 +416,79 @@ class TUIApp(App):
                 except Exception as e:
                     logger.debug("Resolution check failed: %s", e)
 
-                # Phase 1: Filter
+                # Run filter pipeline
                 self.post_message(BotProcessUpdate("filtering", "Discovering and filtering markets...", cycle))
                 ranked = await self._run_filter_stages()
 
                 if not self._bot_running:
                     break
 
+                if ranked:
+                    self._filtered_market_cache = ranked
+                    self._last_discovery_time = datetime.now(timezone.utc)
+
+                    # Post pipeline complete to Markets tab
+                    self.post_message(PipelineComplete(
+                        results=ranked,
+                        discovered=len(ranked),
+                        filtered=len(ranked),
+                    ))
+                    self.refresh_markets()
+                    logger.info("Discovery cycle %d: cached %d ranked markets", cycle, len(ranked))
+                else:
+                    logger.warning("No markets survived filtering in cycle %d", cycle)
+
+                self.post_message(BotProcessUpdate(
+                    "waiting",
+                    f"Discovery done ({len(ranked) if ranked else 0} markets). Next in {DISCOVERY_INTERVAL_MINUTES}min.",
+                    cycle,
+                ))
+
+            except Exception as e:
+                logger.error("Discovery loop error: %s", e, exc_info=True)
+                self.post_message(BotProcessUpdate("waiting", f"Discovery error: {str(e)[:80]}. Retrying...", cycle))
+
+            # Wait for next interval with cancellation-safe sleep
+            for _ in range(interval_seconds // 5):
+                if not self._bot_running:
+                    return
+                await asyncio.sleep(5)
+
+    # -----------------------------------------------------------------
+    # Worker 2: Aggregation loop (every AGGREGATION_INTERVAL_MINUTES)
+    # -----------------------------------------------------------------
+
+    def _start_aggregation_loop(self) -> None:
+        self.run_worker(self._aggregation_loop(), exclusive=True, group="aggregation-loop")
+
+    async def _aggregation_loop(self) -> None:
+        """Periodic aggregation: read from cached markets → aggregate top batch."""
+        from config.settings import AGGREGATION_INTERVAL_MINUTES
+
+        # Wait for first discovery to populate cache
+        for _ in range(60):  # up to 5 min
+            if not self._bot_running:
+                return
+            if self._filtered_market_cache:
+                break
+            await asyncio.sleep(5)
+
+        interval_seconds = AGGREGATION_INTERVAL_MINUTES * 60
+
+        while self._bot_running:
+            try:
+                ranked = self._filtered_market_cache
                 if not ranked:
-                    logger.warning("No markets survived filtering. Waiting 60s before retry.")
-                    self.post_message(BotProcessUpdate("waiting", "No markets found. Retrying in 60s...", cycle))
+                    logger.info("Aggregation: no cached markets, waiting for discovery...")
+                    self.post_message(BotProcessUpdate("waiting", "Waiting for market discovery...", self._cycle_count))
+                    # Wait a bit and retry
                     for _ in range(12):
                         if not self._bot_running:
-                            break
+                            return
                         await asyncio.sleep(5)
                     continue
 
-                # Phase 2: Select top 20, skip already-aggregated
+                # Select top batch, skip already-aggregated
                 batch = []
                 for m in ranked:
                     cond_id = m.get("conditionId", m.get("condition_id", ""))
@@ -414,14 +499,18 @@ class TUIApp(App):
                         break
 
                 if not batch:
-                    logger.info("All top markets already aggregated. Clearing history and re-filtering.")
+                    logger.info("All cached markets already aggregated. Clearing history.")
                     self._aggregated_ids.clear()
-                    self.post_message(BotProcessUpdate("waiting", "All markets processed. Clearing and re-filtering...", cycle))
-                    await asyncio.sleep(10)
+                    self.post_message(BotProcessUpdate("waiting", "All markets processed. Clearing for next cycle."))
+                    # Wait for interval then re-try with cleared IDs
+                    for _ in range(interval_seconds // 5):
+                        if not self._bot_running:
+                            return
+                        await asyncio.sleep(5)
                     continue
 
-                logger.info("Cycle %d: Aggregating %d markets (skipped %d already processed)",
-                            cycle, len(batch), len(ranked) - len(batch))
+                logger.info("Aggregation: processing %d markets (skipped %d already done)",
+                            len(batch), len(ranked) - len(batch))
 
                 # Post batch to Analysis tab
                 statuses: dict[str, str] = {}
@@ -430,38 +519,91 @@ class TUIApp(App):
                     statuses[cond_id] = "waiting"
                 self.post_message(BatchUpdate(markets=batch, current_index=-1, statuses=dict(statuses)))
 
-                # Post pipeline complete to Markets tab progress bar
-                self.post_message(PipelineComplete(
-                    results=ranked,
-                    discovered=len(ranked),
-                    filtered=len(batch),
+                # Aggregate
+                self.post_message(BotProcessUpdate("aggregating", f"Starting batch of {len(batch)} markets..."))
+                await self._aggregate_batch(batch, statuses, self._cycle_count)
+
+                self._last_aggregation_time = datetime.now(timezone.utc)
+                self.refresh_costs()
+
+                self.post_message(BotProcessUpdate(
+                    "waiting",
+                    f"Aggregation done. Next in {AGGREGATION_INTERVAL_MINUTES}min.",
                 ))
 
-                # Phase 3: Aggregate each market in the batch
-                self.post_message(BotProcessUpdate("aggregating", f"Starting batch of {len(batch)} markets...", cycle))
-                await self._aggregate_batch(batch, statuses, cycle)
+            except Exception as e:
+                logger.error("Aggregation loop error: %s", e, exc_info=True)
+                self.post_message(BotProcessUpdate("waiting", f"Aggregation error: {str(e)[:80]}"))
 
+            # Wait for next interval
+            for _ in range(interval_seconds // 5):
                 if not self._bot_running:
-                    break
+                    return
+                await asyncio.sleep(5)
 
-                # Refresh costs and markets after a full cycle
-                self.refresh_costs()
-                self.refresh_markets()
+    # -----------------------------------------------------------------
+    # Worker 3: Position monitor loop (every POSITION_CHECK_INTERVAL_MINUTES)
+    # -----------------------------------------------------------------
 
-                # Brief pause before next cycle
-                self.post_message(BotProcessUpdate("waiting", "Cycle complete. Starting next filter cycle...", cycle))
-                for _ in range(4):  # 20s pause
-                    if not self._bot_running:
-                        break
-                    await asyncio.sleep(5)
+    def _start_position_loop(self) -> None:
+        self.run_worker(self._position_loop(), exclusive=True, group="position-loop")
+
+    async def _position_loop(self) -> None:
+        """Periodic position monitoring: check orders + manage positions."""
+        from config.settings import PAPER_TRADING, POSITION_CHECK_INTERVAL_MINUTES
+
+        interval_seconds = POSITION_CHECK_INTERVAL_MINUTES * 60
+        await asyncio.sleep(10)  # Brief startup delay
+
+        while self._bot_running:
+            try:
+                self.post_message(BotProcessUpdate("monitoring", "Checking positions and orders..."))
+
+                if PAPER_TRADING:
+                    from strategy.executor import PaperExecutor
+                    executor = PaperExecutor()
+                else:
+                    from core.client import ClobClientWrapper
+                    from strategy.executor import TradeExecutor
+                    client = ClobClientWrapper()
+                    executor = TradeExecutor(client)
+
+                # Monitor open orders (detect fills, expire stale)
+                try:
+                    await executor.monitor_orders()
+                except Exception as e:
+                    logger.warning("Order monitoring failed: %s", e)
+
+                # Manage positions (update PnL, log warnings)
+                try:
+                    await executor.manage_positions()
+                except Exception as e:
+                    logger.warning("Position management failed: %s", e)
+
+                # Refresh positions display
+                try:
+                    from core.db import get_open_positions
+                    positions = get_open_positions()
+                    self.post_message(PositionsUpdate(positions=positions))
+                except Exception:
+                    pass
+
+                self._last_position_check_time = datetime.now(timezone.utc)
+                logger.info("Position check complete")
+
+                self.post_message(BotProcessUpdate(
+                    "waiting",
+                    f"Position check done. Next in {POSITION_CHECK_INTERVAL_MINUTES}min.",
+                ))
 
             except Exception as e:
-                logger.error("Pipeline loop error: %s", e, exc_info=True)
-                self.post_message(BotProcessUpdate("waiting", f"Error: {str(e)[:80]}. Retrying in 30s...", cycle))
-                for _ in range(6):
-                    if not self._bot_running:
-                        break
-                    await asyncio.sleep(5)
+                logger.error("Position loop error: %s", e, exc_info=True)
+
+            # Wait for next interval
+            for _ in range(interval_seconds // 5):
+                if not self._bot_running:
+                    return
+                await asyncio.sleep(5)
 
     async def _run_filter_stages(self) -> list[dict[str, Any]]:
         """Execute filter stages 0-4 and return ranked markets."""

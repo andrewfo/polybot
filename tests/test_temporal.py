@@ -58,20 +58,20 @@ class TestUrgencyTier:
     def test_imminent(self):
         assert compute_urgency_tier(0) == "imminent"
         assert compute_urgency_tier(3) == "imminent"
-        assert compute_urgency_tier(6.9) == "imminent"
+        assert compute_urgency_tier(4.9) == "imminent"
 
     def test_short_term(self):
-        assert compute_urgency_tier(7) == "short_term"
-        assert compute_urgency_tier(15) == "short_term"
-        assert compute_urgency_tier(29.9) == "short_term"
+        assert compute_urgency_tier(5) == "short_term"
+        assert compute_urgency_tier(10) == "short_term"
+        assert compute_urgency_tier(13.9) == "short_term"
 
     def test_medium(self):
-        assert compute_urgency_tier(30) == "medium"
-        assert compute_urgency_tier(60) == "medium"
-        assert compute_urgency_tier(89.9) == "medium"
+        assert compute_urgency_tier(14) == "medium"
+        assert compute_urgency_tier(20) == "medium"
+        assert compute_urgency_tier(29.9) == "medium"
 
     def test_long(self):
-        assert compute_urgency_tier(90) == "long"
+        assert compute_urgency_tier(30) == "long"
         assert compute_urgency_tier(365) == "long"
 
 
@@ -144,24 +144,24 @@ class TestBuildFrontierSystemPrompt:
         now = datetime(2026, 6, 28, tzinfo=timezone.utc)
         prompt = build_frontier_system_prompt("2026-06-30T00:00:00Z", now=now)
         assert "imminent" in prompt.lower()
-        assert "less than 7 days" in prompt
+        assert "less than 5 days" in prompt
 
     def test_short_term_calibration(self):
-        now = datetime(2026, 6, 10, tzinfo=timezone.utc)
+        now = datetime(2026, 6, 20, tzinfo=timezone.utc)
         prompt = build_frontier_system_prompt("2026-06-30T00:00:00Z", now=now)
         assert "short_term" in prompt
-        assert "7-30 days" in prompt
+        assert "5-14 days" in prompt
 
     def test_medium_calibration(self):
-        now = datetime(2026, 4, 15, tzinfo=timezone.utc)
+        now = datetime(2026, 6, 10, tzinfo=timezone.utc)
         prompt = build_frontier_system_prompt("2026-06-30T00:00:00Z", now=now)
         assert "medium" in prompt
-        assert "30-90 days" in prompt
+        assert "14-30 days" in prompt
 
     def test_long_calibration(self):
         now = datetime(2026, 1, 1, tzinfo=timezone.utc)
         prompt = build_frontier_system_prompt("2026-06-30T00:00:00Z", now=now)
-        assert "more than 90 days" in prompt
+        assert "more than 30 days" in prompt
 
     def test_unparseable_end_date_warning(self):
         prompt = build_frontier_system_prompt("not-a-date")

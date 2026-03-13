@@ -317,17 +317,17 @@ class TestRankCandidates:
         markets = [
             _make_market(
                 condition_id="best",
-                days_until_end=14, liquidity=5000, volume_24h=600,
+                days_until_end=10, liquidity=5000, volume_24h=600,
                 category="crypto",
             ),
             _make_market(
                 condition_id="mid",
-                days_until_end=40, liquidity=800, volume_24h=200,
+                days_until_end=25, liquidity=800, volume_24h=200,
                 category="politics",
             ),
             _make_market(
                 condition_id="low",
-                days_until_end=60, liquidity=600, volume_24h=50,
+                days_until_end=28, liquidity=600, volume_24h=50,
                 category="entertainment",
             ),
         ]
@@ -338,17 +338,17 @@ class TestRankCandidates:
 
     def test_scoring_components(self) -> None:
         """Verify individual scoring components."""
-        # Resolution 1-4 weeks (+3), liquidity $1k-$10k (+2), crypto (+0 removed), vol>500 (+1), price 0.15-0.85 (+2) = 8
+        # Resolution 7-14d (+4), liquidity $1k-$10k (+2), vol>500 (+1), price 0.15-0.85 (+2) = 9
         market = _make_market(
-            days_until_end=14, liquidity=5000, volume_24h=600, category="crypto",
+            days_until_end=10, liquidity=5000, volume_24h=600, category="crypto",
         )
         ranked = rank_candidates([market])
-        assert ranked[0]["_score"] == 8
+        assert ranked[0]["_score"] == 9
 
     def test_scoring_mid_range(self) -> None:
-        """Resolution 4-8 weeks (+1), liquidity $500-$1k (+1), other (+0), vol<=500 (+0), price 0.15-0.85 (+2) = 4."""
+        """Resolution 21-30d (+1), liquidity $500-$1k (+1), other (+0), vol<=500 (+0), price 0.15-0.85 (+2) = 4."""
         market = _make_market(
-            days_until_end=35, liquidity=800, volume_24h=200, category="other",
+            days_until_end=25, liquidity=800, volume_24h=200, category="other",
         )
         ranked = rank_candidates([market])
         assert ranked[0]["_score"] == 4
@@ -360,11 +360,11 @@ class TestRankCandidates:
     def test_crypto_gets_same_score(self) -> None:
         """Crypto category no longer gets bonus (all filtered markets are crypto)."""
         market = _make_market(
-            days_until_end=14, liquidity=5000, volume_24h=600, category="crypto",
+            days_until_end=10, liquidity=5000, volume_24h=600, category="crypto",
         )
         ranked = rank_candidates([market])
-        # 3 (time) + 2 (liquidity) + 1 (volume) + 2 (price range) = 8
-        assert ranked[0]["_score"] == 8
+        # 4 (time 7-14d) + 2 (liquidity) + 1 (volume) + 2 (price range) = 9
+        assert ranked[0]["_score"] == 9
 
 
 # ---------------------------------------------------------------------------

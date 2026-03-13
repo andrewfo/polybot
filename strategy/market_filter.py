@@ -800,14 +800,21 @@ def rank_candidates(filtered_markets: list[dict[str, Any]]) -> list[dict[str, An
     for market in filtered_markets:
         score = 0
 
-        # Time to resolution scoring
+        # Time to resolution scoring — strongly prefer shorter markets
+        time_score = 0
         end_date = _parse_end_date(market)
         if end_date:
             days_to_resolution = (end_date - now).total_seconds() / 86400
-            if 7 <= days_to_resolution <= 28:
-                score += 3
-            elif 28 < days_to_resolution <= 56:
-                score += 1
+            if 3 <= days_to_resolution <= 7:
+                time_score = 5
+            elif 7 < days_to_resolution <= 14:
+                time_score = 4
+            elif 14 < days_to_resolution <= 21:
+                time_score = 2
+            elif 21 < days_to_resolution <= 30:
+                time_score = 1
+        score += time_score
+        market["_time_score"] = time_score
 
         # Liquidity scoring — mid-liquidity markets are more likely mispriced
         liquidity = _get_liquidity(market)
@@ -834,9 +841,9 @@ def rank_candidates(filtered_markets: list[dict[str, Any]]) -> list[dict[str, An
         market["_score"] = score
         scored.append(market)
 
-    # Sort primarily by model edge (desc), then by score (desc)
+    # Sort: time_score first, then model_edge, then total score
     scored.sort(
-        key=lambda m: (m.get("_model_edge", 0.0), m.get("_score", 0)),
+        key=lambda m: (m.get("_time_score", 0), m.get("_model_edge", 0.0), m.get("_score", 0)),
         reverse=True,
     )
 
