@@ -285,9 +285,9 @@ def _build_kelly_section(decision: Any) -> str:
     if decision.should_trade:
         depth_info = ""
         if decision.depth_adjusted:
-            depth_info = f"  [{C_YELLOW}][depth-adjusted, slippage={decision.depth_slippage:.1%}][/{C_YELLOW}]"
+            depth_info = f"  [{C_YELLOW}](depth-adjusted, slippage={decision.depth_slippage:.1%})[/{C_YELLOW}]"
         elif decision.depth_total_usd > 0:
-            depth_info = f"  [{C_DIM}][depth=${decision.depth_total_usd:.0f}, slippage={decision.depth_slippage:.1%}][/{C_DIM}]"
+            depth_info = f"  [{C_DIM}](depth=${decision.depth_total_usd:.0f}, slippage={decision.depth_slippage:.1%})[/{C_DIM}]"
 
         lines.extend([
             f"[{C_MUTED}]Side:[/]     [{C_TEXT}]{decision.side}[/]",

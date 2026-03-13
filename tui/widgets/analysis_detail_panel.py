@@ -1,11 +1,14 @@
 """Analysis detail panel — right pane showing unified detail view for selected market."""
 
+import logging
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.widgets import Static
 
-from tui.widgets.charts import C_DIM
+from tui.widgets.charts import C_DIM, C_RED
 from tui.widgets.detail_builders import build_full_analysis
+
+logger = logging.getLogger(__name__)
 
 
 class AnalysisDetailPanel(VerticalScroll):
@@ -31,11 +34,16 @@ class AnalysisDetailPanel(VerticalScroll):
 
     def show_entry(self, entry: "AnalysisEntry") -> None:  # noqa: F821
         """Render the full analysis for the given entry."""
-        content = build_full_analysis(
-            market_data=entry.market_data,
-            aggregation=entry.aggregation,
-            decision=entry.decision,
-        )
+        try:
+            content = build_full_analysis(
+                market_data=entry.market_data,
+                aggregation=entry.aggregation,
+                decision=entry.decision,
+            )
+        except Exception as e:
+            logger.error("Failed to build analysis view: %s", e, exc_info=True)
+            content = f"[{C_RED}]Error rendering analysis: {e}[/{C_RED}]"
+
         try:
             detail = self.query_one("#analysis-detail-content", Static)
             detail.update(content)
