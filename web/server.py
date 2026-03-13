@@ -357,33 +357,37 @@ class BotEngine:
             available_bankroll=bankroll,
         )
 
-        # Depth analysis (if trading)
+        # Depth analysis (always run for UI visibility, adjust trade if needed)
         depth_data: dict[str, Any] = {}
-        if decision.should_trade and DEPTH_ANALYSIS_ENABLED:
-            depth = await analyze_depth(
-                token_id=decision.token_id,
-                side=decision.side,
-                bet_size_usd=decision.bet_size_usd,
-            )
-            depth_data = {
-                "total_depth_usd": depth.total_depth_usd,
-                "slippage": depth.slippage,
-                "best_price": depth.best_price,
-                "avg_fill_price": depth.avg_fill_price,
-                "max_fillable_usd": depth.max_fillable_usd,
-                "levels": depth.levels,
-                "skip_reason": depth.skip_reason,
-            }
-            if depth.skip_reason:
-                decision.should_trade = False
-                decision.skip_reason = depth.skip_reason
-            else:
-                decision.bet_size_usd = depth.adjusted_bet_usd
-                decision.depth_total_usd = depth.total_depth_usd
-                decision.depth_slippage = depth.slippage
-                decision.depth_adjusted = depth.adjusted_bet_usd < decision.bet_size_usd
-                depth_data["adjusted_bet_usd"] = depth.adjusted_bet_usd
-                depth_data["was_adjusted"] = depth.adjusted_bet_usd < decision.bet_size_usd
+        if DEPTH_ANALYSIS_ENABLED and token_id:
+            try:
+                depth = await analyze_depth(
+                    token_id=decision.token_id,
+                    side=decision.side,
+                    bet_size_usd=max(decision.bet_size_usd, 1.0),
+                )
+                depth_data = {
+                    "total_depth_usd": depth.total_depth_usd,
+                    "slippage": depth.slippage,
+                    "best_price": depth.best_price,
+                    "avg_fill_price": depth.avg_fill_price,
+                    "max_fillable_usd": depth.max_fillable_usd,
+                    "levels": depth.levels,
+                    "skip_reason": depth.skip_reason,
+                }
+                if decision.should_trade:
+                    if depth.skip_reason:
+                        decision.should_trade = False
+                        decision.skip_reason = depth.skip_reason
+                    else:
+                        decision.bet_size_usd = depth.adjusted_bet_usd
+                        decision.depth_total_usd = depth.total_depth_usd
+                        decision.depth_slippage = depth.slippage
+                        decision.depth_adjusted = depth.adjusted_bet_usd < decision.bet_size_usd
+                        depth_data["adjusted_bet_usd"] = depth.adjusted_bet_usd
+                        depth_data["was_adjusted"] = depth.adjusted_bet_usd < decision.bet_size_usd
+            except Exception as e:
+                logger.debug("Depth analysis failed for %s: %s", cid, e)
 
         # Execute trade if decision says go
         exec_data: dict[str, Any] = {}
@@ -463,8 +467,9 @@ class BotEngine:
                         "raw_data": s.raw_data,
                         "effective_weight": round(_compute_effective_weight(s), 3) if s.probability is not None and s.confidence > 0 else 0,
                         "base_multiplier": SIGNAL_WEIGHT_MULTIPLIERS.get(s.source, 1.0),
+                        "usable": s.probability is not None and s.confidence > 0,
                     }
-                    for s in result.individual_signals
+                    for s in (result.all_signals if result.all_signals else result.individual_signals)
                 ],
             },
             "kelly": {
@@ -507,6 +512,12 @@ class BotEngine:
             "depth": depth_data,
             "execution": exec_data,
         })
+
+        # Extract price_history from crypto signal raw_data for the chart
+        for s in (result.all_signals if result.all_signals else result.individual_signals):
+            if s.source == "resolution_crypto" and s.raw_data.get("price_history"):
+                self.analysis_entries[cid]["price_history"] = s.raw_data["price_history"]
+                break
 
     # ------------------------------------------------------------------
     # Worker 3: Position Monitor Loop

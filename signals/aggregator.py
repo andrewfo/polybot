@@ -75,8 +75,9 @@ class AggregatedSignal:
     market_efficiency: str          # "underpriced" | "overpriced" | "fair"
     preliminary_probability: float
     individual_signals: list[SignalResult]
-    frontier_model_used: str
-    total_data_points: int
+    all_signals: list[SignalResult] = field(default_factory=list)  # includes unusable signals for UI display
+    frontier_model_used: str = ""
+    total_data_points: int = 0
     skipped: bool = False
     skip_reason: str = ""
 
@@ -528,6 +529,7 @@ class SignalAggregator:
             market_efficiency=market_efficiency,
             preliminary_probability=preliminary_prob,
             individual_signals=usable_signals,
+            all_signals=all_signals,
             frontier_model_used="frontier",
             total_data_points=total_data_points,
         )

@@ -386,14 +386,16 @@ function SignalCard({ signal, index }: { signal: Record<string, unknown>; index:
   const dataPoints = signal.data_points as number | undefined
   const effectiveWeight = signal.effective_weight as number | undefined
   const baseMultiplier = signal.base_multiplier as number | undefined
+  const usable = signal.usable !== false && prob != null && (conf ?? 0) > 0
 
   const palette = ['#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6', '#06b6d4']
-  const cardColor = palette[index % palette.length]
+  const cardColor = usable ? palette[index % palette.length] : colors.textDim
 
   return (
     <div style={{
       background: colors.bgSecondary, border: `1px solid ${colors.border}`,
       borderLeft: `3px solid ${cardColor}`, borderRadius: 8, marginBottom: 8, overflow: 'hidden',
+      opacity: usable ? 1 : 0.6,
     }}>
       <div
         onClick={() => setExpanded(!expanded)}
@@ -404,6 +406,14 @@ function SignalCard({ signal, index }: { signal: Record<string, unknown>; index:
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: cardColor }}>{source.replace(/_/g, ' ')}</span>
+          {!usable && (
+            <span style={{
+              fontSize: 9, padding: '1px 6px', borderRadius: 10,
+              background: colors.dangerDim, color: colors.danger,
+            }}>
+              {prob == null ? 'NO DATA' : 'UNUSABLE'}
+            </span>
+          )}
           {prob != null && (
             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, fontWeight: 700, color: colors.textPrimary }}>
               {(prob * 100).toFixed(1)}%

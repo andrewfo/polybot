@@ -882,6 +882,10 @@ class CryptoResolutionProvider(SignalProvider):
                 "trend": trend_description,
                 "distance_pct": distance_pct,
                 "avg_interval_hours": vol_est.avg_interval_hours,
+                "price_history": [
+                    {"date": datetime.fromtimestamp(pt[0] / 1000, tz=timezone.utc).strftime("%Y-%m-%d"), "price": round(pt[1], 2)}
+                    for pt in (chart_data or [])[::max(1, len(chart_data or [1]) // 60)]
+                ],
             },
         )
 
