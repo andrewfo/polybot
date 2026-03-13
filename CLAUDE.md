@@ -32,10 +32,12 @@ scripts/dashboard.py     → Standalone dashboard launcher
 ```
 signals/base.py              → SignalResult dataclass + SignalProvider ABC
 signals/resolution_crypto.py → CoinGecko + barrier/terminal probability models (NO LLM)
-signals/aggregator.py        → Weighted signal merge → FRONTIER model final probability call
+signals/aggregator.py        → Dynamic-weighted signal merge → FRONTIER model final probability call
 signals/temporal.py          → Date context injection, urgency tiers, frontier system prompt builder
 signals/web_search.py        → Perplexity Sonar search-grounded LLM signal (universal, all categories)
-signals/prediction_markets.py→ Cross-platform consensus (Metaculus + Kalshi + PredictIt, no auth)
+signals/prediction_markets.py→ Cross-platform consensus (Metaculus + Kalshi + Polymarket Gamma, no auth, no LLM — keyword extraction + Jaccard matching)
+signals/calibration.py       → Brier-score calibration, dynamic source multipliers, resolution tracking
+strategy/depth.py            → CLOB order book depth analysis, slippage estimation, bet adjustment
 ```
 
 ### Not Yet Implemented (build plan sections 6-11)
@@ -47,13 +49,33 @@ monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
 ```
 
 ### Kelly Criterion (strategy/kelly.py) — Section 5 COMPLETE
-- `TradeDecision` dataclass with full audit trail (15 fields incl. `effective_prob`)
+- `TradeDecision` dataclass with full audit trail (18 fields incl. `effective_prob`, depth fields)
 - `calculate_kelly()` confidence-blends estimate toward market price, then computes fractional Kelly (0.25x) with fee-adjusted odds
 - Confidence blending: `blend_weight = max(confidence, MIN_CONFIDENCE_BLEND)` then `effective_prob = blend_weight * estimated_prob + (1 - blend_weight) * market_price` — floor prevents full edge dilution
 - Fee adjustment: Polymarket's 2% profit fee reduces effective odds (POLYMARKET_FEE_RATE setting)
-- Integrated into pipeline: every successful aggregation runs Kelly sizing
+- Integrated into pipeline: every successful aggregation runs Kelly sizing + depth analysis
 - Results shown in TUI "Bets" tab with table + detail view
 - Safety checks: edge threshold, positive Kelly, min bet $1, max position 10%, bankroll reserve $20, existing exposure
+
+### Order Book Depth Analysis (strategy/depth.py)
+- Fetches CLOB order book via public HTTP endpoint (no auth, no ClobClientWrapper)
+- `analyze_depth()`: walks ask levels to compute average fill price, slippage, max fillable
+- Skips trade if total book depth < `MIN_DEPTH_USD` ($50)
+- Reduces bet size if slippage > `MAX_ACCEPTABLE_SLIPPAGE` (3%) using binary search
+- `DepthAnalysis` dataclass with full audit trail (token_id, slippage, adjusted_bet, skip_reason)
+- Integrated post-Kelly: runs after Kelly sizing, before trade execution
+- `DEPTH_ANALYSIS_ENABLED` setting to toggle (default: true)
+
+### Signal Calibration (signals/calibration.py)
+- Tracks signal provider predictions vs actual market resolutions in `signal_calibration` DB table
+- `record_prediction()`: called after each aggregation for every usable signal, uses `conditionId` as `market_id` (not question text)
+- `record_resolution()`: updates predictions when markets resolve (via Gamma API check)
+- `check_and_record_resolutions()`: called at start of each pipeline cycle to check for newly resolved markets
+- `get_dynamic_multipliers()`: computes Brier score per provider, scales weights relative to average
+- Ratio = avg_brier / provider_brier (better providers get higher multipliers)
+- Multipliers clamped to [0.5x, 2.0x] of default to prevent wild swings
+- Falls back to defaults when < `MIN_CALIBRATION_SAMPLES` (20) resolved predictions per provider
+- Aggregator refreshes multipliers at start of each aggregation cycle
 
 ## Market Discovery — Gamma API
 - Use Gamma API (`https://gamma-api.polymarket.com/markets`) for all market discovery — NOT the CLOB API
@@ -87,8 +109,11 @@ monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
   - `prediction_markets`: 1.8x (cross-platform market consensus)
   - `web_search`: 1.5x (Perplexity Sonar search-grounded)
   - Weight = `signal.confidence * source_multiplier`
+- Optional log-odds averaging (`USE_LOG_ODDS_AVERAGING` setting, default False) — more calibrated at extremes
+- Pre-computes `signals_agreement` from stdev of signal probabilities (<0.05 agree, <0.15 mixed, else disagree)
+- `aggregate()` accepts `condition_id` parameter for calibration tracking
 - Makes single FRONTIER MODEL call with superforecaster prompt
-- Frontier model sees both terminal and barrier probabilities + multi-timescale vol data
+- Frontier model sees both terminal and barrier probabilities + multi-timescale vol data + pre-computed agreement
 - If frontier confidence < 0.25 → skip market (returns None)
 - Frontier failure RAISES — never falls back to cheap model
 - All signals logged to `signals` SQLite table with full audit trail
@@ -106,7 +131,7 @@ monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
 ### TUI Commands (command bar via ':' key)
 - `aggregate [question] [market_price]` — Full aggregation pipeline (signals + frontier model)
 - `signal-test [question]` — Run individual signal providers without aggregation
-- `categorize <question>` — Categorize a market question via cheap LLM
+- `categorize <question>` — Categorize a market question (keyword match first, LLM fallback)
 - `llm-test <prompt>` — Send a prompt to the cheap model
 - `refresh` — Re-run health checks and market fetch
 
@@ -119,7 +144,8 @@ monitoring/notifications.py → TUI log panel + Python logging (no Telegram)
 
 ### Pipeline Loop (when bot is running)
 When the bot is started via `s` key, it runs a continuous loop:
-1. **Filter**: Discover (volume + newest sort) → filter → categorize → extract → pre-screen (CoinGecko math) → rank by edge potential
+0. **Calibration check**: `check_and_record_resolutions()` updates calibration data for any newly resolved markets
+1. **Filter**: Discover (volume + newest sort) → filter → categorize (keyword match first, LLM fallback) → extract → pre-screen (CoinGecko math) → rank by edge potential
 2. **Aggregate**: Take top 40 markets with highest model-vs-market edge, run full signal aggregation on each
 3. **Dedup**: Skip markets already aggregated in previous cycles (tracked by conditionId)
 4. **Repeat**: After top 40 are done, discard remaining and re-filter
@@ -130,7 +156,7 @@ When the bot is started via `s` key, it runs a continuous loop:
 ## Critical Design Rules
 
 ### LLM Routing — Never Violate These
-- Cheap model (`google/gemini-2.0-flash-lite-001`): summarization, classification, extraction, search query generation, initial probability estimates
+- Cheap model (`google/gemini-2.0-flash-lite-001`): summarization, extraction, initial probability estimates, classification fallback (keyword matching handles most categorization)
 - Fallback cheap model (`z-ai/glm-4.5-air:free`): used automatically if primary cheap model fails
 - Sonar model (`perplexity/sonar`): search-grounded web search signal (via OpenRouter, ~$1/M tokens). Falls back to cheap on failure.
 - Frontier model (`anthropic/claude-opus-4-6`): final probability estimation, trade/no-trade decisions only
@@ -151,7 +177,7 @@ When the bot is started via `s` key, it runs a continuous loop:
 
 ### Data Integrity
 - All config values in `config/settings.py` must be overridable via environment variables
-- SQLite tables auto-create on first import of `core/db.py`
+- SQLite tables auto-create on first import of `core/db.py` (7 tables: trades, positions, signals, bankroll, llm_costs, market_cache, signal_calibration)
 - Paper trades stored in same tables with `paper=True` column
 - All timestamps ISO 8601 UTC
 

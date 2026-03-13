@@ -10,6 +10,7 @@ in the signal pipeline.
 import asyncio
 import json
 import logging
+import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -19,10 +20,12 @@ from config.settings import (
     MAX_DIVERGENCE_ANY_CONFIDENCE,
     MAX_DIVERGENCE_LOW_CONFIDENCE,
     RESOLUTION_SIGNAL_WEIGHT,
+    USE_LOG_ODDS_AVERAGING,
 )
 from core import db
 from core.llm import LLMClient, LLMError
 from signals.base import SignalProvider, SignalResult
+from signals.calibration import get_multiplier_dict, record_prediction
 from signals.prediction_markets import PredictionMarketsSignalProvider
 from signals.resolution_crypto import CryptoResolutionProvider
 from signals.web_search import WebSearchSignalProvider
@@ -30,12 +33,29 @@ from signals.temporal import build_frontier_system_prompt
 
 logger = logging.getLogger(__name__)
 
-# Source-based weight multipliers for the preliminary estimate
-SIGNAL_WEIGHT_MULTIPLIERS: dict[str, float] = {
+# Default source-based weight multipliers (used as fallback when calibration
+# data is insufficient). Dynamic multipliers from signals/calibration.py
+# override these when enough resolved predictions exist.
+DEFAULT_SIGNAL_WEIGHT_MULTIPLIERS: dict[str, float] = {
     "resolution_crypto": RESOLUTION_SIGNAL_WEIGHT,   # Direct resolution source — data from CoinGecko
     "prediction_markets": 1.8,                       # Cross-platform market consensus (strong)
     "web_search": 1.5,                               # Search-grounded LLM (Perplexity Sonar)
 }
+
+
+def _get_signal_weight_multipliers() -> dict[str, float]:
+    """Get current signal weight multipliers (dynamic if calibrated, else defaults)."""
+    try:
+        dynamic = get_multiplier_dict()
+        if dynamic:
+            return dynamic
+    except Exception as e:
+        logger.debug("Calibration lookup failed, using defaults: %s", e)
+    return DEFAULT_SIGNAL_WEIGHT_MULTIPLIERS
+
+
+# Active multipliers — refreshed per aggregation cycle
+SIGNAL_WEIGHT_MULTIPLIERS: dict[str, float] = DEFAULT_SIGNAL_WEIGHT_MULTIPLIERS
 
 # Minimum frontier confidence to proceed
 MIN_FRONTIER_CONFIDENCE = 0.25
@@ -67,12 +87,66 @@ def _compute_effective_weight(signal: SignalResult) -> float:
     return signal.confidence * multiplier
 
 
+def _log_odds_average(signals: list[SignalResult]) -> float:
+    """Compute weighted average probability in log-odds space.
+
+    More calibrated at extreme probabilities than linear averaging.
+    Converts each probability to log-odds, averages with weights,
+    then converts back to probability space.
+    """
+    EPS = 1e-6  # Prevent log(0)
+    total_weight = 0.0
+    weighted_log_odds = 0.0
+
+    for signal in signals:
+        if signal.probability is None or signal.confidence <= 0:
+            continue
+        p = max(EPS, min(1.0 - EPS, signal.probability))
+        log_odds = math.log(p / (1.0 - p))
+        ew = _compute_effective_weight(signal)
+        weighted_log_odds += log_odds * ew
+        total_weight += ew
+
+    if total_weight == 0:
+        return 0.5
+
+    avg_log_odds = weighted_log_odds / total_weight
+    return 1.0 / (1.0 + math.exp(-avg_log_odds))
+
+
+def _compute_signals_agreement(signals: list[SignalResult]) -> str:
+    """Pre-compute signal agreement from standard deviation of probabilities.
+
+    Returns "agree" if stdev < 0.05, "mixed" if < 0.15, else "disagree".
+    """
+    probs = [s.probability for s in signals if s.probability is not None and s.confidence > 0]
+    if len(probs) < 2:
+        return "agree"
+
+    mean_p = sum(probs) / len(probs)
+    variance = sum((p - mean_p) ** 2 for p in probs) / len(probs)
+    stdev = math.sqrt(variance)
+
+    if stdev < 0.05:
+        return "agree"
+    elif stdev < 0.15:
+        return "mixed"
+    else:
+        return "disagree"
+
+
 def compute_preliminary_probability(signals: list[SignalResult]) -> float:
     """Compute weighted average probability from usable signals.
 
     Each signal's weight is: confidence * source_multiplier.
     Resolution source signals get RESOLUTION_SIGNAL_WEIGHT multiplier.
+
+    When USE_LOG_ODDS_AVERAGING is True, averages in log-odds space
+    for better calibration at extreme probabilities.
     """
+    if USE_LOG_ODDS_AVERAGING:
+        return _log_odds_average(signals)
+
     total_weight = 0.0
     weighted_sum = 0.0
 
@@ -221,6 +295,7 @@ def _build_frontier_prompt(
         f'{signals_block}\n'
         f'\n'
         f'Preliminary weighted estimate: {preliminary_prob}\n'
+        f'Signal agreement (pre-computed): {_compute_signals_agreement(signals)}\n'
         f'\n'
         f'Instructions:\n'
         f'1. Critically evaluate each signal source. Are any likely biased or unreliable?\n'
@@ -288,6 +363,7 @@ class SignalAggregator:
         market_category: str,
         market_end_date: str,
         market_price: float,
+        condition_id: str = "",
         **kwargs: Any,
     ) -> AggregatedSignal | None:
         """Run all signal providers and produce a final aggregated estimate.
@@ -299,6 +375,10 @@ class SignalAggregator:
         to cheap model for this call.
         """
         self._emit(market_question, "collecting", "gathering signals from all providers")
+
+        # Refresh dynamic weight multipliers from calibration data
+        global SIGNAL_WEIGHT_MULTIPLIERS
+        SIGNAL_WEIGHT_MULTIPLIERS = _get_signal_weight_multipliers()
 
         # Step 1: Collect signals from all providers
         raw_results = await asyncio.gather(
@@ -459,13 +539,21 @@ class SignalAggregator:
             raw_data={"system_prompt": system_prompt, "user_prompt": prompt},
         )
 
-        # Also log individual signals
+        # Also log individual signals and record for calibration
         for signal in usable_signals:
             self._log_aggregated_signal(
                 market_question, f"aggregator_input_{signal.source}",
                 signal.probability, signal.confidence,
                 signal.reasoning[:500], signal.model_used,
             )
+            # Record prediction for dynamic calibration tracking
+            if signal.probability is not None:
+                record_prediction(
+                    market_id=condition_id if condition_id else market_question[:200],
+                    signal_source=signal.source,
+                    predicted_probability=signal.probability,
+                    market_question=market_question,
+                )
 
         self._emit(market_question, "done", f"final P={final_prob:.2f} C={final_conf:.2f}")
 

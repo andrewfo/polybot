@@ -111,6 +111,19 @@ def ensure_tables() -> None:
         }, pk="condition_id", if_not_exists=True)
         logger.info("Created market_cache table")
 
+    if "signal_calibration" not in db.table_names():
+        db["signal_calibration"].create({
+            "id": int,
+            "market_id": str,
+            "signal_source": str,
+            "predicted_probability": float,
+            "actual_outcome": float,
+            "market_question": str,
+            "timestamp": str,
+            "resolved_at": str,
+        }, pk="id", if_not_exists=True)
+        logger.info("Created signal_calibration table")
+
 
 # ---------------------------------------------------------------------------
 # Trade helpers

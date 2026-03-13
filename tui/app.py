@@ -384,6 +384,15 @@ class TUIApp(App):
             cycle = self._cycle_count
 
             try:
+                # Check for resolved markets to update calibration data
+                try:
+                    from signals.calibration import check_and_record_resolutions
+                    resolved = await check_and_record_resolutions()
+                    if resolved > 0:
+                        logger.info("Calibration: recorded %d new resolutions", resolved)
+                except Exception as e:
+                    logger.debug("Resolution check failed: %s", e)
+
                 # Phase 1: Filter
                 self.post_message(BotProcessUpdate("filtering", "Discovering and filtering markets...", cycle))
                 ranked = await self._run_filter_stages()
@@ -608,6 +617,7 @@ class TUIApp(App):
                         market_category=category,
                         market_end_date=end_date,
                         market_price=market_price,
+                        condition_id=cond_id,
                         **resolution_kwargs,
                     )
 
@@ -636,8 +646,8 @@ class TUIApp(App):
                             agg_result.confidence, agg_result.market_efficiency,
                         )
 
-                        # Kelly bet sizing
-                        self._run_kelly(mkt, cond_id, question, agg_result, market_price)
+                        # Kelly bet sizing + depth analysis
+                        await self._run_kelly(mkt, cond_id, question, agg_result, market_price)
                     else:
                         statuses[cond_id] = "skipped"
                         self.post_message(SignalUpdate(
@@ -669,7 +679,7 @@ class TUIApp(App):
     # Kelly bet sizing helper
     # -----------------------------------------------------------------
 
-    def _run_kelly(
+    async def _run_kelly(
         self,
         mkt: dict[str, Any],
         cond_id: str,
@@ -677,30 +687,72 @@ class TUIApp(App):
         agg_result: Any,
         market_price: float,
     ) -> Any:
-        """Run Kelly criterion sizing and post BetUpdate. Returns the TradeDecision or None."""
-        from config.settings import TEST_BANKROLL
+        """Run Kelly criterion sizing with depth analysis. Returns TradeDecision or None."""
+        from config.settings import DEPTH_ANALYSIS_ENABLED, TEST_BANKROLL
         from strategy.kelly import calculate_kelly
 
         try:
             # Use TEST_BANKROLL as placeholder; swap for real wallet balance when live
             available_bankroll = TEST_BANKROLL
 
-            # Get YES token ID from market data
-            token_id = ""
+            # Get YES and NO token IDs from market data
+            yes_token_id = ""
+            no_token_id = ""
             for tok in mkt.get("tokens", []):
-                if tok.get("outcome", "").upper() == "YES":
-                    token_id = tok.get("token_id", "")
-                    break
+                outcome = tok.get("outcome", "").upper()
+                if outcome == "YES":
+                    yes_token_id = tok.get("token_id", "")
+                elif outcome == "NO":
+                    no_token_id = tok.get("token_id", "")
 
             decision = calculate_kelly(
                 market_id=cond_id,
-                token_id=token_id,
+                token_id=yes_token_id,
                 market_question=question,
                 estimated_prob=agg_result.final_probability,
                 market_price=market_price,
                 confidence=agg_result.confidence,
                 available_bankroll=available_bankroll,
             )
+
+            # Depth analysis: check order book before finalizing
+            if decision.should_trade and DEPTH_ANALYSIS_ENABLED:
+                try:
+                    from strategy.depth import analyze_depth
+
+                    # Pick the right token for the side we're buying
+                    depth_token = yes_token_id if decision.side == "BUY_YES" else no_token_id
+                    if depth_token:
+                        depth = await analyze_depth(
+                            token_id=depth_token,
+                            side=decision.side,
+                            bet_size_usd=decision.bet_size_usd,
+                        )
+                        decision.depth_total_usd = depth.total_depth_usd
+                        decision.depth_slippage = depth.slippage
+
+                        if depth.skip_reason:
+                            decision.should_trade = False
+                            decision.skip_reason = f"depth: {depth.skip_reason}"
+                            decision.depth_adjusted = True
+                            logger.info(
+                                "Depth skip for '%s': %s",
+                                question[:50], depth.skip_reason,
+                            )
+                        elif depth.adjusted_bet_usd < decision.bet_size_usd:
+                            old_bet = decision.bet_size_usd
+                            decision.bet_size_usd = depth.adjusted_bet_usd
+                            decision.expected_value = decision.edge * decision.bet_size_usd
+                            decision.depth_adjusted = True
+                            logger.info(
+                                "Depth adjusted '%s': $%.2f → $%.2f (slippage %.1%%)",
+                                question[:50], old_bet, decision.bet_size_usd,
+                                depth.slippage * 100,
+                            )
+                except Exception as e:
+                    logger.warning("Depth analysis failed for '%s': %s", question[:50], e)
+                    # Continue without depth adjustment — don't block the trade
+
             self.post_message(BetUpdate(
                 decision=decision, market_data=mkt, aggregation=agg_result,
             ))
@@ -995,14 +1047,19 @@ class TUIApp(App):
                     # Kelly bet sizing for manual aggregate
                     try:
                         agg_market = {"condition_id": "manual", "question": question, "_category": category}
-                        decision = self._run_kelly(agg_market, "manual", question, result, market_price)
+                        decision = await self._run_kelly(agg_market, "manual", question, result, market_price)
 
                         output_lines.append("")
                         if decision and decision.should_trade:
+                            depth_info = ""
+                            if decision.depth_adjusted:
+                                depth_info = f" [depth-adjusted, slippage={decision.depth_slippage:.1%}]"
+                            elif decision.depth_total_usd > 0:
+                                depth_info = f" [depth=${decision.depth_total_usd:.0f}, slippage={decision.depth_slippage:.1%}]"
                             output_lines.append(
                                 f"KELLY: {decision.side} | bet=${decision.bet_size_usd:.2f} "
                                 f"edge={decision.edge:.1%} EV=${decision.expected_value:.2f} "
-                                f"(kelly={decision.adjusted_fraction:.1%})"
+                                f"(kelly={decision.adjusted_fraction:.1%}){depth_info}"
                             )
                         elif decision:
                             output_lines.append(

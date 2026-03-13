@@ -32,6 +32,53 @@ logger = logging.getLogger(__name__)
 
 VALID_CATEGORIES = frozenset({"crypto", "other"})
 
+# Keyword-based crypto classification (saves ~20 LLM calls per cycle)
+CRYPTO_KEYWORDS = frozenset({
+    # Major coins
+    "bitcoin", "btc", "ethereum", "eth", "solana", "sol", "cardano", "ada",
+    "ripple", "xrp", "dogecoin", "doge", "polkadot", "dot", "avalanche", "avax",
+    "chainlink", "link", "polygon", "matic", "litecoin", "ltc", "uniswap", "uni",
+    "cosmos", "atom", "near", "aptos", "apt", "arbitrum", "arb", "optimism",
+    "sui", "sei", "celestia", "tia", "jupiter", "jup", "bonk", "pepe",
+    "shiba", "shib", "toncoin", "ton", "tron", "trx", "stellar", "xlm",
+    "hedera", "hbar", "filecoin", "fil", "render", "rndr", "injective", "inj",
+    "stacks", "stx", "kaspa", "kas", "mantle", "mnt", "beam", "wormhole",
+    # Generic crypto terms
+    "crypto", "cryptocurrency", "blockchain", "defi", "nft", "token",
+    "altcoin", "memecoin", "stablecoin", "usdc", "usdt", "tether", "dai",
+    "mining", "halving", "ethereum etf", "bitcoin etf", "crypto etf",
+    "binance", "coinbase", "coingecko", "dex", "cex",
+})
+
+# Multi-word patterns checked as substrings (lowercased)
+CRYPTO_BIGRAMS = [
+    "bitcoin etf", "ethereum etf", "crypto etf", "spot etf",
+    "btc price", "eth price", "crypto market", "market cap",
+    "hash rate", "gas fee", "smart contract", "layer 2",
+    "proof of stake", "proof of work",
+]
+
+
+def _is_crypto_keyword_match(question: str) -> bool:
+    """Check if market question matches crypto keywords.
+
+    Uses word-set intersection for single keywords and substring
+    matching for multi-word patterns.
+    """
+    q_lower = question.lower()
+    q_words = set(q_lower.split())
+
+    # Single keyword match
+    if q_words & CRYPTO_KEYWORDS:
+        return True
+
+    # Bigram / substring match
+    for bigram in CRYPTO_BIGRAMS:
+        if bigram in q_lower:
+            return True
+
+    return False
+
 
 async def discover_markets(max_pages: int = 0) -> list[dict[str, Any]]:
     """Fetch active markets from Gamma API, caching in SQLite market_cache table.
@@ -332,7 +379,10 @@ async def filter_markets(
 
 
 async def categorize_market(market: dict[str, Any], llm: LLMClient) -> str:
-    """Classify a market question into a category using the cheap LLM.
+    """Classify a market question into a category.
+
+    Tries deterministic keyword matching first (free, instant).
+    Falls back to cheap LLM only if no keyword match is found.
 
     Returns one of: crypto, other.
     Caches the result in market_cache to avoid re-classification.
@@ -349,27 +399,33 @@ async def categorize_market(market: dict[str, Any], llm: LLMClient) -> str:
     if not question:
         return "other"
 
-    prompt = (
-        'Classify this prediction market question into exactly one category.\n'
-        f'Question: "{question}"\n'
-        'Categories: crypto, politics, sports, science, economics, other\n'
-        'Respond with only the category name, nothing else.'
-    )
+    # Try keyword matching first (saves LLM call)
+    if _is_crypto_keyword_match(question):
+        category = "crypto"
+        logger.debug("Keyword-classified '%s' → crypto", question[:80])
+    else:
+        # LLM fallback for non-obvious cases
+        prompt = (
+            'Classify this prediction market question into exactly one category.\n'
+            f'Question: "{question}"\n'
+            'Categories: crypto, politics, sports, science, economics, other\n'
+            'Respond with only the category name, nothing else.'
+        )
 
-    try:
-        response = await llm.call(prompt, task_type="classify")
-        category = response.strip().lower().replace(" ", "_")
+        try:
+            response = await llm.call(prompt, task_type="classify")
+            category = response.strip().lower().replace(" ", "_")
 
-        # Validate — fall back to "other" if LLM returns unexpected value
-        if category not in VALID_CATEGORIES:
-            logger.warning(
-                "LLM returned invalid category '%s' for '%s', defaulting to 'other'",
-                category, question[:80],
-            )
+            # Validate — fall back to "other" if LLM returns unexpected value
+            if category not in VALID_CATEGORIES:
+                logger.warning(
+                    "LLM returned invalid category '%s' for '%s', defaulting to 'other'",
+                    category, question[:80],
+                )
+                category = "other"
+        except Exception as e:
+            logger.error("Failed to categorize market '%s': %s", question[:80], e)
             category = "other"
-    except Exception as e:
-        logger.error("Failed to categorize market '%s': %s", question[:80], e)
-        category = "other"
 
     # Cache the category
     if condition_id:
@@ -386,14 +442,15 @@ async def categorize_market(market: dict[str, Any], llm: LLMClient) -> str:
 async def batch_categorize_markets(
     markets: list[dict[str, Any]], llm: LLMClient, batch_size: int = 20
 ) -> None:
-    """Categorize multiple markets in batched LLM calls to avoid rate limits.
+    """Categorize multiple markets, using keyword matching first then LLM fallback.
 
-    Sends up to batch_size market questions per LLM call, parsing the batch
-    response to assign categories. Markets already cached are skipped.
+    Tries deterministic keyword matching for each market first.
+    Only sends remaining unclassified markets to the LLM in batches.
     Modifies markets in-place, setting '_category' on each.
     """
-    # Split into uncached and cached
+    # Split into cached, keyword-matched, and needs-LLM
     uncached: list[dict[str, Any]] = []
+    keyword_matched = 0
     for m in markets:
         condition_id = m.get("condition_id", "")
         if condition_id:
@@ -401,14 +458,26 @@ async def batch_categorize_markets(
             if cached and cached.get("category"):
                 m["_category"] = cached["category"]
                 continue
+
+        # Try keyword matching before adding to uncached
+        question = m.get("question", "")
+        if question and _is_crypto_keyword_match(question):
+            m["_category"] = "crypto"
+            keyword_matched += 1
+            # Cache the keyword classification
+            if condition_id:
+                db.cache_market(condition_id=condition_id, data=m, category="crypto")
+            continue
+
         uncached.append(m)
 
     logger.info(
-        "Batch categorize: %d markets (%d cached, %d need classification)",
-        len(markets), len(markets) - len(uncached), len(uncached),
+        "Batch categorize: %d markets (%d cached, %d keyword-matched, %d need LLM)",
+        len(markets), len(markets) - len(uncached) - keyword_matched,
+        keyword_matched, len(uncached),
     )
 
-    # Process in batches
+    # Process remaining in batches via LLM
     for batch_start in range(0, len(uncached), batch_size):
         batch = uncached[batch_start:batch_start + batch_size]
 

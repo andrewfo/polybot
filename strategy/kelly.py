@@ -40,6 +40,10 @@ class TradeDecision:
     confidence: float            # From signal aggregator
     should_trade: bool           # Final yes/no decision
     skip_reason: str             # If should_trade is False, why
+    # Depth analysis fields (populated after Kelly by depth adjustment)
+    depth_total_usd: float = 0.0      # Total ask-side depth in USD
+    depth_slippage: float = 0.0       # Expected slippage at original bet size
+    depth_adjusted: bool = False       # True if bet was reduced due to depth
 
 
 def _get_existing_exposure(market_id: str) -> float:

@@ -227,7 +227,7 @@ class TestCategorizeMarket:
     async def test_categorize_invalid_llm_response_defaults_to_other(self) -> None:
         llm = AsyncMock(spec=LLMClient)
         llm.call = AsyncMock(return_value="INVALID_GARBAGE")
-        market = _make_market()
+        market = _make_market(question="Will the President win the election?")
         with patch("strategy.market_filter.db") as mock_db:
             mock_db.get_cached_market.return_value = None
             result = await categorize_market(market, llm)
@@ -237,7 +237,7 @@ class TestCategorizeMarket:
     async def test_categorize_llm_failure_defaults_to_other(self) -> None:
         llm = AsyncMock(spec=LLMClient)
         llm.call = AsyncMock(side_effect=Exception("LLM down"))
-        market = _make_market()
+        market = _make_market(question="Will the President win the election?")
         with patch("strategy.market_filter.db") as mock_db:
             mock_db.get_cached_market.return_value = None
             result = await categorize_market(market, llm)
@@ -435,4 +435,66 @@ class TestDiscoverMarkets:
         assert markets[0]["tokens"][0]["token_id"] == "tok_0"
 
 
+from strategy.market_filter import _is_crypto_keyword_match
 from core.llm import LLMClient
+
+
+# ---------------------------------------------------------------------------
+# Keyword categorization tests (Change 3)
+# ---------------------------------------------------------------------------
+
+class TestCryptoKeywordMatch:
+    def test_bitcoin_question(self) -> None:
+        assert _is_crypto_keyword_match("Will Bitcoin hit $100k?") is True
+
+    def test_btc_ticker(self) -> None:
+        assert _is_crypto_keyword_match("Will BTC be above $100k by June 2026?") is True
+
+    def test_ethereum_question(self) -> None:
+        assert _is_crypto_keyword_match("Will Ethereum reach $5000?") is True
+
+    def test_generic_crypto_term(self) -> None:
+        assert _is_crypto_keyword_match("Will the crypto market cap exceed $3T?") is True
+
+    def test_defi_term(self) -> None:
+        assert _is_crypto_keyword_match("Will DeFi TVL exceed $200B?") is True
+
+    def test_non_crypto_politics(self) -> None:
+        assert _is_crypto_keyword_match("Will the President win the election?") is False
+
+    def test_non_crypto_sports(self) -> None:
+        assert _is_crypto_keyword_match("Will the Lakers win the NBA championship?") is False
+
+    def test_bigram_match(self) -> None:
+        assert _is_crypto_keyword_match("Will a spot ETF be approved for Bitcoin?") is True
+
+    def test_case_insensitive(self) -> None:
+        assert _is_crypto_keyword_match("SOLANA price prediction") is True
+
+    def test_empty_question(self) -> None:
+        assert _is_crypto_keyword_match("") is False
+
+
+class TestCategorizeMarketKeywords:
+    """Test that keyword matching is tried before LLM."""
+
+    @pytest.mark.asyncio
+    async def test_keyword_match_skips_llm(self) -> None:
+        llm = AsyncMock(spec=LLMClient)
+        market = _make_market(question="Will Bitcoin hit $100k?")
+        with patch("strategy.market_filter.db") as mock_db:
+            mock_db.get_cached_market.return_value = None
+            result = await categorize_market(market, llm)
+        assert result == "crypto"
+        llm.call.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_non_crypto_falls_through_to_llm(self) -> None:
+        llm = AsyncMock(spec=LLMClient)
+        llm.call = AsyncMock(return_value="other")
+        market = _make_market(question="Will it rain in London tomorrow?")
+        with patch("strategy.market_filter.db") as mock_db:
+            mock_db.get_cached_market.return_value = None
+            result = await categorize_market(market, llm)
+        assert result == "other"
+        llm.call.assert_called_once()

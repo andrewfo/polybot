@@ -195,13 +195,58 @@ async def _search_polymarket_gamma(
     return matches[:max_results]
 
 
+STOP_WORDS = frozenset({
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "may", "might", "shall", "can", "need", "must",
+    "to", "of", "in", "for", "on", "with", "at", "by", "from", "as",
+    "into", "through", "during", "before", "after", "above", "below",
+    "between", "under", "over",
+    "and", "but", "or", "nor", "not", "so", "yet",
+    "it", "its", "this", "that", "these", "those",
+    "what", "which", "who", "whom", "when", "where", "how", "why",
+    "if", "then", "than", "both", "each", "any", "all", "more",
+    "other", "some", "such", "no", "only", "same", "very",
+})
+
+
+def _extract_search_keywords(question: str) -> str:
+    """Extract meaningful search keywords from a market question.
+
+    Strips stop words, keeps numbers/capitalized/meaningful words.
+    Returns up to 6 keywords joined by space.
+    """
+    words = question.replace("?", "").replace(",", "").replace("'", "").split()
+    keywords = []
+    for w in words:
+        w_lower = w.lower()
+        # Keep numbers, $ amounts, dates
+        if any(c.isdigit() for c in w):
+            keywords.append(w.strip("\"'"))
+        # Keep words not in stop words
+        elif w_lower not in STOP_WORDS and len(w_lower) > 1:
+            keywords.append(w.strip("\"'"))
+    return " ".join(keywords[:6])
+
+
+def _jaccard_similarity(text_a: str, text_b: str) -> float:
+    """Word-set Jaccard similarity after removing stop words."""
+    words_a = {w.lower() for w in text_a.split() if w.lower() not in STOP_WORDS and len(w) > 1}
+    words_b = {w.lower() for w in text_b.split() if w.lower() not in STOP_WORDS and len(w) > 1}
+    if not words_a or not words_b:
+        return 0.0
+    intersection = len(words_a & words_b)
+    union = len(words_a | words_b)
+    return intersection / union if union > 0 else 0.0
+
+
 class PredictionMarketsSignalProvider(SignalProvider):
     """Cross-platform prediction market consensus signal.
 
     Pipeline:
-    1. Generate short search query from market question (cheap LLM)
-    2. Search Metaculus, Kalshi, PredictIt in parallel
-    3. Use cheap LLM to match results to the Polymarket question
+    1. Extract search keywords from market question (deterministic)
+    2. Search Metaculus, Kalshi, Polymarket Gamma in parallel
+    3. Match results by string similarity (deterministic)
     4. Aggregate matching probabilities into consensus estimate
     """
 
@@ -279,9 +324,9 @@ class PredictionMarketsSignalProvider(SignalProvider):
     ) -> SignalResult:
         import asyncio
 
-        # Step 1: Generate a short search query
-        self._emit(market_question, "query", "generating search terms")
-        search_query = await self._generate_search_query(market_question)
+        # Step 1: Extract search keywords (deterministic, no LLM)
+        self._emit(market_question, "query", "extracting search keywords")
+        search_query = _extract_search_keywords(market_question)
 
         # Step 2: Search all platforms in parallel
         self._emit(market_question, "searching", "Metaculus + Kalshi + Polymarket Gamma")
@@ -314,122 +359,70 @@ class PredictionMarketsSignalProvider(SignalProvider):
                 raw_data={"search_query": search_query},
             )
 
-        # Step 3: Use LLM to find best matches and extract consensus
+        # Step 3: Match by string similarity (deterministic, no LLM)
         self._emit(market_question, "matching", f"{len(all_matches)} candidates found")
-        return await self._evaluate_matches(market_question, all_matches, market_end_date)
+        return self._match_and_compute_consensus(market_question, all_matches)
 
-    async def _generate_search_query(self, market_question: str) -> str:
-        """Generate a short search query from the market question."""
-        prompt = (
-            f'Given this prediction market question: "{market_question}"\n'
-            f'Generate a short search query (3-6 key words) that would match '
-            f'similar questions on other prediction market platforms.\n'
-            f'Return ONLY the search query text, nothing else.'
-        )
-        try:
-            result = await self._llm.cheap(prompt)
-            return result.strip().strip('"').strip("'")[:100]
-        except Exception:
-            # Fallback: use first 6 words of the question
-            words = market_question.split()[:6]
-            return " ".join(words)
-
-    async def _evaluate_matches(
+    def _match_and_compute_consensus(
         self,
         market_question: str,
         matches: list[dict[str, Any]],
-        market_end_date: str,
+        similarity_threshold: float = 0.30,
     ) -> SignalResult:
-        """Use cheap LLM to evaluate which matches are relevant and compute consensus."""
-        from signals.temporal import format_date_context_line
-        date_ctx = format_date_context_line(market_end_date) if market_end_date else ""
+        """Match candidates by string similarity and compute consensus.
 
-        matches_text = ""
-        for i, m in enumerate(matches[:15], 1):
-            matches_text += (
-                f'{i}. [{m["platform"]}] "{m["title"]}" — probability: {m["probability"]:.2f}\n'
-            )
+        Filters matches by Jaccard similarity threshold, then computes a
+        weighted consensus probability where weight = similarity score.
+        """
+        scored_matches = []
+        for m in matches:
+            title = m.get("title", "")
+            sim = _jaccard_similarity(market_question, title)
+            if sim >= similarity_threshold:
+                scored_matches.append((m, sim))
 
-        prompt = (
-            f'Polymarket question: "{market_question}"\n'
-            f'{date_ctx}\n'
-            f'\n'
-            f'The following markets were found on other prediction platforms:\n'
-            f'{matches_text}\n'
-            f'Which of these markets (by number) are asking essentially the same question '
-            f'as the Polymarket question? Consider that question wording may differ but the '
-            f'underlying event should be the same.\n'
-            f'\n'
-            f'For the matching markets, compute a consensus probability.\n'
-            f'Respond as JSON:\n'
-            f'{{"matching_indices": [1, 3, ...], "consensus_probability": 0.XX, '
-            f'"confidence": 0.XX, "reasoning": "..."}}\n'
-            f'If no markets match, set matching_indices to [] and consensus_probability to null.'
-        )
-
-        try:
-            result = await self._llm.call_json(prompt, task_type="classify")
-        except Exception as e:
-            logger.warning("Failed to evaluate prediction market matches: %s", e)
+        if not scored_matches:
             return SignalResult(
                 source="prediction_markets",
                 probability=None,
                 confidence=0.0,
-                reasoning=f"LLM evaluation failed: {e}",
-                model_used="cheap",
-                data_points=len(matches),
-                raw_data={"matches": matches},
-            )
-
-        if not isinstance(result, dict):
-            return SignalResult(
-                source="prediction_markets",
-                probability=None,
-                confidence=0.0,
-                reasoning="Invalid LLM response format",
-                model_used="cheap",
-                data_points=len(matches),
-                raw_data={"matches": matches},
-            )
-
-        matching_indices = result.get("matching_indices", [])
-        consensus_prob = result.get("consensus_probability")
-        confidence = float(result.get("confidence", 0.0))
-        reasoning = str(result.get("reasoning", ""))
-
-        if not matching_indices or consensus_prob is None:
-            return SignalResult(
-                source="prediction_markets",
-                probability=None,
-                confidence=0.0,
-                reasoning=f"No matching markets found across platforms. {reasoning}",
-                model_used="cheap",
+                reasoning="No matching markets found across platforms (similarity threshold not met)",
+                model_used="none",
                 data_points=0,
-                raw_data={"matches": matches, "evaluation": result},
+                raw_data={"all_candidates": len(matches)},
             )
 
-        consensus_prob = max(0.0, min(1.0, float(consensus_prob)))
-        confidence = max(0.0, min(1.0, confidence))
+        # Weighted consensus by similarity score
+        total_weight = sum(sim for _, sim in scored_matches)
+        consensus_prob = sum(m["probability"] * sim for m, sim in scored_matches) / total_weight
+        consensus_prob = max(0.0, min(1.0, consensus_prob))
 
-        # Collect matched markets for raw_data
-        matched_markets = []
-        for idx in matching_indices:
-            if 1 <= idx <= len(matches):
-                matched_markets.append(matches[idx - 1])
+        # Confidence from match count + average similarity
+        avg_sim = total_weight / len(scored_matches)
+        match_count_factor = min(1.0, len(scored_matches) / 3.0)  # 3+ matches = full credit
+        confidence = min(0.9, avg_sim * 0.6 + match_count_factor * 0.4)
+
+        matched_markets = [m for m, _ in scored_matches]
+        platforms = list({m.get("platform", "?") for m in matched_markets})
+        reasoning = (
+            f"Cross-platform consensus from {len(scored_matches)} matching markets "
+            f"(avg similarity {avg_sim:.2f}) on {', '.join(platforms)}"
+        )
 
         return SignalResult(
             source="prediction_markets",
             probability=consensus_prob,
             confidence=confidence,
             reasoning=reasoning,
-            model_used="cheap",
-            data_points=len(matched_markets),
+            model_used="none",
+            data_points=len(scored_matches),
             raw_data={
                 "matched_markets": matched_markets,
                 "all_candidates": len(matches),
                 "platforms_searched": ["metaculus", "kalshi", "polymarket_gamma"],
             },
         )
+
 
 
 def clear_signal_cache() -> None:
