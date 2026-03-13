@@ -1,21 +1,24 @@
 import { useState, useEffect, useCallback } from 'react'
-import { colors, cardStyle } from '../theme'
+import { colors, cardStyle, fonts, glowShadow } from '../theme'
 import { api, AnalysisSummary } from '../api'
 import AnalysisDetail from './AnalysisDetail'
 
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { bg: string; fg: string }> = {
-    done: { bg: 'rgba(34,197,94,0.15)', fg: '#22c55e' },
-    processing: { bg: 'rgba(59,130,246,0.15)', fg: '#60a5fa' },
-    error: { bg: 'rgba(239,68,68,0.15)', fg: '#ef4444' },
-    skipped: { bg: 'rgba(122,139,165,0.15)', fg: '#7a8ba5' },
-    waiting: { bg: 'rgba(30,45,74,0.5)', fg: '#556178' },
+  const map: Record<string, { bg: string; fg: string; glow?: boolean }> = {
+    done: { bg: 'rgba(0,255,136,0.1)', fg: '#00ff88' },
+    processing: { bg: 'rgba(0,229,255,0.1)', fg: '#00e5ff', glow: true },
+    error: { bg: 'rgba(255,51,102,0.1)', fg: '#ff3366' },
+    skipped: { bg: 'rgba(85,102,136,0.1)', fg: '#556688' },
+    waiting: { bg: 'rgba(51,68,102,0.1)', fg: '#334466' },
   }
   const s = map[status] || map.waiting
   return (
     <span style={{
-      padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 600,
-      background: s.bg, color: s.fg, letterSpacing: '0.02em',
+      padding: '2px 8px', borderRadius: 3, fontSize: 9, fontWeight: 600,
+      background: s.bg, color: s.fg, letterSpacing: '0.06em',
+      fontFamily: fonts.mono, textTransform: 'uppercase',
+      border: `1px solid ${s.fg}15`,
+      animation: s.glow ? 'textGlow 2s ease-in-out infinite' : 'none',
     }}>
       {status.toUpperCase()}
     </span>
@@ -27,9 +30,13 @@ function DecisionBadge({ decision }: { decision: string | null }) {
   const isTrade = decision.toUpperCase().includes('TRADE') && !decision.toUpperCase().includes('SKIP')
   return (
     <span style={{
-      padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 600,
-      background: isTrade ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.15)',
-      color: isTrade ? '#22c55e' : '#f59e0b',
+      padding: '2px 8px', borderRadius: 3, fontSize: 9, fontWeight: 600,
+      background: isTrade ? 'rgba(0,255,136,0.1)' : 'rgba(255,170,0,0.1)',
+      color: isTrade ? '#00ff88' : '#ffaa00',
+      fontFamily: fonts.mono, textTransform: 'uppercase',
+      letterSpacing: '0.06em',
+      border: `1px solid ${isTrade ? 'rgba(0,255,136,0.15)' : 'rgba(255,170,0,0.15)'}`,
+      textShadow: isTrade ? '0 0 8px rgba(0,255,136,0.3)' : 'none',
     }}>
       {decision.toUpperCase()}
     </span>
@@ -71,19 +78,19 @@ export default function Analysis() {
   }
 
   const inputStyle: React.CSSProperties = {
-    padding: '8px 12px', borderRadius: 8,
+    padding: '8px 12px', borderRadius: 4,
     border: `1px solid ${colors.border}`,
     background: colors.bgSecondary,
     color: colors.textPrimary,
-    fontSize: 13, fontFamily: 'inherit', outline: 'none',
-    transition: 'border-color 0.15s',
+    fontSize: 12, fontFamily: fonts.body, outline: 'none',
+    transition: 'border-color 0.2s, box-shadow 0.2s',
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* Aggregate command form */}
       <div style={{
-        ...cardStyle, padding: 14,
+        ...cardStyle, padding: 12,
         display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap',
       }}>
         <input
@@ -92,8 +99,6 @@ export default function Analysis() {
           value={aggQuestion}
           onChange={e => setAggQuestion(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !aggLoading) handleAggregate() }}
-          onFocus={e => { e.currentTarget.style.borderColor = colors.accent }}
-          onBlur={e => { e.currentTarget.style.borderColor = colors.border }}
           style={{ ...inputStyle, flex: 1, minWidth: 250 }}
         />
         <input
@@ -102,27 +107,28 @@ export default function Analysis() {
           value={aggPrice}
           onChange={e => setAggPrice(e.target.value)}
           min="0" max="1" step="0.01"
-          onFocus={e => { e.currentTarget.style.borderColor = colors.accent }}
-          onBlur={e => { e.currentTarget.style.borderColor = colors.border }}
-          style={{ ...inputStyle, width: 90 }}
+          style={{ ...inputStyle, width: 90, fontFamily: fonts.mono }}
         />
         <button
           disabled={aggLoading || !aggQuestion.trim()}
           onClick={handleAggregate}
           style={{
-            padding: '8px 20px', borderRadius: 8, border: 'none', fontFamily: 'inherit',
+            padding: '8px 20px', borderRadius: 4, border: 'none', fontFamily: fonts.mono,
             background: aggLoading ? colors.bgSecondary : colors.gradientAccent,
-            color: '#fff', cursor: aggLoading ? 'wait' : 'pointer',
-            fontSize: 13, fontWeight: 600,
-            boxShadow: aggLoading ? 'none' : '0 2px 8px rgba(59,130,246,0.3)',
-            transition: 'all 0.2s',
+            color: aggLoading ? colors.textMuted : '#000',
+            cursor: aggLoading ? 'wait' : 'pointer',
+            fontSize: 11, fontWeight: 600,
+            boxShadow: aggLoading ? 'none' : '0 2px 12px rgba(0,229,255,0.2)',
+            transition: 'all 0.3s',
             opacity: !aggQuestion.trim() ? 0.5 : 1,
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
           }}
         >
           {aggLoading ? 'Running...' : 'Run Aggregate'}
         </button>
         {aggError && (
-          <span style={{ color: colors.danger, fontSize: 12 }}>{aggError}</span>
+          <span style={{ color: colors.danger, fontSize: 11, fontFamily: fonts.mono }}>{aggError}</span>
         )}
       </div>
 
@@ -135,13 +141,20 @@ export default function Analysis() {
         }}>
           {entries.length === 0 ? (
             <div style={{ padding: 32, textAlign: 'center', color: colors.textDim }}>
-              <div style={{ fontSize: 20, marginBottom: 8, opacity: 0.4 }}>~</div>
-              <div style={{ fontSize: 14, marginBottom: 4 }}>No analysis data yet</div>
-              <div style={{ fontSize: 12 }}>Start the bot or run a manual aggregate above.</div>
+              <div style={{
+                fontSize: 28, marginBottom: 8, opacity: 0.2,
+                fontFamily: fonts.mono, animation: 'textGlow 4s ease-in-out infinite',
+              }}>
+                ~
+              </div>
+              <div style={{ fontSize: 13, marginBottom: 4 }}>No analysis data yet</div>
+              <div style={{ fontSize: 11, fontFamily: fonts.mono, letterSpacing: '0.02em' }}>
+                Start the bot or run a manual aggregate above.
+              </div>
             </div>
           ) : (
             <div>
-              {entries.map(e => (
+              {entries.map((e, i) => (
                 <div
                   key={e.condition_id}
                   onClick={() => setSelectedId(e.condition_id)}
@@ -149,12 +162,12 @@ export default function Analysis() {
                     padding: '12px 14px',
                     borderBottom: `1px solid ${colors.border}`,
                     cursor: 'pointer',
-                    background: selectedId === e.condition_id ? colors.accentDim : 'transparent',
-                    transition: 'all 0.15s',
-                    borderLeft: selectedId === e.condition_id ? `3px solid ${colors.accent}` : '3px solid transparent',
+                    background: selectedId === e.condition_id ? 'rgba(0, 229, 255, 0.04)' : 'transparent',
+                    transition: 'all 0.2s',
+                    borderLeft: selectedId === e.condition_id ? `2px solid ${colors.accent}` : '2px solid transparent',
                   }}
                   onMouseEnter={e2 => {
-                    if (selectedId !== e.condition_id) e2.currentTarget.style.background = 'rgba(59,130,246,0.05)'
+                    if (selectedId !== e.condition_id) e2.currentTarget.style.background = 'rgba(0, 229, 255, 0.02)'
                   }}
                   onMouseLeave={e2 => {
                     if (selectedId !== e.condition_id) e2.currentTarget.style.background = 'transparent'
@@ -165,16 +178,17 @@ export default function Analysis() {
                     <DecisionBadge decision={e.decision} />
                     {e.edge != null && (
                       <span style={{
-                        fontSize: 11, fontWeight: 600,
-                        fontFamily: "'JetBrains Mono', monospace",
+                        fontSize: 10, fontWeight: 600,
+                        fontFamily: fonts.mono,
                         color: e.edge > 0 ? colors.success : colors.danger,
+                        textShadow: `0 0 8px ${e.edge > 0 ? colors.success : colors.danger}30`,
                       }}>
                         {e.edge > 0 ? '+' : ''}{(e.edge * 100).toFixed(1)}%
                       </span>
                     )}
                   </div>
                   <div style={{
-                    fontSize: 13, overflow: 'hidden',
+                    fontSize: 12, overflow: 'hidden',
                     textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     color: colors.textSecondary,
                   }}>
@@ -195,8 +209,13 @@ export default function Analysis() {
             <AnalysisDetail conditionId={selectedId} />
           ) : (
             <div style={{ color: colors.textDim, textAlign: 'center', marginTop: 80 }}>
-              <div style={{ fontSize: 24, marginBottom: 8, opacity: 0.3 }}>&#x2190;</div>
-              Select a market from the list to view analysis details
+              <div style={{
+                fontSize: 24, marginBottom: 8, opacity: 0.2,
+                fontFamily: fonts.mono,
+              }}>
+                &#x2190;
+              </div>
+              <div style={{ fontSize: 12 }}>Select a market from the list to view analysis details</div>
             </div>
           )}
         </div>

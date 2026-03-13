@@ -1,4 +1,4 @@
-import { colors } from '../../theme'
+import { colors, fonts } from '../../theme'
 
 interface Gate {
   name: string
@@ -56,7 +56,7 @@ export default function DecisionPipeline({ gates }: { gates: Gate[] }) {
               {/* Value vs threshold */}
               {g.value && (
                 <span style={{
-                  fontSize: 10, fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 10, fontFamily: fonts.mono,
                   color: c,
                 }}>
                   {g.value}

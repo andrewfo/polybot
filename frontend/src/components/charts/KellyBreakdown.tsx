@@ -1,4 +1,4 @@
-import { colors } from '../../theme'
+import { colors, fonts } from '../../theme'
 
 interface KellyData {
   bankroll: number
@@ -18,7 +18,7 @@ function StepRow({ label, value, highlight }: { label: string; value: string; hi
       <span style={{ color: colors.textMuted, fontSize: 12 }}>{label}</span>
       <span style={{
         fontWeight: 600, color: highlight || colors.textPrimary,
-        fontFamily: "'JetBrains Mono', monospace", fontSize: 13,
+        fontFamily: fonts.mono, fontSize: 13,
       }}>
         {value}
       </span>

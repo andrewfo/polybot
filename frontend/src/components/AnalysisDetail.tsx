@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { colors } from '../theme'
+import { colors, fonts } from '../theme'
 import { api, AnalysisDetail as AnalysisDetailType } from '../api'
 import ProbabilityBars from './charts/ProbabilityBars'
 import VolComparison from './charts/VolComparison'
@@ -21,23 +21,25 @@ function SectionHeader({ title, collapsed, onToggle, badge }: { title: string; c
     <h3
       onClick={onToggle}
       style={{
-        margin: '20px 0 10px', fontSize: 11, fontWeight: 600,
+        margin: '20px 0 10px', fontSize: 10, fontWeight: 600,
         color: colors.textMuted, textTransform: 'uppercase',
-        letterSpacing: '0.08em',
+        letterSpacing: '0.1em',
         borderBottom: `1px solid ${colors.border}`,
         paddingBottom: 8,
         cursor: onToggle ? 'pointer' : 'default',
         userSelect: 'none',
         display: 'flex', alignItems: 'center', gap: 6,
+        fontFamily: fonts.mono,
       }}
     >
       {onToggle && <span style={{ fontSize: 9, transition: 'transform 0.2s', transform: collapsed ? 'rotate(-90deg)' : 'rotate(0)' }}>&#9660;</span>}
+      <span style={{ width: 3, height: 3, borderRadius: 1, background: colors.accent, boxShadow: `0 0 4px ${colors.accent}` }} />
       {title}
       {badge && (
         <span style={{
-          fontSize: 9, padding: '1px 6px', borderRadius: 10,
+          fontSize: 9, padding: '1px 6px', borderRadius: 3,
           background: colors.accentDim, color: colors.textDim, fontWeight: 500,
-          marginLeft: 4,
+          marginLeft: 4, fontFamily: fonts.mono, border: `1px solid ${colors.border}`,
         }}>{badge}</span>
       )}
     </h3>
@@ -47,8 +49,10 @@ function SectionHeader({ title, collapsed, onToggle, badge }: { title: string; c
 function Badge({ text, color: fg }: { text: string; color: string }) {
   return (
     <span style={{
-      padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600,
-      background: fg + '22', color: fg,
+      padding: '3px 10px', borderRadius: 3, fontSize: 10, fontWeight: 600,
+      background: fg + '15', color: fg, fontFamily: fonts.mono,
+      letterSpacing: '0.04em', border: `1px solid ${fg}20`,
+      textShadow: `0 0 8px ${fg}30`,
     }}>
       {text}
     </span>
@@ -58,10 +62,16 @@ function Badge({ text, color: fg }: { text: string; color: string }) {
 function Stat({ label, value, highlight, mono, small }: { label: string; value: string; highlight?: string; mono?: boolean; small?: boolean }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <span style={{ fontSize: small ? 9 : 10, color: colors.textDim, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</span>
+      <span style={{
+        fontSize: small ? 9 : 10, color: colors.textDim, textTransform: 'uppercase',
+        letterSpacing: '0.06em', fontFamily: fonts.mono,
+      }}>
+        {label}
+      </span>
       <span style={{
         fontSize: small ? 11 : 13, fontWeight: 600, color: highlight || colors.textPrimary,
-        fontFamily: mono !== false ? "'JetBrains Mono', monospace" : 'inherit',
+        fontFamily: mono !== false ? fonts.mono : fonts.body,
+        textShadow: highlight ? `0 0 12px ${highlight}25` : 'none',
       }}>
         {value}
       </span>
@@ -80,7 +90,7 @@ function MetricRow({ label, value, highlight, detail }: { label: string; value: 
         {detail && <span style={{ fontSize: 10, color: colors.textDim }}>{detail}</span>}
         <span style={{
           fontWeight: 600, color: highlight || colors.textPrimary,
-          fontFamily: "'JetBrains Mono', monospace", fontSize: 12,
+          fontFamily: fonts.mono, fontSize: 12,
         }}>
           {value}
         </span>
@@ -92,8 +102,9 @@ function MetricRow({ label, value, highlight, detail }: { label: string; value: 
 function InfoBox({ children, accent }: { children: React.ReactNode; accent?: string }) {
   return (
     <div style={{
-      background: colors.bgSecondary, border: `1px solid ${accent ? accent + '33' : colors.border}`,
-      borderRadius: 8, padding: 12, marginBottom: 8,
+      background: 'rgba(6, 10, 20, 0.6)', border: `1px solid ${accent ? accent + '20' : colors.border}`,
+      borderRadius: 6, padding: 12, marginBottom: 8,
+      backdropFilter: 'blur(8px)',
     }}>
       {children}
     </div>
@@ -181,7 +192,7 @@ function CryptoSignalDetail({ raw }: { raw: Record<string, unknown> }) {
             }}>
               <div style={{ fontSize: 9, color: colors.textDim, marginBottom: 4 }}>BARRIER (touch)</div>
               <div style={{
-                fontSize: 20, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 20, fontWeight: 700, fontFamily: fonts.mono,
                 color: resType === 'barrier' ? '#f59e0b' : colors.textMuted,
               }}>
                 {barrier != null ? (barrier * 100).toFixed(1) + '%' : '--'}
@@ -195,7 +206,7 @@ function CryptoSignalDetail({ raw }: { raw: Record<string, unknown> }) {
             }}>
               <div style={{ fontSize: 9, color: colors.textDim, marginBottom: 4 }}>TERMINAL (expiry)</div>
               <div style={{
-                fontSize: 20, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 20, fontWeight: 700, fontFamily: fonts.mono,
                 color: resType === 'terminal' ? '#8b5cf6' : colors.textMuted,
               }}>
                 {terminal != null ? (terminal * 100).toFixed(1) + '%' : '--'}
@@ -209,7 +220,7 @@ function CryptoSignalDetail({ raw }: { raw: Record<string, unknown> }) {
             }}>
               <div style={{ fontSize: 9, color: colors.textDim, marginBottom: 4 }}>SELECTED</div>
               <div style={{
-                fontSize: 20, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 20, fontWeight: 700, fontFamily: fonts.mono,
                 color: colors.accent,
               }}>
                 {selected != null ? (selected * 100).toFixed(1) + '%' : '--'}
@@ -250,7 +261,7 @@ function CryptoSignalDetail({ raw }: { raw: Record<string, unknown> }) {
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: colors.textDim, marginBottom: 3 }}>
                 <span>Shrinkage toward zero</span>
-                <span style={{ fontFamily: "'JetBrains Mono', monospace", color: shrinkPct > 70 ? colors.warning : colors.accent }}>{shrinkPct.toFixed(0)}%</span>
+                <span style={{ fontFamily: fonts.mono, color: shrinkPct > 70 ? colors.warning : colors.accent }}>{shrinkPct.toFixed(0)}%</span>
               </div>
               <div style={{ height: 6, background: colors.border, borderRadius: 3, overflow: 'hidden' }}>
                 <div style={{
@@ -308,11 +319,11 @@ function PredictionMarketsDetail({ raw, consensusProb }: { raw: Record<string, u
               <div style={{ display: 'flex', gap: 10, color: colors.textDim, flexWrap: 'wrap', fontSize: 10 }}>
                 <span>Platform: <span style={{ color: colors.textMuted, fontWeight: 600 }}>{String(mm.platform || '?')}</span></span>
                 {mm.probability != null && (
-                  <span>Prob: <span style={{ fontFamily: "'JetBrains Mono', monospace", color: colors.accent }}>{fmtPct(mm.probability)}</span></span>
+                  <span>Prob: <span style={{ fontFamily: fonts.mono, color: colors.accent }}>{fmtPct(mm.probability)}</span></span>
                 )}
                 {mm.similarity != null && (
                   <span>Similarity: <span style={{
-                    fontFamily: "'JetBrains Mono', monospace",
+                    fontFamily: fonts.mono,
                     color: (mm.similarity as number) > 0.6 ? colors.success : (mm.similarity as number) > 0.4 ? colors.warning : colors.textDim,
                   }}>{fmt(mm.similarity, 3)}</span></span>
                 )}
@@ -415,7 +426,7 @@ function SignalCard({ signal, index }: { signal: Record<string, unknown>; index:
             </span>
           )}
           {prob != null && (
-            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, fontWeight: 700, color: colors.textPrimary }}>
+            <span style={{ fontFamily: fonts.mono, fontSize: 14, fontWeight: 700, color: colors.textPrimary }}>
               {(prob * 100).toFixed(1)}%
             </span>
           )}
@@ -456,7 +467,7 @@ function SignalCard({ signal, index }: { signal: Record<string, unknown>; index:
           {reasoning && (
             <pre style={{
               background: 'rgba(0,0,0,0.2)', borderRadius: 6, padding: 10, marginTop: 8,
-              fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: colors.textSecondary,
+              fontSize: 11, fontFamily: fonts.mono, color: colors.textSecondary,
               whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 150, overflow: 'auto',
               lineHeight: 1.4,
             }}>
@@ -489,7 +500,7 @@ function SignalCard({ signal, index }: { signal: Record<string, unknown>; index:
               <summary style={{ fontSize: 10, color: colors.textDim, cursor: 'pointer' }}>Raw Data</summary>
               <pre style={{
                 background: 'rgba(0,0,0,0.2)', borderRadius: 6, padding: 8, marginTop: 4,
-                fontSize: 10, fontFamily: "'JetBrains Mono', monospace", color: colors.textDim,
+                fontSize: 10, fontFamily: fonts.mono, color: colors.textDim,
                 whiteSpace: 'pre-wrap', maxHeight: 200, overflow: 'auto',
               }}>
                 {JSON.stringify(raw, null, 2)}
@@ -699,7 +710,7 @@ export default function AnalysisDetail({ conditionId }: { conditionId: string })
       <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 10, lineHeight: 1.4 }}>{question}</div>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
         <span style={{
-          fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: colors.textDim,
+          fontFamily: fonts.mono, fontSize: 10, color: colors.textDim,
           background: colors.accentDim, padding: '2px 8px', borderRadius: 10,
         }}>
           {conditionId.slice(0, 20)}...
@@ -913,7 +924,7 @@ export default function AnalysisDetail({ conditionId }: { conditionId: string })
               <div style={{ marginTop: 8 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: colors.textDim, marginBottom: 3 }}>
                   <span>Kelly fraction of bankroll</span>
-                  <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{fmtPct(kelly.fractional_kelly)}</span>
+                  <span style={{ fontFamily: fonts.mono }}>{fmtPct(kelly.fractional_kelly)}</span>
                 </div>
                 <div style={{ height: 8, background: colors.border, borderRadius: 4, overflow: 'hidden', position: 'relative' }}>
                   {/* Full Kelly indicator */}
@@ -977,7 +988,7 @@ export default function AnalysisDetail({ conditionId }: { conditionId: string })
             />
             {exec.paper != null && <Badge text="PAPER" color={colors.warning} />}
             {exec.trade_id != null && (
-              <span style={{ color: colors.textDim, fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+              <span style={{ color: colors.textDim, fontFamily: fonts.mono, fontSize: 11 }}>
                 ID: {String(exec.trade_id).slice(0, 8)}
               </span>
             )}
@@ -995,19 +1006,19 @@ export default function AnalysisDetail({ conditionId }: { conditionId: string })
             <>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 12, color: colors.textMuted }}>
-                  Final: <span style={{ color: colors.textPrimary, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace" }}>{fmtPct(estimate)}</span>
+                  Final: <span style={{ color: colors.textPrimary, fontWeight: 600, fontFamily: fonts.mono }}>{fmtPct(estimate)}</span>
                 </span>
                 <span style={{ fontSize: 12, color: colors.textMuted }}>
-                  Confidence: <span style={{ color: colors.textPrimary, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace" }}>{fmtPct(confidence)}</span>
+                  Confidence: <span style={{ color: colors.textPrimary, fontWeight: 600, fontFamily: fonts.mono }}>{fmtPct(confidence)}</span>
                 </span>
                 {preliminary > 0 && (
                   <span style={{ fontSize: 12, color: colors.textMuted }}>
-                    Pre-frontier: <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{fmtPct(preliminary)}</span>
+                    Pre-frontier: <span style={{ fontFamily: fonts.mono }}>{fmtPct(preliminary)}</span>
                   </span>
                 )}
                 <span style={{ fontSize: 12, color: colors.textMuted }}>
                   Shift: <span style={{
-                    fontFamily: "'JetBrains Mono', monospace",
+                    fontFamily: fonts.mono,
                     color: Math.abs(estimate - preliminary) > 0.1 ? colors.warning : colors.textDim,
                   }}>
                     {preliminary > 0 ? (estimate > preliminary ? '+' : '') + ((estimate - preliminary) * 100).toFixed(1) + '%' : '--'}
@@ -1022,7 +1033,7 @@ export default function AnalysisDetail({ conditionId }: { conditionId: string })
                   borderRadius: 8,
                   padding: 14,
                   fontSize: 12,
-                  fontFamily: "'JetBrains Mono', monospace",
+                  fontFamily: fonts.mono,
                   color: colors.textSecondary,
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-word',
@@ -1064,7 +1075,7 @@ export default function AnalysisDetail({ conditionId }: { conditionId: string })
         <summary style={{ fontSize: 10, color: colors.textDim, cursor: 'pointer' }}>Raw API Response</summary>
         <pre style={{
           background: 'rgba(0,0,0,0.3)', borderRadius: 6, padding: 10, marginTop: 4,
-          fontSize: 10, fontFamily: "'JetBrains Mono', monospace", color: colors.textDim,
+          fontSize: 10, fontFamily: fonts.mono, color: colors.textDim,
           whiteSpace: 'pre-wrap', maxHeight: 400, overflow: 'auto',
         }}>
           {JSON.stringify(data, null, 2)}

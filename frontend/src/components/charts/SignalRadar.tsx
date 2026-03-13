@@ -8,7 +8,7 @@ import {
   Tooltip,
   Legend,
 } from 'chart.js'
-import { colors } from '../../theme'
+import { colors, fonts } from '../../theme'
 
 ChartJS.register(RadialLinearScale, PointElement, LineElement, Filler, Tooltip, Legend)
 
@@ -20,7 +20,7 @@ interface SignalData {
   effective_weight: number
 }
 
-const palette = ['#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6', '#06b6d4']
+const palette = ['#00ff88', '#00e5ff', '#ffaa00', '#8b5cf6', '#06b6d4']
 
 export default function SignalRadar({ signals, marketPrice }: { signals: SignalData[]; marketPrice: number }) {
   const usable = signals.filter(s => s.probability != null && s.confidence > 0)
@@ -85,7 +85,7 @@ export default function SignalRadar({ signals, marketPrice }: { signals: SignalD
               },
             },
             tooltip: {
-              backgroundColor: 'rgba(11, 21, 41, 0.95)',
+              backgroundColor: 'rgba(8, 13, 26, 0.95)',
               borderColor: colors.border,
               borderWidth: 1,
               cornerRadius: 8,

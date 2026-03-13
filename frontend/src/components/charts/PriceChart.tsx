@@ -8,7 +8,7 @@ import {
   Tooltip,
   Filler,
 } from 'chart.js'
-import { colors } from '../../theme'
+import { colors, fonts } from '../../theme'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler)
 
@@ -30,7 +30,7 @@ export default function PriceChart({ data, target }: { data: PricePoint[]; targe
               label: 'Price',
               data: data.map(d => d.price),
               borderColor: colors.accent,
-              backgroundColor: 'rgba(59, 130, 246, 0.08)',
+              backgroundColor: 'rgba(0, 229, 255, 0.08)',
               fill: true,
               pointRadius: 0,
               pointHoverRadius: 4,
@@ -67,7 +67,7 @@ export default function PriceChart({ data, target }: { data: PricePoint[]; targe
           },
           plugins: {
             tooltip: {
-              backgroundColor: 'rgba(11, 21, 41, 0.95)',
+              backgroundColor: 'rgba(8, 13, 26, 0.95)',
               borderColor: colors.border,
               borderWidth: 1,
               cornerRadius: 8,

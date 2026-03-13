@@ -1,21 +1,21 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { colors, cardStyle } from '../theme'
+import { colors, cardStyle, fonts } from '../theme'
 import { api, LogEntry } from '../api'
 
 const levelColors: Record<string, string> = {
   DEBUG: colors.textDim,
-  INFO: '#3b82f6',
-  WARNING: '#f59e0b',
-  ERROR: '#ef4444',
-  CRITICAL: '#ef4444',
+  INFO: '#00e5ff',
+  WARNING: '#ffaa00',
+  ERROR: '#ff3366',
+  CRITICAL: '#ff3366',
 }
 
 const levelBg: Record<string, string> = {
   DEBUG: 'transparent',
-  INFO: 'rgba(59,130,246,0.06)',
-  WARNING: 'rgba(245,158,11,0.06)',
-  ERROR: 'rgba(239,68,68,0.08)',
-  CRITICAL: 'rgba(239,68,68,0.12)',
+  INFO: 'rgba(0,229,255,0.03)',
+  WARNING: 'rgba(255,170,0,0.03)',
+  ERROR: 'rgba(255,51,102,0.05)',
+  CRITICAL: 'rgba(255,51,102,0.08)',
 }
 
 export default function Logs() {
@@ -41,21 +41,27 @@ export default function Logs() {
     background: colors.bgCard,
     color: colors.textPrimary,
     border: `1px solid ${colors.border}`,
-    borderRadius: 8,
+    borderRadius: 4,
     padding: '6px 10px',
-    fontSize: 13,
-    fontFamily: 'inherit',
+    fontSize: 11,
+    fontFamily: fonts.mono,
     cursor: 'pointer',
     outline: 'none',
+    transition: 'border-color 0.2s',
+    letterSpacing: '0.02em',
   }
 
   return (
     <div>
+      {/* Controls */}
       <div style={{
-        ...cardStyle, padding: '12px 16px', marginBottom: 14,
+        ...cardStyle, padding: '10px 16px', marginBottom: 14,
         display: 'flex', gap: 10, alignItems: 'center',
       }}>
-        <label style={{ color: colors.textMuted, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <label style={{
+          color: colors.textMuted, fontSize: 10, display: 'flex', alignItems: 'center', gap: 6,
+          fontFamily: fonts.mono, letterSpacing: '0.06em', textTransform: 'uppercase',
+        }}>
           Level
           <select value={level} onChange={e => setLevel(e.target.value)} style={selectStyle}>
             <option value="ALL">ALL</option>
@@ -66,58 +72,106 @@ export default function Logs() {
           </select>
         </label>
         <button onClick={refresh} style={selectStyle}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = colors.accent }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = colors.border }}
+          onMouseEnter={e => {
+            e.currentTarget.style.borderColor = colors.accent
+            e.currentTarget.style.boxShadow = '0 0 8px rgba(0,229,255,0.15)'
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.borderColor = colors.border
+            e.currentTarget.style.boxShadow = 'none'
+          }}
         >
           Refresh
         </button>
-        <span style={{ color: colors.textDim, fontSize: 12, marginLeft: 'auto' }}>
-          {logs.length} entries
+        <span style={{
+          color: colors.textDim, fontSize: 10, marginLeft: 'auto',
+          fontFamily: fonts.mono, letterSpacing: '0.04em',
+        }}>
+          {logs.length} ENTRIES
         </span>
-        <div style={{
-          width: 8, height: 8, borderRadius: '50%',
-          background: colors.success, animation: 'pulse 2s ease-in-out infinite',
-        }} />
-        <style>{`@keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }`}</style>
+        {/* Pulsing live indicator */}
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <div style={{
+            width: 6, height: 6, borderRadius: '50%',
+            background: colors.success,
+            boxShadow: `0 0 8px ${colors.success}`,
+            animation: 'pulse 2s ease-in-out infinite',
+          }} />
+        </div>
       </div>
 
+      {/* Log viewer — terminal style */}
       <div style={{
         ...cardStyle, padding: 0,
         maxHeight: 'calc(100vh - 220px)',
         overflow: 'auto',
-        fontFamily: "'JetBrains Mono', monospace",
-        fontSize: 12,
+        fontFamily: fonts.mono,
+        fontSize: 11,
+        position: 'relative',
       }}>
+        {/* Scanline effect */}
+        <div style={{
+          position: 'absolute', left: 0, right: 0,
+          height: 4,
+          background: 'linear-gradient(180deg, rgba(0,229,255,0.03) 0%, transparent 100%)',
+          animation: 'scanline 8s linear infinite',
+          pointerEvents: 'none',
+          zIndex: 1,
+        }} />
+
         {logs.length === 0 ? (
-          <div style={{ padding: 32, textAlign: 'center', color: colors.textDim, fontFamily: 'Inter' }}>
-            No logs yet
+          <div style={{
+            padding: 32, textAlign: 'center', color: colors.textDim,
+            fontFamily: fonts.body,
+          }}>
+            <div style={{ fontFamily: fonts.mono, fontSize: 12, letterSpacing: '0.02em' }}>
+              No logs yet
+            </div>
           </div>
         ) : (
           logs.map((entry, i) => (
             <div
               key={i}
               style={{
-                padding: '5px 12px',
-                borderBottom: `1px solid ${colors.border}`,
+                padding: '4px 12px',
+                borderBottom: `1px solid rgba(0, 229, 255, 0.02)`,
                 display: 'flex',
-                gap: 10,
+                gap: 8,
                 background: levelBg[entry.level] || 'transparent',
-                transition: 'background 0.1s',
+                transition: 'background 0.15s',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = 'rgba(0, 229, 255, 0.03)'
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = levelBg[entry.level] || 'transparent'
               }}
             >
-              <span style={{ color: colors.textDim, whiteSpace: 'nowrap', minWidth: 170, fontSize: 11 }}>
+              <span style={{
+                color: colors.textDim, whiteSpace: 'nowrap', minWidth: 150, fontSize: 10,
+                opacity: 0.6,
+              }}>
                 {entry.timestamp.replace('T', ' ').slice(0, 19)}
               </span>
               <span style={{
                 color: levelColors[entry.level] || colors.textMuted,
-                fontWeight: 600, minWidth: 55, fontSize: 11,
+                fontWeight: 600, minWidth: 55, fontSize: 10,
+                textShadow: entry.level !== 'DEBUG' ? `0 0 6px ${levelColors[entry.level]}30` : 'none',
               }}>
                 {entry.level}
               </span>
-              <span style={{ color: colors.textDim, minWidth: 100, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <span style={{
+                color: colors.textDim, minWidth: 90, fontSize: 10,
+                overflow: 'hidden', textOverflow: 'ellipsis',
+                opacity: 0.5,
+              }}>
                 {entry.name}
               </span>
-              <span style={{ color: colors.textSecondary, fontSize: 12 }}>{entry.message}</span>
+              <span style={{
+                color: colors.textSecondary, fontSize: 11,
+              }}>
+                {entry.message}
+              </span>
             </div>
           ))
         )}

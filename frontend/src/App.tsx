@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { colors } from './theme'
+import { colors, fonts } from './theme'
 import { BotStatus } from './api'
 import TabBar from './components/TabBar'
 import Dashboard from './components/Dashboard'
@@ -57,6 +57,74 @@ function useWebSocket() {
   return { botStatus }
 }
 
+/* Floating ambient orbs */
+function AmbientBackground() {
+  return (
+    <div style={{
+      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+      pointerEvents: 'none', zIndex: 0, overflow: 'hidden',
+    }}>
+      {/* Cyan orb top-right */}
+      <div style={{
+        position: 'absolute', top: '-15%', right: '-8%',
+        width: 700, height: 700, borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(0,229,255,0.04) 0%, rgba(0,112,255,0.02) 40%, transparent 70%)',
+        animation: 'orbFloat 25s ease-in-out infinite',
+      }} />
+      {/* Purple orb bottom-left */}
+      <div style={{
+        position: 'absolute', bottom: '-10%', left: '-5%',
+        width: 600, height: 600, borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(139,92,246,0.03) 0%, rgba(0,112,255,0.01) 40%, transparent 70%)',
+        animation: 'orbFloat 30s ease-in-out infinite reverse',
+      }} />
+      {/* Green orb center-bottom */}
+      <div style={{
+        position: 'absolute', bottom: '20%', right: '30%',
+        width: 400, height: 400, borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(0,255,136,0.015) 0%, transparent 60%)',
+        animation: 'orbFloat 35s ease-in-out infinite',
+        animationDelay: '-10s',
+      }} />
+      {/* Gradient mesh overlay */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        background: colors.gradientMesh,
+      }} />
+    </div>
+  )
+}
+
+/* Top ticker bar */
+function TickerBar() {
+  const [time, setTime] = useState(new Date())
+  useEffect(() => {
+    const id = setInterval(() => setTime(new Date()), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  return (
+    <div style={{
+      background: 'rgba(0, 229, 255, 0.02)',
+      borderBottom: `1px solid ${colors.border}`,
+      padding: '4px 28px',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      fontFamily: fonts.mono,
+      fontSize: 10,
+      color: colors.textMuted,
+      letterSpacing: '0.05em',
+    }}>
+      <span>POLYMARKET SIGNAL ENGINE v1.0</span>
+      <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
+        <span>{time.toISOString().slice(0, 19).replace('T', ' ')} UTC</span>
+        <span style={{ color: colors.accent, animation: 'textGlow 3s ease-in-out infinite' }}>ACTIVE</span>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard')
   const { botStatus: wsBotStatus } = useWebSocket()
@@ -64,33 +132,23 @@ export default function App() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: `${colors.bgPrimary}`,
+      background: colors.bgVoid,
       color: colors.textPrimary,
-      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+      fontFamily: fonts.body,
+      position: 'relative',
     }}>
-      {/* Background gradient orbs */}
-      <div style={{
-        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-        pointerEvents: 'none', zIndex: 0, overflow: 'hidden',
-      }}>
-        <div style={{
-          position: 'absolute', top: '-20%', right: '-10%',
-          width: 600, height: 600, borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(59,130,246,0.06) 0%, transparent 70%)',
-        }} />
-        <div style={{
-          position: 'absolute', bottom: '-10%', left: '-5%',
-          width: 500, height: 500, borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(139,92,246,0.04) 0%, transparent 70%)',
-        }} />
-      </div>
+      <AmbientBackground />
 
       <div style={{ position: 'relative', zIndex: 1 }}>
+        {/* Micro ticker bar */}
+        <TickerBar />
+
+        {/* Header */}
         <header style={{
-          background: 'rgba(11, 21, 41, 0.8)',
-          backdropFilter: 'blur(16px)',
+          background: 'rgba(6, 10, 20, 0.85)',
+          backdropFilter: 'blur(20px)',
           borderBottom: `1px solid ${colors.border}`,
-          padding: '14px 28px',
+          padding: '12px 28px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -99,36 +157,79 @@ export default function App() {
           zIndex: 50,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            {/* Logo icon */}
+            {/* Animated logo */}
             <div style={{
-              width: 32, height: 32, borderRadius: 8,
+              width: 36, height: 36, borderRadius: 8,
               background: colors.gradientAccent,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 16, fontWeight: 700, color: '#fff',
-              boxShadow: '0 2px 8px rgba(59,130,246,0.3)',
+              fontSize: 16, fontWeight: 800, color: '#000',
+              fontFamily: fonts.display,
+              boxShadow: glowShadowCSS(colors.accent, 0.25),
+              position: 'relative',
+              overflow: 'hidden',
             }}>
-              P
+              <span style={{ position: 'relative', zIndex: 1 }}>P</span>
+              {/* Shine sweep */}
+              <div style={{
+                position: 'absolute', inset: 0,
+                background: 'linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.2) 50%, transparent 60%)',
+                animation: 'shimmer 3s ease-in-out infinite',
+                backgroundSize: '200% 100%',
+              }} />
             </div>
             <div>
-              <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.02em' }}>Polymarket Bot</span>
-              <span style={{ color: colors.textDim, fontSize: 12, marginLeft: 10 }}>Signal-Based Trading</span>
+              <span style={{
+                fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em',
+                fontFamily: fonts.display,
+                background: colors.gradientAccent,
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+              }}>
+                Polymarket Bot
+              </span>
+              <span style={{
+                color: colors.textDim, fontSize: 11, marginLeft: 12,
+                fontFamily: fonts.mono, letterSpacing: '0.04em',
+              }}>
+                SIGNAL-BASED TRADING
+              </span>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+
+          {/* Status indicator */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{
-              width: 8, height: 8, borderRadius: '50%',
-              background: wsBotStatus?.running ? colors.success : colors.textDim,
-              boxShadow: wsBotStatus?.running ? `0 0 8px ${colors.success}` : 'none',
-            }} />
-            <span style={{ fontSize: 12, color: colors.textMuted }}>
-              {wsBotStatus?.running ? 'Live' : 'Offline'}
-            </span>
+              padding: '4px 12px', borderRadius: 20,
+              background: wsBotStatus?.running ? colors.successDim : 'rgba(85,102,136,0.1)',
+              border: `1px solid ${wsBotStatus?.running ? 'rgba(0,255,136,0.2)' : 'rgba(85,102,136,0.15)'}`,
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              <div style={{
+                width: 6, height: 6, borderRadius: '50%',
+                background: wsBotStatus?.running ? colors.success : colors.textDim,
+                boxShadow: wsBotStatus?.running ? `0 0 8px ${colors.success}` : 'none',
+                animation: wsBotStatus?.running ? 'pulse 2s ease-in-out infinite' : 'none',
+              }} />
+              <span style={{
+                fontSize: 11, fontWeight: 600,
+                fontFamily: fonts.mono,
+                color: wsBotStatus?.running ? colors.success : colors.textMuted,
+                letterSpacing: '0.04em',
+              }}>
+                {wsBotStatus?.running ? 'LIVE' : 'OFFLINE'}
+              </span>
+            </div>
           </div>
         </header>
 
         <TabBar active={activeTab} onChange={setActiveTab} />
 
-        <main style={{ padding: '20px 28px', maxWidth: 1400, margin: '0 auto' }}>
+        <main style={{
+          padding: '20px 28px',
+          maxWidth: 1440,
+          margin: '0 auto',
+          animation: 'fadeInUp 0.3s ease forwards',
+        }}>
           {activeTab === 'dashboard' && <Dashboard wsBotStatus={wsBotStatus} />}
           {activeTab === 'markets' && <Markets />}
           {activeTab === 'analysis' && <Analysis />}
@@ -137,4 +238,8 @@ export default function App() {
       </div>
     </div>
   )
+}
+
+function glowShadowCSS(color: string, intensity = 0.15) {
+  return `0 0 24px ${color}${Math.round(intensity * 255).toString(16).padStart(2, '0')}, 0 4px 16px rgba(0,0,0,0.4)`
 }

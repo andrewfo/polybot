@@ -1,6 +1,6 @@
 import { Bar } from 'react-chartjs-2'
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip } from 'chart.js'
-import { colors } from '../../theme'
+import { colors, fonts } from '../../theme'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip)
 
@@ -9,7 +9,7 @@ interface WeightEntry {
   weight: number
 }
 
-const barPalette = ['#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6', '#06b6d4']
+const barPalette = ['#00ff88', '#00e5ff', '#ffaa00', '#8b5cf6', '#06b6d4']
 
 export default function SignalWeights({ data }: { data: WeightEntry[] }) {
   if (data.length === 0) return null
@@ -47,7 +47,7 @@ export default function SignalWeights({ data }: { data: WeightEntry[] }) {
           },
           plugins: {
             tooltip: {
-              backgroundColor: 'rgba(11, 21, 41, 0.95)',
+              backgroundColor: 'rgba(8, 13, 26, 0.95)',
               borderColor: colors.border,
               borderWidth: 1,
               cornerRadius: 8,

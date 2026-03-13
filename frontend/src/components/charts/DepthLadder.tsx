@@ -1,4 +1,4 @@
-import { colors } from '../../theme'
+import { colors, fonts } from '../../theme'
 
 interface Props {
   totalDepth: number
@@ -67,7 +67,7 @@ export default function DepthLadder({
           border: `1px solid ${colors.border}`,
         }}>
           <div style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase' }}>Price Levels</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: colors.textPrimary, fontFamily: "'JetBrains Mono', monospace" }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: colors.textPrimary, fontFamily: fonts.mono }}>
             {levels}
           </div>
         </div>
@@ -77,7 +77,7 @@ export default function DepthLadder({
             border: `1px solid ${colors.warning}33`,
           }}>
             <div style={{ fontSize: 9, color: colors.warning, textTransform: 'uppercase' }}>Adjusted Bet</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: colors.warning, fontFamily: "'JetBrains Mono', monospace" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: colors.warning, fontFamily: fonts.mono }}>
               ${adjustedBet.toFixed(2)}
             </div>
           </div>
@@ -89,7 +89,7 @@ export default function DepthLadder({
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
             <span style={{ fontSize: 10, color: colors.textDim }}>{m.label}</span>
             <div style={{ display: 'flex', gap: 8 }}>
-              <span style={{ fontSize: 10, fontFamily: "'JetBrains Mono', monospace", color: m.color, fontWeight: 600 }}>
+              <span style={{ fontSize: 10, fontFamily: fonts.mono, color: m.color, fontWeight: 600 }}>
                 {m.display}
               </span>
               {m.threshold && (

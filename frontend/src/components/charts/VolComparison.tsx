@@ -1,15 +1,15 @@
 import { Bar } from 'react-chartjs-2'
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from 'chart.js'
-import { colors } from '../../theme'
+import { colors, fonts } from '../../theme'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 
 const colorMap: Record<string, string> = {
-  historical: '#7a8ba5',
-  ewm: '#3b82f6',
-  short_term: '#f59e0b',
-  deribit_iv: '#22c55e',
-  selected: '#e8edf5',
+  historical: '#8899bb',
+  ewm: '#00e5ff',
+  short_term: '#ffaa00',
+  deribit_iv: '#00ff88',
+  selected: '#e4eaf6',
 }
 
 export default function VolComparison({ data }: { data: Record<string, number> }) {
@@ -60,7 +60,7 @@ export default function VolComparison({ data }: { data: Record<string, number> }
           plugins: {
             legend: { display: false },
             tooltip: {
-              backgroundColor: 'rgba(11, 21, 41, 0.95)',
+              backgroundColor: 'rgba(8, 13, 26, 0.95)',
               borderColor: colors.border,
               borderWidth: 1,
               cornerRadius: 8,

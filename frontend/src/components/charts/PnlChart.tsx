@@ -8,7 +8,7 @@ import {
   Tooltip,
   Filler,
 } from 'chart.js'
-import { colors } from '../../theme'
+import { colors, fonts } from '../../theme'
 import { PnlSnapshot } from '../../api'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler)
@@ -42,7 +42,7 @@ export default function PnlChart({ snapshots }: { snapshots: PnlSnapshot[] }) {
   const values = snapshots.map(s => s.total_value)
   const isPositive = values.length > 1 ? values[values.length - 1] >= values[0] : true
   const lineColor = isPositive ? colors.success : colors.danger
-  const fillColor = isPositive ? 'rgba(34, 197, 94, 0.08)' : 'rgba(239, 68, 68, 0.08)'
+  const fillColor = isPositive ? 'rgba(0, 255, 136, 0.08)' : 'rgba(255, 51, 102, 0.08)'
 
   return (
     <div style={{ height: 220 }}>
@@ -76,7 +76,7 @@ export default function PnlChart({ snapshots }: { snapshots: PnlSnapshot[] }) {
                 color: colors.textDim,
                 maxRotation: 0,
                 maxTicksLimit: 8,
-                font: { size: 10, family: 'Inter' },
+                font: { size: 10, family: fonts.body },
               },
             },
             y: {
@@ -84,18 +84,18 @@ export default function PnlChart({ snapshots }: { snapshots: PnlSnapshot[] }) {
               border: { display: false },
               ticks: {
                 color: colors.textDim,
-                font: { size: 10, family: "'JetBrains Mono', monospace" },
+                font: { size: 10, family: fonts.mono },
                 callback: v => `$${Number(v).toLocaleString()}`,
               },
             },
           },
           plugins: {
             tooltip: {
-              backgroundColor: 'rgba(11, 21, 41, 0.95)',
+              backgroundColor: 'rgba(8, 13, 26, 0.95)',
               borderColor: colors.border,
               borderWidth: 1,
-              titleFont: { size: 11, family: 'Inter' },
-              bodyFont: { size: 13, family: "'JetBrains Mono', monospace", weight: 600 },
+              titleFont: { size: 11, family: fonts.body },
+              bodyFont: { size: 13, family: fonts.mono, weight: 600 },
               padding: 10,
               cornerRadius: 8,
               displayColors: false,

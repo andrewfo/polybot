@@ -1,4 +1,5 @@
-import { colors } from '../theme'
+import { useState } from 'react'
+import { colors, fonts } from '../theme'
 
 type Tab = 'dashboard' | 'markets' | 'analysis' | 'logs'
 
@@ -10,53 +11,74 @@ const tabs: { id: Tab; label: string; icon: string }[] = [
 ]
 
 export default function TabBar({ active, onChange }: { active: Tab; onChange: (t: Tab) => void }) {
+  const [hovered, setHovered] = useState<Tab | null>(null)
+
   return (
     <nav style={{
       display: 'flex',
-      gap: 2,
-      background: 'rgba(11, 21, 41, 0.6)',
+      gap: 0,
+      background: 'rgba(6, 10, 20, 0.6)',
       backdropFilter: 'blur(12px)',
       borderBottom: `1px solid ${colors.border}`,
       padding: '0 28px',
+      position: 'relative',
     }}>
-      {tabs.map(t => {
+      {tabs.map((t, i) => {
         const isActive = active === t.id
+        const isHovered = hovered === t.id
         return (
           <button
             key={t.id}
             onClick={() => onChange(t.id)}
+            onMouseEnter={() => setHovered(t.id)}
+            onMouseLeave={() => setHovered(null)}
             style={{
-              padding: '12px 20px',
+              padding: '11px 22px',
               border: 'none',
-              borderBottom: isActive ? `2px solid ${colors.accent}` : '2px solid transparent',
-              background: isActive ? colors.accentDim : 'transparent',
-              color: isActive ? colors.accentLight : colors.textMuted,
+              borderBottom: `2px solid ${isActive ? colors.accent : 'transparent'}`,
+              background: isActive
+                ? 'rgba(0, 229, 255, 0.05)'
+                : isHovered
+                  ? 'rgba(0, 229, 255, 0.02)'
+                  : 'transparent',
+              color: isActive ? colors.accent : isHovered ? colors.textSecondary : colors.textMuted,
               cursor: 'pointer',
-              fontSize: 13,
+              fontSize: 12,
               fontWeight: isActive ? 600 : 500,
-              transition: 'all 0.2s ease',
+              transition: 'all 0.25s ease',
               display: 'flex',
               alignItems: 'center',
-              gap: 6,
+              gap: 7,
               borderRadius: '6px 6px 0 0',
-              fontFamily: 'inherit',
-              letterSpacing: '0.01em',
-            }}
-            onMouseEnter={e => {
-              if (!isActive) {
-                e.currentTarget.style.color = colors.textSecondary
-                e.currentTarget.style.background = 'rgba(59, 130, 246, 0.05)'
-              }
-            }}
-            onMouseLeave={e => {
-              if (!isActive) {
-                e.currentTarget.style.color = colors.textMuted
-                e.currentTarget.style.background = 'transparent'
-              }
+              fontFamily: fonts.body,
+              letterSpacing: '0.03em',
+              position: 'relative',
+              animation: 'fadeInUp 0.3s ease forwards',
+              animationDelay: `${i * 0.05}s`,
+              opacity: 0,
+              textTransform: 'uppercase',
             }}
           >
-            <span style={{ fontSize: 14, opacity: 0.7 }}>{t.icon}</span>
+            <span style={{
+              fontSize: 13,
+              opacity: isActive ? 1 : 0.5,
+              transition: 'opacity 0.2s',
+              filter: isActive ? `drop-shadow(0 0 4px ${colors.accent})` : 'none',
+            }}>
+              {t.icon}
+            </span>
             {t.label}
+            {/* Active glow underline */}
+            {isActive && (
+              <div style={{
+                position: 'absolute',
+                bottom: -1, left: '10%', right: '10%',
+                height: 2,
+                background: colors.accent,
+                boxShadow: `0 0 12px ${colors.accent}, 0 0 24px rgba(0, 229, 255, 0.3)`,
+                borderRadius: 1,
+              }} />
+            )}
           </button>
         )
       })}

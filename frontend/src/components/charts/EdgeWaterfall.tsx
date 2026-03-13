@@ -1,6 +1,6 @@
 import { Bar } from 'react-chartjs-2'
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip } from 'chart.js'
-import { colors } from '../../theme'
+import { colors, fonts } from '../../theme'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip)
 
@@ -80,7 +80,7 @@ export default function EdgeWaterfall({ steps }: { steps: WaterfallStep[] }) {
           },
           plugins: {
             tooltip: {
-              backgroundColor: 'rgba(11, 21, 41, 0.95)',
+              backgroundColor: 'rgba(8, 13, 26, 0.95)',
               borderColor: colors.border,
               borderWidth: 1,
               cornerRadius: 8,

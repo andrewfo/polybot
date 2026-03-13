@@ -1,6 +1,6 @@
 import { Doughnut } from 'react-chartjs-2'
 import { Chart as ChartJS, ArcElement, Tooltip } from 'chart.js'
-import { colors } from '../../theme'
+import { colors, fonts } from '../../theme'
 
 ChartJS.register(ArcElement, Tooltip)
 
@@ -47,7 +47,7 @@ export default function ConfidenceGauge({ value, label = 'Confidence', threshold
       }}>
         <div style={{
           fontSize: 18, fontWeight: 700, color: gaugeColor,
-          fontFamily: "'JetBrains Mono', monospace",
+          fontFamily: fonts.mono,
           lineHeight: 1,
         }}>
           {(pct * 100).toFixed(0)}%

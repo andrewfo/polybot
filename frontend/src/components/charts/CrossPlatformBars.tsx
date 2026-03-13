@@ -1,6 +1,6 @@
 import { Bar } from 'react-chartjs-2'
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip } from 'chart.js'
-import { colors } from '../../theme'
+import { colors, fonts } from '../../theme'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip)
 
@@ -15,8 +15,8 @@ interface MatchedMarket {
 
 const platformColors: Record<string, string> = {
   metaculus: '#8b5cf6',
-  kalshi: '#f59e0b',
-  polymarket: '#3b82f6',
+  kalshi: '#ffaa00',
+  polymarket: '#00e5ff',
 }
 
 export default function CrossPlatformBars({
@@ -67,12 +67,12 @@ export default function CrossPlatformBars({
               y: {
                 grid: { display: false },
                 border: { display: false },
-                ticks: { color: colors.textMuted, font: { size: 10, family: 'Inter' } },
+                ticks: { color: colors.textMuted, font: { size: 10, family: fonts.body } },
               },
             },
             plugins: {
               tooltip: {
-                backgroundColor: 'rgba(11, 21, 41, 0.95)',
+                backgroundColor: 'rgba(8, 13, 26, 0.95)',
                 borderColor: colors.border,
                 borderWidth: 1,
                 cornerRadius: 8,
@@ -96,7 +96,7 @@ export default function CrossPlatformBars({
         }}>
           <span style={{ width: 12, height: 2, background: colors.danger, display: 'inline-block' }} />
           Weighted consensus: <span style={{
-            fontFamily: "'JetBrains Mono', monospace", color: colors.danger, fontWeight: 600,
+            fontFamily: fonts.mono, color: colors.danger, fontWeight: 600,
           }}>{(consensusProb * 100).toFixed(1)}%</span>
         </div>
       )}
