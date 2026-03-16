@@ -116,7 +116,7 @@ function TickerBar() {
       color: colors.textMuted,
       letterSpacing: '0.05em',
     }}>
-      <span>POLYMARKET SIGNAL ENGINE v1.0</span>
+      <span>CRYPTO AI SLAVE 3000 v1.0</span>
       <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
         <span>{time.toISOString().slice(0, 19).replace('T', ' ')} UTC</span>
         <span style={{ color: colors.accent, animation: 'textGlow 3s ease-in-out infinite' }}>ACTIVE</span>
@@ -185,13 +185,13 @@ export default function App() {
                 WebkitBackgroundClip: 'text',
                 WebkitTextFillColor: 'transparent',
               }}>
-                Polymarket Bot
+                Crypto AI Slave 3000
               </span>
               <span style={{
                 color: colors.textDim, fontSize: 11, marginLeft: 12,
                 fontFamily: fonts.mono, letterSpacing: '0.04em',
               }}>
-                SIGNAL-BASED TRADING
+                CRYPTO AI SLAVE 3000
               </span>
             </div>
           </div>
