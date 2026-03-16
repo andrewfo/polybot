@@ -171,7 +171,9 @@ class TestInsufficientSignals:
                 market_price=0.50,
             )
 
-        assert result is None
+        assert result is not None
+        assert result.skipped is True
+        assert "resolution_crypto" in result.skip_reason
         # Frontier should NOT have been called
         mock_llm.call_json.assert_not_called()
 
@@ -190,7 +192,8 @@ class TestInsufficientSignals:
                 market_price=0.50,
             )
 
-        assert result is None
+        assert result is not None
+        assert result.skipped is True
 
     @pytest.mark.asyncio
     async def test_all_providers_error(self, mock_llm):
@@ -206,7 +209,9 @@ class TestInsufficientSignals:
                 market_price=0.50,
             )
 
-        assert result is None
+        # All providers errored — no signals at all, returns skipped result
+        assert result is not None
+        assert result.skipped is True
 
     @pytest.mark.asyncio
     async def test_only_one_usable_signal_skips(self, mock_llm):
@@ -225,7 +230,11 @@ class TestInsufficientSignals:
                 market_price=0.50,
             )
 
-        assert result is None
+        assert result is not None
+        assert result.skipped is True
+        assert "only 1 usable" in result.skip_reason
+        # Signal data should be preserved for UI
+        assert len(result.all_signals) == 2
         mock_llm.call_json.assert_not_called()
 
     @pytest.mark.asyncio
@@ -245,7 +254,11 @@ class TestInsufficientSignals:
                 market_price=0.50,
             )
 
-        assert result is None
+        assert result is not None
+        assert result.skipped is True
+        assert "resolution_crypto" in result.skip_reason
+        # Signal data should be preserved for UI
+        assert len(result.individual_signals) == 2
         mock_llm.call_json.assert_not_called()
 
 
@@ -494,7 +507,8 @@ class TestSignalStorage:
                 market_price=0.50,
             )
 
-        assert result is None
+        assert result is not None
+        assert result.skipped is True
         mock_db.record_signal.assert_called_once()
         call_kwargs = mock_db.record_signal.call_args.kwargs
         assert call_kwargs["signal_source"] == "aggregator_skip"

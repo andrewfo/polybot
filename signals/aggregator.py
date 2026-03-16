@@ -427,7 +427,21 @@ class SignalAggregator:
                 market_question, "aggregator_skip", None, 0.0,
                 f"Insufficient signals — {reason} — skipping market", "none",
             )
-            return None
+            return AggregatedSignal(
+                market_question=market_question,
+                market_category=market_category,
+                market_price=market_price,
+                final_probability=0.0,
+                confidence=0.0,
+                reasoning="",
+                signals_agreement="--",
+                market_efficiency="--",
+                preliminary_probability=0.0,
+                individual_signals=usable_signals,
+                all_signals=all_signals,
+                skipped=True,
+                skip_reason=reason,
+            )
 
         # Step 4: Compute weighted preliminary estimate
         preliminary_prob = compute_preliminary_probability(usable_signals)

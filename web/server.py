@@ -327,11 +327,105 @@ class BotEngine:
 
         self.aggregated_ids.add(cid)
 
+        # Build market metadata for frontend (always, even if skipped)
+        end_date = m.get("endDate", "")
+        days_remaining = None
+        if end_date:
+            try:
+                end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+                days_remaining = max(0, (end_dt - datetime.now(timezone.utc)).total_seconds() / 86400)
+            except Exception:
+                pass
+
+        market_meta = {
+            "liquidity": m.get("liquidity", m.get("liquidityNum")),
+            "volume_24h": m.get("volume24hr"),
+            "spread": m.get("spread"),
+            "best_bid": m.get("bestBid"),
+            "best_ask": m.get("bestAsk"),
+            "end_date": end_date,
+            "days_remaining": round(days_remaining, 1) if days_remaining is not None else None,
+            "resolution_type": (m.get("_resolution_params") or {}).get("resolution_type", "unknown"),
+            "resolution_params": m.get("_resolution_params"),
+            "model_edge": m.get("_model_edge"),
+            "time_score": m.get("_time_score"),
+            "total_score": m.get("_total_score"),
+        }
+
+        skip_thresholds = {
+            "min_edge": MIN_EDGE_THRESHOLD,
+            "min_confidence": 0.25,
+            "max_spread": MAX_SPREAD,
+            "min_liquidity": MIN_MARKET_LIQUIDITY,
+            "max_slippage": MAX_ACCEPTABLE_SLIPPAGE,
+            "min_depth_usd": MIN_DEPTH_USD,
+            "max_drawdown": MAX_DRAWDOWN_PCT,
+            "max_daily_loss": MAX_DAILY_LOSS_PCT,
+            "max_positions": MAX_SIMULTANEOUS_POSITIONS,
+            "max_divergence_low_conf": MAX_DIVERGENCE_LOW_CONFIDENCE,
+            "max_divergence_any_conf": MAX_DIVERGENCE_ANY_CONFIDENCE,
+            "kelly_fraction": KELLY_FRACTION,
+            "fee_rate": POLYMARKET_FEE_RATE,
+            "confidence_blend_floor": MIN_CONFIDENCE_BLEND,
+        }
+
         if result is None or result.skipped:
+            # Still populate structured data so UI shows market info + signals
+            from signals.aggregator import SIGNAL_WEIGHT_MULTIPLIERS, _compute_effective_weight
+
+            skip_signals = []
+            if result is not None:
+                for s in (result.all_signals if result.all_signals else result.individual_signals):
+                    skip_signals.append({
+                        "source": s.source,
+                        "probability": s.probability,
+                        "confidence": s.confidence,
+                        "reasoning": s.reasoning,
+                        "model_used": s.model_used,
+                        "data_points": s.data_points,
+                        "raw_data": s.raw_data,
+                        "effective_weight": round(_compute_effective_weight(s), 3) if s.probability is not None and s.confidence > 0 else 0,
+                        "base_multiplier": SIGNAL_WEIGHT_MULTIPLIERS.get(s.source, 1.0),
+                        "usable": s.probability is not None and s.confidence > 0,
+                    })
+
             self.analysis_entries[cid].update({
                 "status": "skipped",
+                "decision": "SKIP",
+                "edge": 0,
                 "skip_reason": result.skip_reason if result else "no usable signals",
+                "market_meta": market_meta,
+                "aggregation": {
+                    "final_probability": result.final_probability if result else 0,
+                    "preliminary_probability": result.preliminary_probability if result else 0,
+                    "confidence": result.confidence if result else 0,
+                    "reasoning": result.reasoning if result else "",
+                    "signals_agreement": result.signals_agreement if result else "--",
+                    "market_efficiency": result.market_efficiency if result else "--",
+                    "market_price": market_price,
+                    "total_data_points": result.total_data_points if result else 0,
+                    "signals_stdev": 0,
+                    "signals": skip_signals,
+                },
+                "kelly": {
+                    "edge": 0,
+                    "effective_prob": 0,
+                    "bet_size": 0,
+                    "should_trade": False,
+                    "skip_reason": result.skip_reason if result else "no usable signals",
+                    "market_price": market_price,
+                },
+                "thresholds": skip_thresholds,
+                "depth": {},
+                "execution": {},
             })
+
+            # Extract price_history from crypto signal if available
+            if result is not None:
+                for s in (result.all_signals if result.all_signals else result.individual_signals):
+                    if s.source == "resolution_crypto" and s.raw_data and s.raw_data.get("price_history"):
+                        self.analysis_entries[cid]["price_history"] = s.raw_data["price_history"]
+                        break
             return
 
         # Run Kelly sizing
@@ -404,31 +498,6 @@ class BotEngine:
                 "paper": PAPER_TRADING,
             }
 
-        # Build market metadata for frontend
-        end_date = m.get("endDate", "")
-        days_remaining = None
-        if end_date:
-            try:
-                end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
-                days_remaining = max(0, (end_dt - datetime.now(timezone.utc)).total_seconds() / 86400)
-            except Exception:
-                pass
-
-        market_meta = {
-            "liquidity": m.get("liquidity", m.get("liquidityNum")),
-            "volume_24h": m.get("volume24hr"),
-            "spread": m.get("spread"),
-            "best_bid": m.get("bestBid"),
-            "best_ask": m.get("bestAsk"),
-            "end_date": end_date,
-            "days_remaining": round(days_remaining, 1) if days_remaining is not None else None,
-            "resolution_type": (m.get("_resolution_params") or {}).get("resolution_type", "unknown"),
-            "resolution_params": m.get("_resolution_params"),
-            "model_edge": m.get("_model_edge"),
-            "time_score": m.get("_time_score"),
-            "total_score": m.get("_total_score"),
-        }
-
         # Compute effective weights for each signal
         from signals.aggregator import SIGNAL_WEIGHT_MULTIPLIERS, _compute_effective_weight
         import math as _math
@@ -496,22 +565,7 @@ class BotEngine:
                 "min_bankroll_reserve": MIN_BANKROLL_RESERVE,
                 "confidence_blend_floor": MIN_CONFIDENCE_BLEND,
             },
-            "thresholds": {
-                "min_edge": MIN_EDGE_THRESHOLD,
-                "min_confidence": 0.25,
-                "max_spread": MAX_SPREAD,
-                "min_liquidity": MIN_MARKET_LIQUIDITY,
-                "max_slippage": MAX_ACCEPTABLE_SLIPPAGE,
-                "min_depth_usd": MIN_DEPTH_USD,
-                "max_drawdown": MAX_DRAWDOWN_PCT,
-                "max_daily_loss": MAX_DAILY_LOSS_PCT,
-                "max_positions": MAX_SIMULTANEOUS_POSITIONS,
-                "max_divergence_low_conf": MAX_DIVERGENCE_LOW_CONFIDENCE,
-                "max_divergence_any_conf": MAX_DIVERGENCE_ANY_CONFIDENCE,
-                "kelly_fraction": KELLY_FRACTION,
-                "fee_rate": POLYMARKET_FEE_RATE,
-                "confidence_blend_floor": MIN_CONFIDENCE_BLEND,
-            },
+            "thresholds": skip_thresholds,
             "depth": depth_data,
             "execution": exec_data,
         })
