@@ -322,7 +322,7 @@ class BotEngine:
             market_end_date=m.get("endDate", ""),
             market_price=market_price,
             condition_id=cid,
-            resolution_params=m.get("_resolution_params"),
+            resolution_keywords=m.get("_resolution_params"),
         )
 
         self.aggregated_ids.add(cid)
