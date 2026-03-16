@@ -410,9 +410,17 @@ class SignalAggregator:
             f"{len(usable_signals)} usable of {len(all_signals)} total signals",
         )
 
-        # Step 3: If no usable signals -> skip this market
-        if len(usable_signals) < 1:
-            reason = "no usable signals"
+        # Step 3: Require at least 2 usable signals AND the math-based signal
+        has_math_signal = any(
+            s.source == "resolution_crypto" for s in usable_signals
+        )
+        if len(usable_signals) < 2 or not has_math_signal:
+            reasons = []
+            if len(usable_signals) < 2:
+                reasons.append(f"only {len(usable_signals)} usable signals (need 2+)")
+            if not has_math_signal:
+                reasons.append("missing resolution_crypto math signal")
+            reason = "; ".join(reasons)
             logger.info("Insufficient signals for '%s': %s, skipping", market_question[:60], reason)
             self._emit(market_question, "skip", reason)
             self._log_aggregated_signal(

@@ -151,10 +151,10 @@ class TestResolutionSourceWeight:
 
 
 # ---------------------------------------------------------------------------
-# Test: 0 usable signals → returns None (skip market)
+# Test: insufficient signals → returns None (skip market)
 # ---------------------------------------------------------------------------
 
-class TestZeroUsableSignals:
+class TestInsufficientSignals:
     @pytest.mark.asyncio
     async def test_all_zero_confidence(self, mock_llm):
         providers = [
@@ -208,6 +208,46 @@ class TestZeroUsableSignals:
 
         assert result is None
 
+    @pytest.mark.asyncio
+    async def test_only_one_usable_signal_skips(self, mock_llm):
+        """Even with resolution_crypto, need at least 2 usable signals."""
+        providers = [
+            _make_mock_provider(_make_signal(source="resolution_crypto", probability=0.7, confidence=0.9)),
+            _make_mock_provider(_make_signal(source="web_search", confidence=0.0, probability=None)),
+        ]
+        aggregator = SignalAggregator(llm=mock_llm, providers=providers)
+
+        with patch("signals.aggregator.db"):
+            result = await aggregator.aggregate(
+                market_question="Test?",
+                market_category="crypto",
+                market_end_date="2026-12-31",
+                market_price=0.50,
+            )
+
+        assert result is None
+        mock_llm.call_json.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_missing_math_signal_skips(self, mock_llm):
+        """Two usable signals but no resolution_crypto → skip."""
+        providers = [
+            _make_mock_provider(_make_signal(source="web_search", probability=0.6, confidence=0.8)),
+            _make_mock_provider(_make_signal(source="prediction_markets", probability=0.55, confidence=0.7)),
+        ]
+        aggregator = SignalAggregator(llm=mock_llm, providers=providers)
+
+        with patch("signals.aggregator.db"):
+            result = await aggregator.aggregate(
+                market_question="Test?",
+                market_category="crypto",
+                market_end_date="2026-12-31",
+                market_price=0.50,
+            )
+
+        assert result is None
+        mock_llm.call_json.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Test: frontier model confidence < 0.25 → skip market
@@ -221,7 +261,7 @@ class TestLowFrontierConfidence:
             final_probability=0.6,
         ))
         providers = [
-            _make_mock_provider(_make_signal(probability=0.6, confidence=0.8)),
+            _make_mock_provider(_make_signal(source="resolution_crypto", probability=0.6, confidence=0.8)),
             _make_mock_provider(_make_signal(source="web_search", probability=0.55, confidence=0.6)),
         ]
         aggregator = SignalAggregator(llm=mock_llm, providers=providers)
@@ -229,7 +269,7 @@ class TestLowFrontierConfidence:
         with patch("signals.aggregator.db"):
             result = await aggregator.aggregate(
                 market_question="Test?",
-                market_category="politics",
+                market_category="crypto",
                 market_end_date="2026-12-31",
                 market_price=0.50,
             )
@@ -243,7 +283,7 @@ class TestLowFrontierConfidence:
             confidence=0.24,
         ))
         providers = [
-            _make_mock_provider(_make_signal(probability=0.6, confidence=0.8)),
+            _make_mock_provider(_make_signal(source="resolution_crypto", probability=0.6, confidence=0.8)),
             _make_mock_provider(_make_signal(source="web_search", probability=0.55, confidence=0.6)),
         ]
         aggregator = SignalAggregator(llm=mock_llm, providers=providers)
@@ -251,7 +291,7 @@ class TestLowFrontierConfidence:
         with patch("signals.aggregator.db"):
             result = await aggregator.aggregate(
                 market_question="Test?",
-                market_category="politics",
+                market_category="crypto",
                 market_end_date="2026-12-31",
                 market_price=0.50,
             )
@@ -265,7 +305,7 @@ class TestLowFrontierConfidence:
             confidence=0.25,
         ))
         providers = [
-            _make_mock_provider(_make_signal(probability=0.6, confidence=0.8)),
+            _make_mock_provider(_make_signal(source="resolution_crypto", probability=0.6, confidence=0.8)),
             _make_mock_provider(_make_signal(source="web_search", probability=0.55, confidence=0.6)),
         ]
         aggregator = SignalAggregator(llm=mock_llm, providers=providers)
@@ -273,7 +313,7 @@ class TestLowFrontierConfidence:
         with patch("signals.aggregator.db"):
             result = await aggregator.aggregate(
                 market_question="Test?",
-                market_category="politics",
+                market_category="crypto",
                 market_end_date="2026-12-31",
                 market_price=0.50,
             )
@@ -293,7 +333,7 @@ class TestFrontierFailure:
 
         mock_llm.call_json = AsyncMock(side_effect=LLMError("Frontier model failed"))
         providers = [
-            _make_mock_provider(_make_signal(probability=0.6, confidence=0.8)),
+            _make_mock_provider(_make_signal(source="resolution_crypto", probability=0.6, confidence=0.8)),
             _make_mock_provider(_make_signal(source="web_search", probability=0.55, confidence=0.6)),
         ]
         aggregator = SignalAggregator(llm=mock_llm, providers=providers)
@@ -465,7 +505,7 @@ class TestSignalStorage:
             confidence=0.15,
         ))
         providers = [
-            _make_mock_provider(_make_signal(probability=0.6, confidence=0.8)),
+            _make_mock_provider(_make_signal(source="resolution_crypto", probability=0.6, confidence=0.8)),
             _make_mock_provider(_make_signal(source="web_search", probability=0.55, confidence=0.6)),
         ]
         aggregator = SignalAggregator(llm=mock_llm, providers=providers)
@@ -525,7 +565,7 @@ class TestFrontierPrompt:
     async def test_prompt_has_superforecaster(self, mock_llm):
         mock_llm.call_json = AsyncMock(return_value=_make_frontier_response(confidence=0.8))
         providers = [
-            _make_mock_provider(_make_signal(probability=0.6, confidence=0.8)),
+            _make_mock_provider(_make_signal(source="resolution_crypto", probability=0.6, confidence=0.8)),
             _make_mock_provider(_make_signal(source="web_search", probability=0.55, confidence=0.6)),
         ]
         aggregator = SignalAggregator(llm=mock_llm, providers=providers)
