@@ -488,9 +488,11 @@ class BotEngine:
                         break
             return
 
-        # Run Kelly sizing
+        # Run Kelly sizing — use available cash (not static TEST_BANKROLL)
         if PAPER_TRADING:
-            bankroll = TEST_BANKROLL
+            from core.db import get_paper_balance
+            paper_bal = get_paper_balance(TEST_BANKROLL)
+            bankroll = max(paper_bal["available_cash"], 0)
         else:
             try:
                 from core.wallet import Wallet
@@ -883,6 +885,14 @@ def create_app() -> FastAPI:
         try:
             from core.db import get_open_positions
             return get_open_positions()
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": str(e)[:200]})
+
+    @app.get("/api/paper-balance")
+    async def paper_balance():
+        try:
+            from core.db import get_paper_balance
+            return get_paper_balance(TEST_BANKROLL)
         except Exception as e:
             return JSONResponse(status_code=500, content={"error": str(e)[:200]})
 

@@ -265,7 +265,8 @@ def upsert_position(
     """Insert or update a position."""
     db = get_db()
     now = datetime.now(timezone.utc).isoformat()
-    unrealized_pnl = (current_price - avg_entry) * size if side == "BUY" else (avg_entry - current_price) * size
+    # Both BUY_YES and BUY_NO buy a token — profit when token price rises
+    unrealized_pnl = (current_price - avg_entry) * size
     db["positions"].upsert({
         "token_id": token_id,
         "market_id": market_id,
@@ -400,6 +401,29 @@ def get_total_pnl() -> float:
         "SELECT COALESCE(SUM(pnl), 0) as total FROM trades WHERE pnl IS NOT NULL"
     ).fetchall())
     return float(rows[0][0]) if rows else 0.0
+
+
+def get_paper_balance(starting_bankroll: float) -> dict[str, float]:
+    """Compute paper trading balance breakdown.
+
+    Returns dict with starting_balance, realized_pnl, deployed_capital,
+    unrealized_pnl, available_cash, total_value.
+    """
+    realized_pnl = get_total_pnl()
+    positions = get_open_positions()
+    deployed_capital = sum(p["size"] * p["avg_entry"] for p in positions)
+    unrealized_pnl = sum(p.get("unrealized_pnl", 0) for p in positions)
+    available_cash = starting_bankroll + realized_pnl - deployed_capital
+    total_value = available_cash + sum(p["size"] * p["current_price"] for p in positions)
+    return {
+        "starting_balance": starting_bankroll,
+        "realized_pnl": realized_pnl,
+        "deployed_capital": deployed_capital,
+        "unrealized_pnl": unrealized_pnl,
+        "available_cash": available_cash,
+        "total_value": total_value,
+        "open_positions": len(positions),
+    }
 
 
 # ---------------------------------------------------------------------------

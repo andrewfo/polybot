@@ -127,6 +127,16 @@ export interface PnlResponse {
   win_rate: number
 }
 
+export interface PaperBalance {
+  starting_balance: number
+  realized_pnl: number
+  deployed_capital: number
+  unrealized_pnl: number
+  available_cash: number
+  total_value: number
+  open_positions: number
+}
+
 const BASE = ''
 
 async function fetchJSON<T>(url: string): Promise<T> {
@@ -152,6 +162,7 @@ export const api = {
   fetchCosts: () => fetchJSON<CostResponse>('/api/costs'),
   fetchBotStatus: () => fetchJSON<BotStatus>('/api/bot/status'),
   fetchPnl: () => fetchJSON<PnlResponse>('/api/pnl'),
+  fetchPaperBalance: () => fetchJSON<PaperBalance>('/api/paper-balance'),
   fetchMarkets: (sort = 'volume24hr', limit = 20) =>
     fetchJSON<Market[]>(`/api/markets?sort=${sort}&limit=${limit}`),
   fetchAnalysisList: () => fetchJSON<AnalysisSummary[]>('/api/analysis'),

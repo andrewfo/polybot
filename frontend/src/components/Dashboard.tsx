@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { colors, cardStyle, glowShadow, fonts, animDelay } from '../theme'
-import { api, HealthResponse, WalletResponse, CostResponse, BotStatus, Position, PnlResponse } from '../api'
+import { api, HealthResponse, WalletResponse, CostResponse, BotStatus, Position, PnlResponse, PaperBalance } from '../api'
 import CostBreakdown from './charts/CostBreakdown'
 import PnlChart from './charts/PnlChart'
 
@@ -137,6 +137,7 @@ export default function Dashboard({ wsBotStatus }: DashboardProps) {
   const [botStatus, setBotStatus] = useState<BotStatus | null>(null)
   const [positions, setPositions] = useState<Position[]>([])
   const [pnlData, setPnlData] = useState<PnlResponse | null>(null)
+  const [paperBal, setPaperBal] = useState<PaperBalance | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
 
   const displayStatus = wsBotStatus || botStatus
@@ -148,6 +149,7 @@ export default function Dashboard({ wsBotStatus }: DashboardProps) {
     api.fetchBotStatus().then(setBotStatus).catch(() => {})
     api.fetchPositions().then(setPositions).catch(() => {})
     api.fetchPnl().then(setPnlData).catch(() => {})
+    api.fetchPaperBalance().then(setPaperBal).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -225,9 +227,50 @@ export default function Dashboard({ wsBotStatus }: DashboardProps) {
           )}
         </Card>
 
-        {/* Wallet */}
-        <Card title="Wallet" accent={colors.accent} index={1}>
-          {wallet ? (
+        {/* Paper Balance / Wallet */}
+        <Card title={displayStatus?.paper_trading !== false ? "Paper Balance" : "Wallet"} accent={colors.accent} index={1}>
+          {displayStatus?.paper_trading !== false && paperBal ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <StatValue
+                value={`$${paperBal.total_value.toFixed(2)}`}
+                label="Total Value"
+                color={paperBal.total_value >= paperBal.starting_balance ? colors.success : colors.danger}
+                size="lg"
+              />
+              <div style={{ display: 'flex', gap: 16 }}>
+                <StatValue value={`$${paperBal.available_cash.toFixed(2)}`} label="Available" size="sm" />
+                <StatValue value={`$${paperBal.deployed_capital.toFixed(2)}`} label="Deployed" size="sm" />
+              </div>
+              {/* Balance bar */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <div style={{
+                  width: '100%', height: 4, background: 'rgba(255,255,255,0.04)', borderRadius: 2,
+                  overflow: 'hidden', display: 'flex',
+                }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${paperBal.total_value > 0 ? (paperBal.available_cash / paperBal.total_value) * 100 : 100}%`,
+                    background: colors.gradientAccent,
+                    transition: 'width 0.8s cubic-bezier(0.22, 1, 0.36, 1)',
+                  }} />
+                  <div style={{
+                    height: '100%',
+                    width: `${paperBal.total_value > 0 ? (paperBal.deployed_capital / paperBal.total_value) * 100 : 0}%`,
+                    background: colors.warning,
+                    opacity: 0.6,
+                    transition: 'width 0.8s cubic-bezier(0.22, 1, 0.36, 1)',
+                  }} />
+                </div>
+                <div style={{
+                  fontSize: 10, color: colors.textDim, fontFamily: fonts.mono,
+                  display: 'flex', justifyContent: 'space-between',
+                }}>
+                  <span>{paperBal.open_positions} positions</span>
+                  <span>Start: ${paperBal.starting_balance.toFixed(0)}</span>
+                </div>
+              </div>
+            </div>
+          ) : wallet ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{
                 fontSize: 10, color: colors.textDim, fontFamily: fonts.mono,
