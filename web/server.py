@@ -70,6 +70,25 @@ class BotEngine:
         self._aggregator: Any = None
         self._executor: Any = None
 
+        # Cycle timing tracking
+        self._started_at: float | None = None
+        self._discovery_last_run: float | None = None
+        self._aggregation_last_run: float | None = None
+        self._position_last_run: float | None = None
+
+        # Session statistics
+        self._session_markets_analyzed: int = 0
+        self._session_trades_executed: int = 0
+        self._session_signals_collected: int = 0
+        self._session_markets_skipped: int = 0
+        self._session_markets_discovered: int = 0
+        self._last_discovery_found: int = 0
+        self._last_discovery_ranked: int = 0
+        self._last_batch_size: int = 0
+
+        # Pipeline activity feed (most recent events)
+        self._activity_feed: collections.deque[dict[str, Any]] = collections.deque(maxlen=50)
+
     # ------------------------------------------------------------------
     # Start / Stop
     # ------------------------------------------------------------------
@@ -80,7 +99,13 @@ class BotEngine:
         self.running = True
         self.phase = "idle"
         self.cycle_count = 0
-        self.aggregated_ids.clear()
+        self._started_at = time.time()
+        self._session_markets_analyzed = 0
+        self._session_trades_executed = 0
+        self._session_signals_collected = 0
+        self._session_markets_skipped = 0
+        self._session_markets_discovered = 0
+        self._activity_feed.clear()
 
         # Init shared resources (lazy imports to avoid circular deps)
         from core.llm import LLMClient
@@ -177,6 +202,15 @@ class BotEngine:
                 self.filtered_market_cache = ranked
 
                 logger.info("Discovery complete: %d raw → %d ranked", len(raw), len(ranked))
+                self._discovery_last_run = time.time()
+                self._last_discovery_found = len(raw)
+                self._last_discovery_ranked = len(ranked)
+                self._session_markets_discovered += len(raw)
+                self._push_activity(
+                    "discovery",
+                    f"Discovery complete: {len(ranked)} crypto markets ranked",
+                    f"From {len(raw)} raw markets, {len(crypto)} crypto, {len(ranked)} passed filters",
+                )
                 self.phase = "waiting"
                 await self._broadcast({
                     "type": "discovery_complete",
@@ -188,6 +222,7 @@ class BotEngine:
             except Exception:
                 logger.exception("Discovery loop error")
                 self.phase = "waiting"
+                self._push_activity("error", "Discovery loop error", "Check logs for details")
 
             await self._cancellable_sleep(DISCOVERY_INTERVAL_MINUTES * 60)
 
@@ -213,16 +248,27 @@ class BotEngine:
                 # Select candidates (dedup by conditionId, allow re-analysis on price move)
                 batch_size = 40
                 now_ts = time.time()
+                reanalysis_hours = AGGREGATION_INTERVAL_MINUTES / 60
+
+                # Skip markets with open positions (already have a bet)
+                from core.db import get_open_positions
+                open_pos = get_open_positions()
+                open_position_ids = {p["market_id"] for p in open_pos}
+                if open_position_ids:
+                    logger.info("Skipping %d markets with open positions", len(open_position_ids))
+
                 candidates = []
                 for m in self.filtered_market_cache:
                     cid = m.get("conditionId", m.get("condition_id", ""))
                     if not cid:
                         continue
+                    if cid in open_position_ids:
+                        continue
                     prev = self.aggregated_ids.get(cid)
                     if prev is None:
                         candidates.append(m)
                     else:
-                        # Re-analyze if: price moved >5%, >6h elapsed, or <7d to expiry
+                        # Re-analyze if: price moved >5%, interval elapsed, or <7d to expiry
                         cur_price = self._parse_market_price(m)
                         price_moved = abs(cur_price - prev["market_price"]) > 0.05 if cur_price > 0 else False
                         hours_elapsed = (now_ts - prev["timestamp"]) / 3600
@@ -234,7 +280,7 @@ class BotEngine:
                                 days_to_expiry = (end_dt - datetime.now(timezone.utc)).total_seconds() / 86400
                             except Exception:
                                 pass
-                        if price_moved or hours_elapsed > 6 or (days_to_expiry is not None and days_to_expiry < 7):
+                        if price_moved or hours_elapsed >= reanalysis_hours or (days_to_expiry is not None and days_to_expiry < 7):
                             candidates.append(m)
                     if len(candidates) >= batch_size:
                         break
@@ -247,6 +293,7 @@ class BotEngine:
                     continue
 
                 logger.info("Aggregation cycle %d: processing %d candidates", self.cycle_count, len(candidates))
+                self._last_batch_size = len(candidates)
 
                 # Init analysis entries
                 for m in candidates:
@@ -282,6 +329,31 @@ class BotEngine:
                 await asyncio.gather(
                     *(_process_with_sem(m, i) for i, m in enumerate(candidates)),
                     return_exceptions=True,
+                )
+
+                self._aggregation_last_run = time.time()
+
+                # Count session stats from this batch
+                for _cid, entry in self.analysis_entries.items():
+                    if entry.get("status") == "done":
+                        self._session_markets_analyzed += 1
+                        if entry.get("kelly", {}).get("should_trade"):
+                            self._session_trades_executed += 1
+                            self._push_activity(
+                                "trade",
+                                f"Trade executed: {entry.get('question', _cid)[:60]}",
+                                f"Edge: {entry.get('kelly', {}).get('edge', 0):.1%}, "
+                                f"Size: ${entry.get('kelly', {}).get('bet_size', 0):.2f}",
+                            )
+                        else:
+                            self._session_markets_skipped += 1
+                    elif entry.get("status") == "skipped":
+                        self._session_markets_skipped += 1
+
+                self._push_activity(
+                    "aggregation",
+                    f"Aggregation cycle {self.cycle_count} complete",
+                    f"{len(candidates)} candidates processed",
                 )
 
                 # Run learning cycle after each aggregation batch
@@ -677,6 +749,8 @@ class BotEngine:
                 await self._broadcast({"type": "bot_status", "running": True, "phase": "monitoring"})
                 await self._executor.monitor_orders()
                 await self._executor.manage_positions()
+                self._position_last_run = time.time()
+                self._push_activity("monitor", "Position check complete", "Orders monitored, positions managed")
                 self.phase = "waiting"
                 await self._broadcast({"type": "bot_status", "running": True, "phase": "waiting"})
             except asyncio.CancelledError:
@@ -700,6 +774,15 @@ class BotEngine:
 
     async def _broadcast(self, data: dict[str, Any]) -> None:
         await self._ws.broadcast(data)
+
+    def _push_activity(self, event_type: str, message: str, detail: str = "") -> None:
+        """Push a pipeline activity event to the feed."""
+        self._activity_feed.appendleft({
+            "type": event_type,
+            "message": message,
+            "detail": detail,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
 
 
 # ---------------------------------------------------------------------------
@@ -1004,6 +1087,44 @@ def create_app() -> FastAPI:
             "phase": engine.phase,
             "cycle_count": engine.cycle_count,
             "paper_trading": PAPER_TRADING,
+        }
+
+    @app.get("/api/bot/cycles")
+    async def bot_cycles():
+        """Cycle timing, session stats, and pipeline activity feed."""
+        now = time.time()
+
+        def _next_run(last: float | None, interval_min: float) -> dict[str, Any]:
+            if last is None or not engine.running:
+                return {"last_run": None, "next_run": None, "seconds_remaining": None, "interval_minutes": interval_min}
+            next_ts = last + interval_min * 60
+            remaining = max(0, next_ts - now)
+            return {
+                "last_run": datetime.fromtimestamp(last, tz=timezone.utc).isoformat(),
+                "next_run": datetime.fromtimestamp(next_ts, tz=timezone.utc).isoformat(),
+                "seconds_remaining": round(remaining),
+                "interval_minutes": interval_min,
+            }
+
+        return {
+            "discovery": {
+                **_next_run(engine._discovery_last_run, DISCOVERY_INTERVAL_MINUTES),
+                "markets_found": engine._last_discovery_found,
+                "markets_ranked": engine._last_discovery_ranked,
+            },
+            "aggregation": {
+                **_next_run(engine._aggregation_last_run, AGGREGATION_INTERVAL_MINUTES),
+                "batch_size": engine._last_batch_size,
+            },
+            "position_monitor": _next_run(engine._position_last_run, POSITION_CHECK_INTERVAL_MINUTES),
+            "uptime_seconds": round(now - engine._started_at) if engine._started_at and engine.running else None,
+            "session_stats": {
+                "markets_discovered": engine._session_markets_discovered,
+                "markets_analyzed": engine._session_markets_analyzed,
+                "trades_executed": engine._session_trades_executed,
+                "markets_skipped": engine._session_markets_skipped,
+            },
+            "activity_feed": list(engine._activity_feed),
         }
 
     # -----------------------------------------------------------------------

@@ -137,6 +137,45 @@ export interface PaperBalance {
   open_positions: number
 }
 
+export interface CycleInfo {
+  last_run: string | null
+  next_run: string | null
+  seconds_remaining: number | null
+  interval_minutes: number
+}
+
+export interface DiscoveryCycle extends CycleInfo {
+  markets_found: number
+  markets_ranked: number
+}
+
+export interface AggregationCycle extends CycleInfo {
+  batch_size: number
+}
+
+export interface ActivityEvent {
+  type: string
+  message: string
+  detail: string
+  timestamp: string
+}
+
+export interface SessionStats {
+  markets_discovered: number
+  markets_analyzed: number
+  trades_executed: number
+  markets_skipped: number
+}
+
+export interface CyclesResponse {
+  discovery: DiscoveryCycle
+  aggregation: AggregationCycle
+  position_monitor: CycleInfo
+  uptime_seconds: number | null
+  session_stats: SessionStats
+  activity_feed: ActivityEvent[]
+}
+
 const BASE = ''
 
 async function fetchJSON<T>(url: string): Promise<T> {
@@ -183,4 +222,5 @@ export const api = {
       '/api/commands/signal-test',
       { question },
     ),
+  fetchCycles: () => fetchJSON<CyclesResponse>('/api/bot/cycles'),
 }

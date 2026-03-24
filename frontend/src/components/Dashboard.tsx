@@ -1,6 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { colors, cardStyle, glowShadow, fonts, animDelay } from '../theme'
-import { api, HealthResponse, WalletResponse, CostResponse, BotStatus, Position, PnlResponse, PaperBalance } from '../api'
+import {
+  api, HealthResponse, WalletResponse, CostResponse, BotStatus,
+  Position, PnlResponse, PaperBalance, CyclesResponse, ActivityEvent,
+} from '../api'
 import CostBreakdown from './charts/CostBreakdown'
 import PnlChart from './charts/PnlChart'
 
@@ -123,6 +126,130 @@ function PillBadge({ text, bg, fg }: { text: string; bg: string; fg?: string }) 
 }
 
 // ---------------------------------------------------------------------------
+// Countdown Ring — circular progress for cycle timers
+// ---------------------------------------------------------------------------
+
+function CountdownRing({ secondsRemaining, totalSeconds, label, accent, sublabel }: {
+  secondsRemaining: number | null
+  totalSeconds: number
+  label: string
+  accent: string
+  sublabel?: string
+}) {
+  const size = 72
+  const stroke = 3
+  const radius = (size - stroke) / 2
+  const circumference = 2 * Math.PI * radius
+  const progress = secondsRemaining != null ? Math.max(0, 1 - secondsRemaining / totalSeconds) : 0
+  const offset = circumference * (1 - progress)
+
+  const formatTime = (s: number | null) => {
+    if (s == null) return '--:--'
+    const h = Math.floor(s / 3600)
+    const m = Math.floor((s % 3600) / 60)
+    const sec = s % 60
+    if (h > 0) return `${h}h ${m}m`
+    if (m > 0) return `${m}m ${sec}s`
+    return `${sec}s`
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+      <div style={{ position: 'relative', width: size, height: size }}>
+        <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+          {/* Background ring */}
+          <circle
+            cx={size / 2} cy={size / 2} r={radius}
+            fill="none"
+            stroke="rgba(255,255,255,0.04)"
+            strokeWidth={stroke}
+          />
+          {/* Progress ring */}
+          <circle
+            cx={size / 2} cy={size / 2} r={radius}
+            fill="none"
+            stroke={accent}
+            strokeWidth={stroke}
+            strokeDasharray={circumference}
+            strokeDashoffset={offset}
+            strokeLinecap="round"
+            style={{
+              transition: 'stroke-dashoffset 1s linear',
+              filter: `drop-shadow(0 0 4px ${accent})`,
+            }}
+          />
+        </svg>
+        {/* Center text */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <span style={{
+            fontSize: 13, fontWeight: 600, fontFamily: fonts.mono,
+            color: secondsRemaining != null ? colors.textPrimary : colors.textDim,
+            letterSpacing: '-0.02em',
+          }}>
+            {formatTime(secondsRemaining)}
+          </span>
+        </div>
+      </div>
+      <span style={{
+        fontSize: 9, color: colors.textMuted, fontFamily: fonts.mono,
+        letterSpacing: '0.06em', textTransform: 'uppercase',
+      }}>
+        {label}
+      </span>
+      {sublabel && (
+        <span style={{
+          fontSize: 8, color: colors.textDim, fontFamily: fonts.mono,
+          letterSpacing: '0.04em', marginTop: -2,
+        }}>
+          {sublabel}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Uptime display
+// ---------------------------------------------------------------------------
+
+function formatUptime(seconds: number | null): string {
+  if (seconds == null) return 'Offline'
+  const d = Math.floor(seconds / 86400)
+  const h = Math.floor((seconds % 86400) / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = seconds % 60
+  if (d > 0) return `${d}d ${h}h ${m}m`
+  if (h > 0) return `${h}h ${m}m ${s}s`
+  return `${m}m ${s}s`
+}
+
+// ---------------------------------------------------------------------------
+// Activity event icon/color mapping
+// ---------------------------------------------------------------------------
+
+function activityMeta(type: string): { icon: string; color: string } {
+  switch (type) {
+    case 'trade': return { icon: '$', color: colors.success }
+    case 'discovery': return { icon: '~', color: colors.accent }
+    case 'aggregation': return { icon: '#', color: colors.purple }
+    case 'monitor': return { icon: '>', color: colors.warning }
+    case 'error': return { icon: '!', color: colors.danger }
+    default: return { icon: '*', color: colors.textMuted }
+  }
+}
+
+function timeAgo(isoStr: string): string {
+  const diff = (Date.now() - new Date(isoStr).getTime()) / 1000
+  if (diff < 60) return `${Math.round(diff)}s ago`
+  if (diff < 3600) return `${Math.round(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.round(diff / 3600)}h ago`
+  return `${Math.round(diff / 86400)}d ago`
+}
+
+// ---------------------------------------------------------------------------
 // Dashboard
 // ---------------------------------------------------------------------------
 
@@ -138,7 +265,16 @@ export default function Dashboard({ wsBotStatus }: DashboardProps) {
   const [positions, setPositions] = useState<Position[]>([])
   const [pnlData, setPnlData] = useState<PnlResponse | null>(null)
   const [paperBal, setPaperBal] = useState<PaperBalance | null>(null)
+  const [cycles, setCycles] = useState<CyclesResponse | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
+
+  // Live countdown state — ticks every second
+  const [liveCountdowns, setLiveCountdowns] = useState<{
+    discovery: number | null; aggregation: number | null; position: number | null
+  }>({ discovery: null, aggregation: null, position: null })
+  const [liveUptime, setLiveUptime] = useState<number | null>(null)
+  const cyclesRef = useRef(cycles)
+  cyclesRef.current = cycles
 
   const displayStatus = wsBotStatus || botStatus
 
@@ -150,6 +286,7 @@ export default function Dashboard({ wsBotStatus }: DashboardProps) {
     api.fetchPositions().then(setPositions).catch(() => {})
     api.fetchPnl().then(setPnlData).catch(() => {})
     api.fetchPaperBalance().then(setPaperBal).catch(() => {})
+    api.fetchCycles().then(setCycles).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -157,6 +294,41 @@ export default function Dashboard({ wsBotStatus }: DashboardProps) {
     const id = setInterval(refresh, 30000)
     return () => clearInterval(id)
   }, [refresh])
+
+  // Faster cycle refresh (every 10s) to keep countdowns accurate
+  useEffect(() => {
+    const id = setInterval(() => {
+      api.fetchCycles().then(setCycles).catch(() => {})
+    }, 10000)
+    return () => clearInterval(id)
+  }, [])
+
+  // 1-second tick for live countdowns
+  useEffect(() => {
+    const id = setInterval(() => {
+      const c = cyclesRef.current
+      if (!c) return
+      setLiveCountdowns({
+        discovery: c.discovery.seconds_remaining != null ? Math.max(0, c.discovery.seconds_remaining - 1) : null,
+        aggregation: c.aggregation.seconds_remaining != null ? Math.max(0, c.aggregation.seconds_remaining - 1) : null,
+        position: c.position_monitor.seconds_remaining != null ? Math.max(0, c.position_monitor.seconds_remaining - 1) : null,
+      })
+      setLiveUptime(c.uptime_seconds != null ? c.uptime_seconds + 1 : null)
+    }, 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  // Sync live countdowns when cycles data refreshes
+  useEffect(() => {
+    if (cycles) {
+      setLiveCountdowns({
+        discovery: cycles.discovery.seconds_remaining,
+        aggregation: cycles.aggregation.seconds_remaining,
+        position: cycles.position_monitor.seconds_remaining,
+      })
+      setLiveUptime(cycles.uptime_seconds)
+    }
+  }, [cycles])
 
   const handleStart = async () => {
     setActionLoading(true)
@@ -203,6 +375,20 @@ export default function Dashboard({ wsBotStatus }: DashboardProps) {
                 <span style={{ margin: '0 8px', color: colors.border }}>|</span>
                 Cycles: <span style={{ color: colors.textSecondary, fontWeight: 500 }}>{displayStatus.cycle_count}</span>
               </div>
+              {/* Uptime */}
+              {displayStatus.running && liveUptime != null && (
+                <div style={{
+                  fontSize: 10, color: colors.textDim, fontFamily: fonts.mono,
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  <span style={{
+                    width: 5, height: 5, borderRadius: '50%',
+                    background: colors.success, display: 'inline-block',
+                    animation: 'pulse 2s ease-in-out infinite',
+                  }} />
+                  Uptime: <span style={{ color: colors.textMuted }}>{formatUptime(liveUptime)}</span>
+                </div>
+              )}
               <button
                 disabled={actionLoading}
                 onClick={displayStatus.running ? handleStop : handleStart}
@@ -373,17 +559,152 @@ export default function Dashboard({ wsBotStatus }: DashboardProps) {
         </Card>
       </div>
 
-      {/* Row 2: PnL Chart + Connections + Costs */}
+      {/* Row 2: Cycle Timers + Session Stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        {/* Cycle Countdown Timers */}
+        <Card title="Pipeline Cycles" accent={colors.accent} index={4}>
+          <div style={{
+            display: 'flex', justifyContent: 'space-around', alignItems: 'center',
+            padding: '4px 0',
+          }}>
+            <CountdownRing
+              secondsRemaining={displayStatus?.running ? liveCountdowns.discovery : null}
+              totalSeconds={(cycles?.discovery.interval_minutes ?? 120) * 60}
+              label="Discovery"
+              accent={colors.accent}
+              sublabel={cycles?.discovery.markets_ranked ? `${cycles.discovery.markets_ranked} ranked` : undefined}
+            />
+            <CountdownRing
+              secondsRemaining={displayStatus?.running ? liveCountdowns.aggregation : null}
+              totalSeconds={(cycles?.aggregation.interval_minutes ?? 120) * 60}
+              label="Aggregation"
+              accent={colors.purple}
+              sublabel={cycles?.aggregation.batch_size ? `batch: ${cycles.aggregation.batch_size}` : undefined}
+            />
+            <CountdownRing
+              secondsRemaining={displayStatus?.running ? liveCountdowns.position : null}
+              totalSeconds={(cycles?.position_monitor.interval_minutes ?? 30) * 60}
+              label="Positions"
+              accent={colors.warning}
+              sublabel={positions.length > 0 ? `${positions.length} open` : undefined}
+            />
+          </div>
+          {/* Phase indicator bar */}
+          {displayStatus?.running && displayStatus.phase !== 'idle' && displayStatus.phase !== 'waiting' && (
+            <div style={{
+              marginTop: 10, padding: '6px 10px', borderRadius: 6,
+              background: 'rgba(0,229,255,0.04)',
+              border: `1px solid ${colors.border}`,
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              <div style={{
+                width: 6, height: 6, borderRadius: '50%',
+                background: colors.accent,
+                animation: 'pulse 1s ease-in-out infinite',
+              }} />
+              <span style={{
+                fontSize: 10, fontFamily: fonts.mono, color: colors.textSecondary,
+                letterSpacing: '0.04em', textTransform: 'uppercase',
+              }}>
+                {displayStatus.phase === 'filtering' && 'Discovering & filtering markets...'}
+                {displayStatus.phase === 'aggregating' && 'Running signal aggregation...'}
+                {displayStatus.phase === 'learning' && 'Analyzing performance...'}
+                {displayStatus.phase === 'monitoring' && 'Checking positions & orders...'}
+              </span>
+            </div>
+          )}
+        </Card>
+
+        {/* Session Statistics */}
+        <Card title="Session Statistics" accent={colors.success} index={5}>
+          {cycles?.session_stats ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                <SessionStat
+                  value={cycles.session_stats.markets_discovered}
+                  label="Discovered"
+                  color={colors.accent}
+                />
+                <SessionStat
+                  value={cycles.session_stats.markets_analyzed}
+                  label="Analyzed"
+                  color={colors.purple}
+                />
+                <SessionStat
+                  value={cycles.session_stats.trades_executed}
+                  label="Traded"
+                  color={colors.success}
+                />
+                <SessionStat
+                  value={cycles.session_stats.markets_skipped}
+                  label="Skipped"
+                  color={colors.textMuted}
+                />
+              </div>
+              {/* Hit rate bar */}
+              {cycles.session_stats.markets_analyzed > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between',
+                    fontSize: 9, fontFamily: fonts.mono, color: colors.textDim,
+                    textTransform: 'uppercase', letterSpacing: '0.06em',
+                  }}>
+                    <span>Trade Hit Rate</span>
+                    <span style={{ color: colors.textMuted }}>
+                      {((cycles.session_stats.trades_executed / cycles.session_stats.markets_analyzed) * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                  <div style={{
+                    width: '100%', height: 4, background: 'rgba(255,255,255,0.04)',
+                    borderRadius: 2, overflow: 'hidden',
+                  }}>
+                    <div style={{
+                      height: '100%',
+                      width: `${(cycles.session_stats.trades_executed / cycles.session_stats.markets_analyzed) * 100}%`,
+                      background: colors.gradientSuccess,
+                      transition: 'width 0.8s cubic-bezier(0.22, 1, 0.36, 1)',
+                      borderRadius: 2,
+                    }} />
+                  </div>
+                </div>
+              )}
+              {/* Funnel: discovered → analyzed → traded */}
+              {cycles.session_stats.markets_discovered > 0 && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  fontSize: 9, fontFamily: fonts.mono, color: colors.textDim,
+                }}>
+                  <span style={{ color: colors.accent }}>{cycles.session_stats.markets_discovered}</span>
+                  <span style={{ opacity: 0.4 }}>{'>'}</span>
+                  <span style={{ color: colors.purple }}>{cycles.session_stats.markets_analyzed}</span>
+                  <span style={{ opacity: 0.4 }}>{'>'}</span>
+                  <span style={{ color: colors.success }}>{cycles.session_stats.trades_executed}</span>
+                  <span style={{ marginLeft: 4, letterSpacing: '0.04em' }}>FUNNEL</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: 20, color: colors.textDim, fontSize: 11, fontFamily: fonts.mono,
+            }}>
+              Start the bot to see session stats
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* Row 3: PnL Chart + Right column */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14 }}>
         {/* PnL Chart */}
-        <Card title="Portfolio Value" accent={colors.accent} style={{ minHeight: 280 }} index={4}>
+        <Card title="Portfolio Value" accent={colors.accent} style={{ minHeight: 280 }} index={6}>
           <PnlChart snapshots={pnlData?.snapshots ?? []} />
         </Card>
 
         {/* Right column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {/* Connections */}
-          <Card title="Connections" index={5}>
+          <Card title="Connections" index={7}>
             {health ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {health.services.map((s, si) => (
@@ -393,7 +714,7 @@ export default function Dashboard({ wsBotStatus }: DashboardProps) {
                     background: s.healthy ? 'rgba(0,255,136,0.03)' : 'rgba(255,51,102,0.05)',
                     border: `1px solid ${s.healthy ? 'rgba(0,255,136,0.08)' : 'rgba(255,51,102,0.1)'}`,
                     transition: 'all 0.3s',
-                    ...animDelay(si + 6),
+                    ...animDelay(si + 8),
                   }}>
                     <span style={{
                       display: 'flex', alignItems: 'center', gap: 8, fontSize: 12,
@@ -417,7 +738,7 @@ export default function Dashboard({ wsBotStatus }: DashboardProps) {
           </Card>
 
           {/* LLM Costs */}
-          <Card title="LLM Costs" index={6}>
+          <Card title="LLM Costs" index={8}>
             {costData ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ display: 'flex', gap: 16 }}>
@@ -438,104 +759,222 @@ export default function Dashboard({ wsBotStatus }: DashboardProps) {
         </div>
       </div>
 
-      {/* Row 3: Positions table */}
-      <Card title={`Open Positions (${positions.length})`} accent={positions.length > 0 ? colors.warning : undefined} index={7}>
-        {positions.length === 0 ? (
-          <div style={{
-            padding: 32, textAlign: 'center', color: colors.textDim,
-            background: 'rgba(0, 229, 255, 0.01)',
-            border: `1px dashed ${colors.border}`,
-            borderRadius: 8,
-            position: 'relative', overflow: 'hidden',
-          }}>
-            {/* Animated dashed border overlay */}
-            <div style={{ fontSize: 13, marginBottom: 4, fontFamily: fonts.body }}>No open positions</div>
-            <div style={{ fontSize: 11, fontFamily: fonts.mono, letterSpacing: '0.02em' }}>
-              Start the bot to begin trading
+      {/* Row 4: Activity Feed + Positions */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 14 }}>
+        {/* Pipeline Activity Feed */}
+        <Card title="Pipeline Activity" accent={colors.accent} index={9}>
+          <ActivityFeed events={cycles?.activity_feed ?? []} />
+        </Card>
+
+        {/* Positions table */}
+        <Card title={`Open Positions (${positions.length})`} accent={positions.length > 0 ? colors.warning : undefined} index={10}>
+          {positions.length === 0 ? (
+            <div style={{
+              padding: 32, textAlign: 'center', color: colors.textDim,
+              background: 'rgba(0, 229, 255, 0.01)',
+              border: `1px dashed ${colors.border}`,
+              borderRadius: 8,
+              position: 'relative', overflow: 'hidden',
+            }}>
+              <div style={{ fontSize: 13, marginBottom: 4, fontFamily: fonts.body }}>No open positions</div>
+              <div style={{ fontSize: 11, fontFamily: fonts.mono, letterSpacing: '0.02em' }}>
+                Start the bot to begin trading
+              </div>
             </div>
-          </div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 3px', fontSize: 12 }}>
-              <thead>
-                <tr>
-                  {['Market', 'Side', 'Entry', 'Current', 'Size', 'P&L'].map(h => (
-                    <th key={h} style={{
-                      padding: '8px 12px', textAlign: h === 'Market' || h === 'Side' ? 'left' : 'right',
-                      color: colors.textDim, fontWeight: 500, fontSize: 10,
-                      textTransform: 'uppercase', letterSpacing: '0.08em',
-                      fontFamily: fonts.mono,
-                    }}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {positions.map((p, pi) => {
-                  const pnlColor = p.unrealized_pnl >= 0 ? colors.success : colors.danger
-                  const pnlBg = p.unrealized_pnl >= 0 ? colors.successDim : colors.dangerDim
-                  const pnlPct = p.avg_entry > 0 ? ((p.current_price - p.avg_entry) / p.avg_entry * 100) : 0
-                  return (
-                    <tr key={p.token_id} style={{
-                      background: colors.bgCard,
-                      borderRadius: 6,
-                      transition: 'background 0.2s',
-                      ...animDelay(pi + 8),
-                    }}>
-                      <td style={{
-                        padding: '10px 12px', maxWidth: 300, overflow: 'hidden',
-                        textOverflow: 'ellipsis', whiteSpace: 'nowrap', borderRadius: '6px 0 0 6px',
-                        fontSize: 12,
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 3px', fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    {['Market', 'Side', 'Entry', 'Current', 'Size', 'P&L'].map(h => (
+                      <th key={h} style={{
+                        padding: '8px 12px', textAlign: h === 'Market' || h === 'Side' ? 'left' : 'right',
+                        color: colors.textDim, fontWeight: 500, fontSize: 10,
+                        textTransform: 'uppercase', letterSpacing: '0.08em',
+                        fontFamily: fonts.mono,
                       }}>
-                        {p.market_question || p.market_id}
-                        {p.paper === 1 && (
-                          <> <PillBadge text="PAPER" bg={colors.warningDim} fg={colors.warning} /></>
-                        )}
-                      </td>
-                      <td style={{ padding: '10px 12px' }}>
-                        <PillBadge
-                          text={p.side === 'BUY_YES' ? 'YES' : p.side === 'BUY_NO' ? 'NO' : p.side}
-                          bg={p.side === 'BUY_NO' ? colors.dangerDim : colors.successDim}
-                          fg={p.side === 'BUY_NO' ? colors.danger : colors.success}
-                        />
-                      </td>
-                      <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
-                        ${p.avg_entry.toFixed(3)}
-                      </td>
-                      <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
-                        ${p.current_price.toFixed(3)}
-                      </td>
-                      <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
-                        ${p.size.toFixed(2)}
-                      </td>
-                      <td style={{
-                        padding: '10px 12px', textAlign: 'right', borderRadius: '0 6px 6px 0',
-                        fontFamily: fonts.mono, fontSize: 11,
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {positions.map((p, pi) => {
+                    const pnlColor = p.unrealized_pnl >= 0 ? colors.success : colors.danger
+                    const pnlBg = p.unrealized_pnl >= 0 ? colors.successDim : colors.dangerDim
+                    const pnlPct = p.avg_entry > 0 ? ((p.current_price - p.avg_entry) / p.avg_entry * 100) : 0
+                    return (
+                      <tr key={p.token_id} style={{
+                        background: colors.bgCard,
+                        borderRadius: 6,
+                        transition: 'background 0.2s',
+                        ...animDelay(pi + 11),
                       }}>
-                        <span style={{
-                          padding: '3px 8px', borderRadius: 4,
-                          background: pnlBg, color: pnlColor, fontWeight: 600,
-                          border: `1px solid ${pnlColor}15`,
-                          textShadow: `0 0 10px ${pnlColor}30`,
+                        <td style={{
+                          padding: '10px 12px', maxWidth: 300, overflow: 'hidden',
+                          textOverflow: 'ellipsis', whiteSpace: 'nowrap', borderRadius: '6px 0 0 6px',
+                          fontSize: 12,
                         }}>
-                          {p.unrealized_pnl >= 0 ? '+' : ''}${p.unrealized_pnl.toFixed(2)}
-                          <span style={{ opacity: 0.7, fontSize: 9, marginLeft: 4 }}>
-                            {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(1)}%
+                          {p.market_question || p.market_id}
+                          {p.paper === 1 && (
+                            <> <PillBadge text="PAPER" bg={colors.warningDim} fg={colors.warning} /></>
+                          )}
+                        </td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <PillBadge
+                            text={p.side === 'BUY_YES' ? 'YES' : p.side === 'BUY_NO' ? 'NO' : p.side}
+                            bg={p.side === 'BUY_NO' ? colors.dangerDim : colors.successDim}
+                            fg={p.side === 'BUY_NO' ? colors.danger : colors.success}
+                          />
+                        </td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
+                          ${p.avg_entry.toFixed(3)}
+                        </td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
+                          ${p.current_price.toFixed(3)}
+                        </td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
+                          ${p.size.toFixed(2)}
+                        </td>
+                        <td style={{
+                          padding: '10px 12px', textAlign: 'right', borderRadius: '0 6px 6px 0',
+                          fontFamily: fonts.mono, fontSize: 11,
+                        }}>
+                          <span style={{
+                            padding: '3px 8px', borderRadius: 4,
+                            background: pnlBg, color: pnlColor, fontWeight: 600,
+                            border: `1px solid ${pnlColor}15`,
+                            textShadow: `0 0 10px ${pnlColor}30`,
+                          }}>
+                            {p.unrealized_pnl >= 0 ? '+' : ''}${p.unrealized_pnl.toFixed(2)}
+                            <span style={{ opacity: 0.7, fontSize: 9, marginLeft: 4 }}>
+                              {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(1)}%
+                            </span>
                           </span>
-                        </span>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      </div>
     </div>
   )
 }
+
+// ---------------------------------------------------------------------------
+// Session stat mini component
+// ---------------------------------------------------------------------------
+
+function SessionStat({ value, label, color }: { value: number; label: string; color: string }) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+      padding: '8px 4px', borderRadius: 6,
+      background: `${color}08`,
+      border: `1px solid ${color}15`,
+    }}>
+      <span style={{
+        fontSize: 20, fontWeight: 700, fontFamily: fonts.mono,
+        color, letterSpacing: '-0.02em',
+        textShadow: `0 0 16px ${color}33`,
+      }}>
+        {value}
+      </span>
+      <span style={{
+        fontSize: 8, color: colors.textDim, fontFamily: fonts.mono,
+        letterSpacing: '0.06em', textTransform: 'uppercase',
+      }}>
+        {label}
+      </span>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Activity Feed component
+// ---------------------------------------------------------------------------
+
+function ActivityFeed({ events }: { events: ActivityEvent[] }) {
+  if (events.length === 0) {
+    return (
+      <div style={{
+        padding: 24, textAlign: 'center', color: colors.textDim,
+        fontSize: 11, fontFamily: fonts.mono,
+        border: `1px dashed ${colors.border}`, borderRadius: 6,
+      }}>
+        No pipeline activity yet
+      </div>
+    )
+  }
+
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', gap: 1,
+      maxHeight: 240, overflowY: 'auto',
+      /* Custom scrollbar */
+      scrollbarWidth: 'thin',
+      scrollbarColor: `${colors.border} transparent`,
+    }}>
+      {events.slice(0, 20).map((evt, i) => {
+        const meta = activityMeta(evt.type)
+        return (
+          <div key={`${evt.timestamp}-${i}`} style={{
+            display: 'flex', alignItems: 'flex-start', gap: 8,
+            padding: '6px 8px', borderRadius: 4,
+            background: i === 0 ? `${meta.color}06` : 'transparent',
+            borderLeft: i === 0 ? `2px solid ${meta.color}` : '2px solid transparent',
+            transition: 'all 0.3s',
+            ...animDelay(i),
+          }}>
+            {/* Icon */}
+            <span style={{
+              width: 18, height: 18, borderRadius: 4, flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: `${meta.color}12`,
+              color: meta.color, fontSize: 10, fontWeight: 700,
+              fontFamily: fonts.mono, marginTop: 1,
+            }}>
+              {meta.icon}
+            </span>
+            {/* Content */}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{
+                fontSize: 11, color: colors.textSecondary,
+                fontFamily: fonts.body, lineHeight: 1.3,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {evt.message}
+              </div>
+              {evt.detail && (
+                <div style={{
+                  fontSize: 9, color: colors.textDim, fontFamily: fonts.mono,
+                  marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  {evt.detail}
+                </div>
+              )}
+            </div>
+            {/* Timestamp */}
+            <span style={{
+              fontSize: 9, color: colors.textDim, fontFamily: fonts.mono,
+              whiteSpace: 'nowrap', flexShrink: 0,
+            }}>
+              {timeAgo(evt.timestamp)}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Skeleton
+// ---------------------------------------------------------------------------
 
 function Skeleton() {
   return (
