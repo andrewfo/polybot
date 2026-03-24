@@ -30,7 +30,7 @@ def _make_market(
     condition_id: str = "cond_1",
     question: str = "Will BTC be above $100k?",
     liquidity: float = 5000.0,
-    volume_24h: float = 200.0,
+    volume_24h: float = 600.0,
     days_until_end: int = 14,
     num_tokens: int = 2,
     category: str = "",
@@ -190,7 +190,7 @@ class TestFilterMarkets:
         markets = [_make_market(
             condition_id="perfect",
             liquidity=5000,
-            volume_24h=300,
+            volume_24h=600,
             days_until_end=14,
             num_tokens=2,
         )]
@@ -368,16 +368,17 @@ class TestRankCandidates:
         assert ranked == []
 
     def test_kelly_adjusted_ranking(self) -> None:
-        """Markets near 0.50 get higher Kelly leverage."""
-        # Market at 0.50 → Kelly leverage = 1/(0.50*0.50) = 4.0
-        # Market at 0.20 → Kelly leverage = 1/(0.20*0.80) = 6.25
+        """Kelly leverage is capped at 3.0x to prevent extreme-price dominance."""
+        # Market at 0.50 → Kelly leverage = min(3.0, 1/(0.25)) = 3.0
+        # Market at 0.20 → Kelly leverage = min(3.0, 1/(0.16)) = 3.0 (capped)
+        # With same edge and same capped leverage, add different edges to test ranking
         m1 = _make_market(condition_id="mid_price", yes_price=0.50, days_until_end=5)
         m1["_model_edge"] = 0.05
-        m2 = _make_market(condition_id="low_price", yes_price=0.20, days_until_end=5)
-        m2["_model_edge"] = 0.05  # same raw edge
+        m2 = _make_market(condition_id="higher_edge", yes_price=0.20, days_until_end=5)
+        m2["_model_edge"] = 0.06  # slightly higher raw edge wins
         ranked = rank_candidates([m1, m2])
-        # low_price has higher Kelly leverage → higher adjusted edge
-        assert ranked[0]["condition_id"] == "low_price"
+        # higher raw edge wins since leverage is capped equally
+        assert ranked[0]["condition_id"] == "higher_edge"
 
 
 # ---------------------------------------------------------------------------

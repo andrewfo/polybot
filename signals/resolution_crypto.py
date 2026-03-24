@@ -804,9 +804,13 @@ class CryptoResolutionProvider(SignalProvider):
         annual_vol, vol_source = _select_volatility(vol_est, deribit_iv, days_remaining)
 
         # Shrink drift to avoid noisy estimates dominating the probability
+        # For short-dated markets (<7d), 90-day drift is noise — use risk-neutral (drift=0)
         realized_drift = vol_est.realized_drift
         shrunk_drift: float | None = None
-        if realized_drift is not None:
+        if days_remaining < 7:
+            shrunk_drift = 0.0
+            logger.debug("Short-dated market (<7d): defaulting drift to 0 for %s", coin_id)
+        elif realized_drift is not None:
             shrunk_drift = _shrink_drift(realized_drift, vol_est.drift_stderr)
 
         # Determine resolution type: barrier ("will reach") vs terminal ("will be at")

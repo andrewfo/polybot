@@ -25,14 +25,14 @@ MAX_MARKET_LIQUIDITY = float(os.getenv("MAX_MARKET_LIQUIDITY", "500000"))
 MIN_HOURS_TO_RESOLUTION = int(os.getenv("MIN_HOURS_TO_RESOLUTION", "72"))
 MAX_DAYS_TO_RESOLUTION = int(os.getenv("MAX_DAYS_TO_RESOLUTION", "30"))
 MAX_SPREAD = float(os.getenv("MAX_SPREAD", "0.05"))
-MIN_24H_VOLUME = float(os.getenv("MIN_24H_VOLUME", "100"))
+MIN_24H_VOLUME = float(os.getenv("MIN_24H_VOLUME", "500"))
 MARKET_CACHE_REFRESH_SECONDS = int(os.getenv("MARKET_CACHE_REFRESH_SECONDS", "1800"))  # 30 minutes
 
 # --- Operational ---
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "300"))
 SIGNAL_REFRESH_SECONDS = int(os.getenv("SIGNAL_REFRESH_SECONDS", "600"))
 DISCOVERY_INTERVAL_MINUTES = int(os.getenv("DISCOVERY_INTERVAL_MINUTES", "120"))     # 2 hours
-AGGREGATION_INTERVAL_MINUTES = int(os.getenv("AGGREGATION_INTERVAL_MINUTES", "240")) # 4 hours
+AGGREGATION_INTERVAL_MINUTES = int(os.getenv("AGGREGATION_INTERVAL_MINUTES", "360")) # 6 hours
 POSITION_CHECK_INTERVAL_MINUTES = int(os.getenv("POSITION_CHECK_INTERVAL_MINUTES", "30"))
 ORDER_TYPE = "limit"
 SLIPPAGE_BUFFER = float(os.getenv("SLIPPAGE_BUFFER", "0.02"))
@@ -81,8 +81,8 @@ CALIBRATION_LOOKBACK_DAYS = int(os.getenv("CALIBRATION_LOOKBACK_DAYS", "90"))  #
 # --- Execution ---
 PAPER_TRADING = os.getenv("PAPER_TRADING", "true").lower() == "true"
 STALE_ORDER_MINUTES = int(os.getenv("STALE_ORDER_MINUTES", "15"))
-TAKE_PROFIT_PCT = float(os.getenv("TAKE_PROFIT_PCT", "0.25"))    # Close position at +25% profit
-STOP_LOSS_PCT = float(os.getenv("STOP_LOSS_PCT", "0.15"))        # Close position at -15% loss
+TAKE_PROFIT_PCT = float(os.getenv("TAKE_PROFIT_PCT", "0.12"))    # Close position at +12% profit
+STOP_LOSS_PCT = float(os.getenv("STOP_LOSS_PCT", "0.10"))        # Close position at -10% loss
 
 # --- Notifications ---
 NOTIFICATIONS_ENABLED = os.getenv("NOTIFICATIONS_ENABLED", "true").lower() == "true"

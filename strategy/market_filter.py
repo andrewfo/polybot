@@ -893,7 +893,7 @@ def rank_candidates(filtered_markets: list[dict[str, Any]]) -> list[dict[str, An
         model_edge = market.get("_model_edge", 0.0)
         prices = _get_outcome_prices(market)
         market_price = prices[0] if prices else 0.50
-        kelly_leverage = 1.0 / max(0.05, market_price * (1.0 - market_price))
+        kelly_leverage = min(3.0, 1.0 / max(0.05, market_price * (1.0 - market_price)))
         adjusted_edge = model_edge * kelly_leverage
         market["_adjusted_edge"] = round(adjusted_edge, 4)
 

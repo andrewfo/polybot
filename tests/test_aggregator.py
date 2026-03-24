@@ -325,7 +325,7 @@ class TestLowFrontierConfidence:
     async def test_at_threshold_passes(self, mock_llm):
         """Confidence exactly at threshold should pass."""
         mock_llm.call_json = AsyncMock(return_value=_make_frontier_response(
-            confidence=0.25,
+            confidence=0.35,
         ))
         providers = [
             _make_mock_provider(_make_signal(source="resolution_crypto", probability=0.6, confidence=0.8)),

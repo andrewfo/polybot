@@ -202,7 +202,7 @@ class TestPaperExecutor:
     @patch("strategy.executor._fetch_gamma_price", new_callable=AsyncMock)
     @patch("strategy.executor.db")
     async def test_manage_positions_updates_pnl(self, mock_db, mock_fetch):
-        mock_fetch.return_value = 0.60
+        mock_fetch.return_value = 0.55  # 10% gain — below 12% take-profit threshold
         mock_db.get_open_positions.return_value = [
             {
                 "token_id": "tok-1",
@@ -221,7 +221,7 @@ class TestPaperExecutor:
 
         mock_db.upsert_position.assert_called_once()
         call_kwargs = mock_db.upsert_position.call_args
-        assert call_kwargs.kwargs.get("current_price") == 0.60 or call_kwargs[1].get("current_price") == 0.60
+        assert call_kwargs.kwargs.get("current_price") == 0.55 or call_kwargs[1].get("current_price") == 0.55
 
     @pytest.mark.asyncio
     @patch("strategy.executor.db")

@@ -48,7 +48,7 @@ strategy/depth.py            → CLOB order book depth analysis, slippage estima
 - `TradeExecutor`: places limit orders via `ClobClientWrapper`, `monitor_orders()` detects fills and expires stale orders (>STALE_ORDER_MINUTES)
 - **Take-profit / Stop-loss**: `manage_positions()` auto-closes positions at +TAKE_PROFIT_PCT (25%) or -STOP_LOSS_PCT (15%). PaperExecutor instant close; TradeExecutor places limit sell.
 - Positions have `status` column: `open` / `closing` / `closed`. `close_position()` records exit_price + realized_pnl.
-- Settings: `PAPER_TRADING` (default true), `STALE_ORDER_MINUTES` (default 15), `TAKE_PROFIT_PCT` (0.25), `STOP_LOSS_PCT` (0.15)
+- Settings: `PAPER_TRADING` (default true), `STALE_ORDER_MINUTES` (default 15), `TAKE_PROFIT_PCT` (0.12), `STOP_LOSS_PCT` (0.10)
 - DB migrations: `order_id`, `placed_at`, `market_question` columns on trades table; `status` column on positions table
 - `get_recent_trade_count(hours)` helper for trade rate limiting
 
@@ -57,6 +57,18 @@ strategy/depth.py            → CLOB order book depth analysis, slippage estima
 - `skipped_markets` table: market_id, skip_reason, market_price_at_skip, estimated_prob, confidence, timestamp, resolution_outcome
 - `record_frontier_decision()` called after every Kelly computation
 - `record_skipped_market()` called on every skip (aggregation or Kelly)
+
+### Continuous Learning Engine (monitoring/learning.py)
+- `run_learning_cycle()`: async entry point — runs after each aggregation batch + callable via API
+- **Frontier bias analysis**: joins frontier_decisions with calibration resolutions, computes mean bias, calibration curve (10 bins), bias by confidence band (low/mid/high), bias by price band
+- **Skipped market retrospective**: tracks resolution_outcome for skipped markets, computes would-have-profited rate per skip_reason
+- **Edge realization**: joins frontier_decisions with closed positions, computes edge efficiency (realized/predicted), win rate, profit factor, breakdown by confidence and edge bands
+- **Signal feature analysis**: mines signals.raw_data JSON for accuracy by vol_regime, time-to-expiry bucket, resolution_type, and source
+- **LLM cost-effectiveness**: ROI (total_pnl / total_llm_cost), cost per trade, cost per profitable trade, frontier vs cheap vs sonar breakdown
+- **Adaptive parameter recommendations**: generates suggestions for KELLY_FRACTION, MIN_EDGE_THRESHOLD, MIN_CONFIDENCE_BLEND, TAKE_PROFIT_PCT, STOP_LOSS_PCT, skip filter relaxation — all with confidence scores and sample counts
+- **Report persistence**: `learning_reports` DB table stores full JSON reports; `get_report_history()` for trend analysis
+- **Skipped resolution tracking**: `update_skipped_resolutions()` polls Gamma API for resolved skipped markets (runs in discovery loop)
+- API endpoints: GET /api/learning/report, /api/learning/history, /api/learning/recommendations, /api/learning/calibration, /api/learning/skip-analysis, POST /api/learning/run
 
 ### Not Yet Implemented (build plan sections 7-11)
 ```

@@ -58,7 +58,7 @@ def _get_signal_weight_multipliers() -> dict[str, float]:
 SIGNAL_WEIGHT_MULTIPLIERS: dict[str, float] = DEFAULT_SIGNAL_WEIGHT_MULTIPLIERS
 
 # Minimum frontier confidence to proceed
-MIN_FRONTIER_CONFIDENCE = 0.25
+MIN_FRONTIER_CONFIDENCE = 0.35
 
 
 @dataclass
