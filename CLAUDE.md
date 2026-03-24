@@ -20,7 +20,7 @@ main.py                  → Entry point, --web flag for dashboard (main loop NO
 core/llm.py              → OpenRouter client, tiered routing (cheap vs frontier)
 core/client.py           → Polymarket CLOB wrapper for ORDER EXECUTION ONLY (no market reading methods)
 core/wallet.py           → Wallet balance checks, gas monitoring
-core/db.py               → SQLite tables: trades, positions, signals, bankroll, llm_costs, market_cache, signal_calibration
+core/db.py               → SQLite tables: trades, positions, signals, bankroll, llm_costs, market_cache, signal_calibration, frontier_decisions, skipped_markets
 strategy/market_filter.py→ Gamma API discovery, filtering, LLM categorization (crypto-only gate), ranking
 web/server.py            → FastAPI backend, REST endpoints, BotEngine stub, log buffer
 frontend/                → React (Vite) dashboard: Dashboard, Markets, Analysis, Logs tabs + Chart.js charts
@@ -46,10 +46,17 @@ strategy/depth.py            → CLOB order book depth analysis, slippage estima
 - `compute_limit_price(decision, market_data)`: BUY_YES uses `best_ask - SLIPPAGE_BUFFER`, BUY_NO uses `(1 - best_bid) - SLIPPAGE_BUFFER`, clamped `[0.01, 0.99]`
 - `PaperExecutor`: instant fills, records trade + position with `paper=True`, `manage_positions()` fetches Gamma prices for PnL
 - `TradeExecutor`: places limit orders via `ClobClientWrapper`, `monitor_orders()` detects fills and expires stale orders (>STALE_ORDER_MINUTES)
-- Both executors log >20% loss warnings in `manage_positions()`
-- Settings: `PAPER_TRADING` (default true), `STALE_ORDER_MINUTES` (default 15)
-- DB migrations: `order_id`, `placed_at`, `market_question` columns on trades table
+- **Take-profit / Stop-loss**: `manage_positions()` auto-closes positions at +TAKE_PROFIT_PCT (25%) or -STOP_LOSS_PCT (15%). PaperExecutor instant close; TradeExecutor places limit sell.
+- Positions have `status` column: `open` / `closing` / `closed`. `close_position()` records exit_price + realized_pnl.
+- Settings: `PAPER_TRADING` (default true), `STALE_ORDER_MINUTES` (default 15), `TAKE_PROFIT_PCT` (0.25), `STOP_LOSS_PCT` (0.15)
+- DB migrations: `order_id`, `placed_at`, `market_question` columns on trades table; `status` column on positions table
 - `get_recent_trade_count(hours)` helper for trade rate limiting
+
+### Audit Trail (core/db.py)
+- `frontier_decisions` table: market_id, estimated_prob, effective_prob, market_price, edge, kelly_fraction, bet_size_usd, confidence, should_trade, skip_reason, timestamp
+- `skipped_markets` table: market_id, skip_reason, market_price_at_skip, estimated_prob, confidence, timestamp, resolution_outcome
+- `record_frontier_decision()` called after every Kelly computation
+- `record_skipped_market()` called on every skip (aggregation or Kelly)
 
 ### Not Yet Implemented (build plan sections 7-11)
 ```
@@ -61,16 +68,18 @@ monitoring/notifications.py → Web log panel + Python logging (no Telegram)
 ### Kelly Criterion (strategy/kelly.py) — Section 5 COMPLETE
 - `TradeDecision` dataclass with full audit trail (18 fields incl. `effective_prob`, depth fields)
 - `calculate_kelly()` confidence-blends estimate toward market price, then computes fractional Kelly (0.25x) with fee-adjusted odds
-- Confidence blending: `blend_weight = max(confidence, MIN_CONFIDENCE_BLEND)` then `effective_prob = blend_weight * estimated_prob + (1 - blend_weight) * market_price` — floor prevents full edge dilution
+- **Sublinear confidence blending**: `blend_weight = max(confidence ** 0.75, MIN_CONFIDENCE_BLEND)` — preserves more edge at low confidence than linear blending. conf=0.25→0.35, conf=0.50→0.59, conf=0.80→0.85
+- `MIN_CONFIDENCE_BLEND` default: 0.15 (was 0.50), `MIN_EDGE_THRESHOLD` default: 0.02 (was 0.03)
 - Fee adjustment: Polymarket's 2% profit fee reduces effective odds (POLYMARKET_FEE_RATE setting)
+- **Dynamic bankroll reserve**: `max(MIN_BANKROLL_RESERVE, bankroll * 0.05)` — scales with portfolio size
 - Integrated into pipeline: every successful aggregation runs Kelly sizing + depth analysis
 - Results shown in web UI Analysis tab with table + detail view
-- Safety checks: edge threshold, positive Kelly, min bet $1, max position 10%, bankroll reserve $20, existing exposure
+- Safety checks: edge threshold, positive Kelly, min bet $1, max position 10%, dynamic reserve, existing exposure
 
 ### Order Book Depth Analysis (strategy/depth.py)
 - Fetches CLOB order book via public HTTP endpoint (no auth, no ClobClientWrapper)
 - `analyze_depth()`: walks ask levels to compute average fill price, slippage, max fillable
-- Skips trade if total book depth < `MIN_DEPTH_USD` ($50)
+- Skips trade if total book depth < `MIN_DEPTH_USD` ($200)
 - Reduces bet size if slippage > `MAX_ACCEPTABLE_SLIPPAGE` (3%) using binary search
 - `DepthAnalysis` dataclass with full audit trail (token_id, slippage, adjusted_bet, skip_reason)
 - Integrated post-Kelly: runs after Kelly sizing, before trade execution
@@ -81,7 +90,8 @@ monitoring/notifications.py → Web log panel + Python logging (no Telegram)
 - `record_prediction()`: called after each aggregation for every usable signal, uses `conditionId` as `market_id` (not question text)
 - `record_resolution()`: updates predictions when markets resolve (via Gamma API check)
 - `check_and_record_resolutions()`: called at start of each pipeline cycle to check for newly resolved markets
-- `get_dynamic_multipliers()`: computes Brier score per provider, scales weights relative to average
+- `get_dynamic_multipliers()`: computes time-decay-weighted Brier score per provider, scales weights relative to average
+- Time decay: `weight = exp(-age_days / 45)` — recent predictions weighted more heavily
 - Ratio = avg_brier / provider_brier (better providers get higher multipliers)
 - Multipliers clamped to [0.5x, 2.0x] of default to prevent wild swings
 - Falls back to defaults when < `MIN_CALIBRATION_SAMPLES` (20) resolved predictions per provider
@@ -105,10 +115,10 @@ monitoring/notifications.py → Web log panel + Python logging (no Telegram)
 2. Liquidity band: `MIN_MARKET_LIQUIDITY` ($500) to `MAX_MARKET_LIQUIDITY` ($500k)
 3. Time to resolution: `MIN_HOURS_TO_RESOLUTION` (72h) to `MAX_DAYS_TO_RESOLUTION` (30d)
 4. Near-certain price: drop if any outcome price <= 0.02 or >= 0.98
-5. Spread: drop if spread > `MAX_SPREAD` (0.10) — Gamma data only
+5. Spread: drop if spread > `MAX_SPREAD` (0.05) — Gamma data only
 6. Skip markets with existing positions
 7. Pre-screen with CoinGecko math: compute barrier/terminal probability, compare to market price, attach `_model_edge`
-8. Rank by time score (3-7d=5, 7-14d=4, 14-21d=2, 21-30d=1), then model edge, then total score
+8. Rank by Kelly-adjusted edge (model_edge × kelly_leverage), continuous Gaussian time score (peak at 5d), then total score
 
 ## Signal Aggregator (signals/aggregator.py)
 - Collects signals from 3 providers (resolution_crypto, web_search, prediction_markets)
@@ -119,9 +129,10 @@ monitoring/notifications.py → Web log panel + Python logging (no Telegram)
   - `prediction_markets`: 1.8x (cross-platform market consensus)
   - `web_search`: 1.5x (Perplexity Sonar search-grounded)
   - Weight = `signal.confidence * source_multiplier`
-- Optional log-odds averaging (`USE_LOG_ODDS_AVERAGING` setting, default False) — more calibrated at extremes
+- Log-odds averaging enabled by default (`USE_LOG_ODDS_AVERAGING` setting, default True) — more calibrated at extremes
 - Pre-computes `signals_agreement` from stdev of signal probabilities (<0.05 agree, <0.15 mixed, else disagree)
 - `aggregate()` accepts `condition_id` parameter for calibration tracking
+- **Pre-frontier divergence filter**: skips frontier call when preliminary estimate diverges >0.35 from market AND signals disagree (saves ~$0.015/call)
 - Makes single FRONTIER MODEL call with superforecaster prompt
 - Frontier model sees both terminal and barrier probabilities + multi-timescale vol data + pre-computed agreement
 - If frontier confidence < 0.25 → skip market (returns None)
@@ -137,6 +148,7 @@ monitoring/notifications.py → Web log panel + Python logging (no Telegram)
 - **Vol selection**: Deribit IV preferred (forward-looking), blended with short-term realized for <14d markets; falls back to EWM → historical → 80% default
 - **Drift shrinkage**: Bayesian shrinkage toward zero based on t-statistic significance (prevents noisy 90d momentum from dominating)
 - **Confidence scoring**: penalizes vol regime instability, extreme probabilities, heavily-shrunk drift; boosts for Deribit IV availability
+- **Ticker whitelist**: `TICKER_TO_COINGECKO` maps 50 common crypto tickers/names → CoinGecko IDs; checked before LLM fallback to eliminate hallucination risk
 
 ### Web UI Tabs (4 tabs)
 1. **Dashboard**: Bot status, connections (health checks), wallet, LLM costs (doughnut chart), open positions table
@@ -199,7 +211,7 @@ No race conditions: all workers are coroutines in the same event loop.
 
 ### Data Integrity
 - All config values in `config/settings.py` must be overridable via environment variables
-- SQLite tables auto-create on first import of `core/db.py` (7 tables: trades, positions, signals, bankroll, llm_costs, market_cache, signal_calibration)
+- SQLite tables auto-create on first import of `core/db.py` (9 tables: trades, positions, signals, bankroll, llm_costs, market_cache, signal_calibration, frontier_decisions, skipped_markets)
 - Paper trades stored in same tables with `paper=True` column
 - All timestamps ISO 8601 UTC
 

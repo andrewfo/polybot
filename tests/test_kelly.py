@@ -41,12 +41,9 @@ def _kelly(
 class TestPositiveEdgeBuyYes:
     """Market at 0.40, estimate 0.55 → BUY YES with positive edge.
 
-    Confidence=0.80 → effective_prob = 0.80*0.55 + 0.20*0.40 = 0.52
-    Edge = 0.52 - 0.40 = 0.12
-    Fee-adjusted odds: b = (1-0.40)*0.98/0.40 = 0.588/0.40 = 1.47
-    Kelly: f* = (1.47*0.52 - 0.48) / 1.47 = (0.7644 - 0.48) / 1.47 ≈ 0.19347
-    Adjusted: 0.19347 * 0.25 ≈ 0.04837
-    Bet: 1000 * 0.04837 ≈ $48.37
+    With sublinear blending: confidence=0.80 → blend_weight = 0.80^0.75 ≈ 0.8409
+    effective_prob = 0.8409*0.55 + 0.1591*0.40 ≈ 0.5261
+    Edge = 0.5261 - 0.40 = 0.1261
     """
 
     def test_should_trade(self) -> None:
@@ -59,13 +56,16 @@ class TestPositiveEdgeBuyYes:
 
     def test_effective_prob_blended(self) -> None:
         d = _kelly(estimated_prob=0.55, market_price=0.40, confidence=0.80)
-        # effective = 0.80*0.55 + 0.20*0.40 = 0.52
-        assert abs(d.effective_prob - 0.52) < 1e-9
+        # Sublinear: blend = 0.80^0.75 ≈ 0.8409
+        blend = 0.80 ** 0.75
+        expected = blend * 0.55 + (1 - blend) * 0.40
+        assert abs(d.effective_prob - expected) < 1e-4
 
     def test_edge_uses_effective_prob(self) -> None:
         d = _kelly(estimated_prob=0.55, market_price=0.40, confidence=0.80)
-        # edge = effective_prob - market = 0.52 - 0.40 = 0.12
-        assert abs(d.edge - 0.12) < 1e-9
+        blend = 0.80 ** 0.75
+        expected_eff = blend * 0.55 + (1 - blend) * 0.40
+        assert abs(d.edge - (expected_eff - 0.40)) < 1e-4
 
     def test_raw_estimate_preserved(self) -> None:
         d = _kelly(estimated_prob=0.55, market_price=0.40, confidence=0.80)
@@ -97,13 +97,16 @@ class TestPositiveEdgeBuyNo:
 
     def test_effective_prob_blended(self) -> None:
         d = _kelly(estimated_prob=0.50, market_price=0.70, confidence=0.80)
-        # effective = 0.80*0.50 + 0.20*0.70 = 0.54
-        assert abs(d.effective_prob - 0.54) < 1e-9
+        # Sublinear: blend = 0.80^0.75
+        blend = 0.80 ** 0.75
+        expected = blend * 0.50 + (1 - blend) * 0.70
+        assert abs(d.effective_prob - expected) < 1e-4
 
     def test_edge_calculation(self) -> None:
         d = _kelly(estimated_prob=0.50, market_price=0.70, confidence=0.80)
-        # edge = market - effective = 0.70 - 0.54 = 0.16
-        assert abs(d.edge - 0.16) < 1e-9
+        blend = 0.80 ** 0.75
+        expected_eff = blend * 0.50 + (1 - blend) * 0.70
+        assert abs(d.edge - (0.70 - expected_eff)) < 1e-4
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +114,7 @@ class TestPositiveEdgeBuyNo:
 # ---------------------------------------------------------------------------
 
 class TestConfidenceBlending:
-    """Confidence directly affects bet sizing via probability blending."""
+    """Confidence directly affects bet sizing via sublinear probability blending."""
 
     def test_high_confidence_bigger_bet(self) -> None:
         d_high = _kelly(estimated_prob=0.60, market_price=0.40, confidence=0.95)
@@ -124,17 +127,40 @@ class TestConfidenceBlending:
 
     def test_zero_confidence_uses_blend_floor(self) -> None:
         d = _kelly(estimated_prob=0.60, market_price=0.40, confidence=0.0)
-        # With MIN_CONFIDENCE_BLEND=0.50: effective = 0.50*0.60 + 0.50*0.40 = 0.50
-        # Blend floor prevents full collapse to market price
-        assert abs(d.effective_prob - 0.50) < 1e-9
-        assert d.should_trade is True  # 10% edge after blend floor
+        # With MIN_CONFIDENCE_BLEND=0.15: blend = max(0^0.75, 0.15) = 0.15
+        # effective = 0.15*0.60 + 0.85*0.40 = 0.09 + 0.34 = 0.43
+        assert abs(d.effective_prob - 0.43) < 1e-4
+        assert d.should_trade is True  # 3% edge after blend floor
 
-    def test_low_confidence_with_blend_floor(self) -> None:
-        """Low confidence uses blend floor — small edge can still pass threshold."""
-        d = _kelly(estimated_prob=0.56, market_price=0.50, confidence=0.30)
-        # With MIN_CONFIDENCE_BLEND=0.50: effective = 0.50*0.56 + 0.50*0.50 = 0.53
-        # edge = 0.53 - 0.50 = 0.03 = MIN_EDGE_THRESHOLD → passes
-        assert abs(d.effective_prob - 0.53) < 1e-9
+    def test_low_confidence_preserves_edge(self) -> None:
+        """Low confidence with sublinear blending preserves more edge than linear."""
+        d = _kelly(estimated_prob=0.60, market_price=0.40, confidence=0.30)
+        # Sublinear: blend = 0.30^0.75 ≈ 0.398
+        # effective = 0.398*0.60 + 0.602*0.40 ≈ 0.480
+        # edge = 0.480 - 0.40 = 0.08
+        assert d.edge > 0.05  # meaningful edge preserved
+        assert d.should_trade is True
+
+    def test_sublinear_blending_curve(self) -> None:
+        """Verify sublinear blending at key confidence points."""
+        # conf=0.25 → blend = 0.25^0.75 ≈ 0.354
+        d = _kelly(estimated_prob=0.70, market_price=0.50, confidence=0.25)
+        blend = 0.25 ** 0.75
+        expected = blend * 0.70 + (1 - blend) * 0.50
+        assert abs(d.effective_prob - expected) < 1e-3
+
+        # conf=0.50 → blend = 0.50^0.75 ≈ 0.594
+        d = _kelly(estimated_prob=0.70, market_price=0.50, confidence=0.50)
+        blend = 0.50 ** 0.75
+        expected = blend * 0.70 + (1 - blend) * 0.50
+        assert abs(d.effective_prob - expected) < 1e-3
+
+    def test_blending_preserves_edge(self) -> None:
+        """With new blending, a 20% raw edge at conf=0.30 should survive."""
+        d = _kelly(estimated_prob=0.60, market_price=0.40, confidence=0.30)
+        # Old linear with floor=0.50: effective=0.50, edge=0.10 → gets gutted
+        # New sublinear: blend=0.30^0.75≈0.398, effective≈0.48, edge≈0.08
+        assert d.edge >= 0.05  # Edge survives
         assert d.should_trade is True
 
 
@@ -170,18 +196,20 @@ class TestZeroEdge:
 
 
 class TestEdgeBelowThreshold:
-    """Edge present but below MIN_EDGE_THRESHOLD (0.05)."""
+    """Edge present but below MIN_EDGE_THRESHOLD (0.02)."""
 
-    def test_skip_small_raw_edge(self) -> None:
-        # Raw edge = 0.03, confidence=0.8, effective = 0.8*0.53 + 0.2*0.50 = 0.524
-        # Effective edge = 0.024 < 0.05
-        d = _kelly(estimated_prob=0.53, market_price=0.50)
+    def test_skip_tiny_edge(self) -> None:
+        # Very small edge: estimate=0.51, market=0.50
+        # With sublinear blending, edge is tiny → skip
+        d = _kelly(estimated_prob=0.51, market_price=0.50)
         assert d.should_trade is False
         assert "edge below threshold" in d.skip_reason
 
     def test_trade_with_strong_edge_and_confidence(self) -> None:
-        # Raw edge = 0.10, confidence=0.8, effective = 0.8*0.60 + 0.2*0.50 = 0.58
-        # Effective edge = 0.08 > 0.05
+        # Raw edge = 0.10, confidence=0.8
+        # Sublinear: blend = 0.80^0.75 ≈ 0.84
+        # effective ≈ 0.84*0.60 + 0.16*0.50 ≈ 0.584
+        # edge ≈ 0.084 > 0.02
         d = _kelly(estimated_prob=0.60, market_price=0.50)
         assert d.should_trade is True
 
@@ -196,10 +224,11 @@ class TestBetCappedByMaxPositionPct:
 
 
 class TestBetReducedForReserve:
-    """Bet reduced to maintain MIN_BANKROLL_RESERVE ($20)."""
+    """Bet reduced to maintain dynamic bankroll reserve (max($20, 5%))."""
 
     def test_reserve_maintained(self) -> None:
         d = _kelly(estimated_prob=0.90, market_price=0.20, available_bankroll=30.0)
+        # Dynamic reserve = max(20, 30*0.05) = 20
         assert d.bet_size_usd <= 30.0 - 20.0 + 1e-9
         assert d.should_trade is True
 
@@ -207,6 +236,14 @@ class TestBetReducedForReserve:
         d = _kelly(estimated_prob=0.90, market_price=0.20, available_bankroll=20.50)
         assert d.should_trade is False
         assert "reserve" in d.skip_reason or "small" in d.skip_reason
+
+    def test_dynamic_reserve_scales_with_bankroll(self) -> None:
+        """Large bankroll uses 5% reserve instead of flat $20."""
+        d = _kelly(estimated_prob=0.90, market_price=0.20, available_bankroll=10000.0)
+        # Dynamic reserve = max(20, 10000*0.05) = 500
+        # Max position = 10000 * 0.10 = 1000
+        # bet capped at 1000 (max position), but bankroll - 1000 = 9000 > 500
+        assert d.should_trade is True
 
 
 class TestExistingPositionReducesSizing:

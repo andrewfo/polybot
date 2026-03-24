@@ -46,6 +46,58 @@ _COINGECKO_TO_DERIBIT: dict[str, str] = {
 
 USER_AGENT = "polymarket-bot/1.0 (signal research)"
 
+# Top 50 ticker → CoinGecko ID whitelist (avoids LLM hallucination for common coins)
+TICKER_TO_COINGECKO: dict[str, str] = {
+    "btc": "bitcoin", "bitcoin": "bitcoin",
+    "eth": "ethereum", "ethereum": "ethereum",
+    "sol": "solana", "solana": "solana",
+    "ada": "cardano", "cardano": "cardano",
+    "xrp": "ripple", "ripple": "ripple",
+    "doge": "dogecoin", "dogecoin": "dogecoin",
+    "dot": "polkadot", "polkadot": "polkadot",
+    "avax": "avalanche-2", "avalanche": "avalanche-2",
+    "link": "chainlink", "chainlink": "chainlink",
+    "matic": "matic-network", "polygon": "matic-network",
+    "ltc": "litecoin", "litecoin": "litecoin",
+    "uni": "uniswap", "uniswap": "uniswap",
+    "atom": "cosmos", "cosmos": "cosmos",
+    "near": "near",
+    "apt": "aptos", "aptos": "aptos",
+    "arb": "arbitrum", "arbitrum": "arbitrum",
+    "op": "optimism", "optimism": "optimism",
+    "sui": "sui",
+    "sei": "sei-network",
+    "tia": "celestia", "celestia": "celestia",
+    "jup": "jupiter-exchange-solana", "jupiter": "jupiter-exchange-solana",
+    "bonk": "bonk",
+    "pepe": "pepe",
+    "shib": "shiba-inu", "shiba": "shiba-inu",
+    "ton": "the-open-network", "toncoin": "the-open-network",
+    "trx": "tron", "tron": "tron",
+    "xlm": "stellar", "stellar": "stellar",
+    "hbar": "hedera-hashgraph", "hedera": "hedera-hashgraph",
+    "fil": "filecoin", "filecoin": "filecoin",
+    "rndr": "render-token", "render": "render-token",
+    "inj": "injective-protocol", "injective": "injective-protocol",
+    "stx": "blockstack", "stacks": "blockstack",
+    "kas": "kaspa", "kaspa": "kaspa",
+    "mnt": "mantle", "mantle": "mantle",
+    "beam": "beam-2",
+    "bnb": "binancecoin", "binance coin": "binancecoin",
+    "vet": "vechain", "vechain": "vechain",
+    "algo": "algorand", "algorand": "algorand",
+    "ftm": "fantom", "fantom": "fantom",
+    "aave": "aave",
+    "mkr": "maker", "maker": "maker",
+    "crv": "curve-dao-token", "curve": "curve-dao-token",
+    "ldo": "lido-dao", "lido": "lido-dao",
+    "snx": "havven", "synthetix": "havven",
+    "sand": "the-sandbox", "sandbox": "the-sandbox",
+    "mana": "decentraland", "decentraland": "decentraland",
+    "grt": "the-graph",
+    "wif": "dogwifcoin", "dogwifhat": "dogwifcoin",
+}
+
 
 @dataclass
 class VolEstimate:
@@ -581,9 +633,13 @@ class CryptoResolutionProvider(SignalProvider):
     async def _resolve_coin_id(
         self, resolution_keywords: dict[str, Any], market_question: str
     ) -> str | None:
-        """Resolve the CoinGecko coin ID from keywords or via LLM."""
+        """Resolve the CoinGecko coin ID from keywords, whitelist, or LLM."""
         coin_id = resolution_keywords.get("coin_id")
         if coin_id:
+            # Check if the coin_id is actually a ticker that needs mapping
+            mapped = TICKER_TO_COINGECKO.get(coin_id.lower())
+            if mapped:
+                return mapped
             return coin_id
 
         # Try to extract coin name from keywords
@@ -592,8 +648,15 @@ class CryptoResolutionProvider(SignalProvider):
             # Fall back to extracting from question
             coin_name = market_question
 
+        # Check ticker whitelist before LLM (eliminates hallucination for common coins)
+        coin_name_lower = coin_name.lower()
+        for ticker, cg_id in TICKER_TO_COINGECKO.items():
+            if ticker in coin_name_lower.split() or ticker in coin_name_lower:
+                logger.debug("Whitelist match: '%s' → %s", coin_name[:40], cg_id)
+                return cg_id
+
         # Check cache for a previous mapping
-        cache_key = f"coingecko_map:{coin_name.lower()}"
+        cache_key = f"coingecko_map:{coin_name_lower}"
         cached = db.get_cached_market(cache_key)
         if cached and isinstance(cached.get("data"), dict):
             mapped_id = cached["data"].get("coin_id")

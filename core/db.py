@@ -68,8 +68,14 @@ def ensure_tables() -> None:
             "opened_at": str,
             "last_updated": str,
             "paper": int,
+            "status": str,
         }, pk="token_id", if_not_exists=True)
         logger.info("Created positions table")
+    else:
+        columns = {col.name for col in db["positions"].columns}
+        if "status" not in columns:
+            db.execute("ALTER TABLE positions ADD COLUMN status TEXT DEFAULT 'open'")
+            logger.info("Added status column to positions table")
 
     if "signals" not in db.table_names():
         db["signals"].create({
@@ -122,6 +128,36 @@ def ensure_tables() -> None:
             "category": str,
         }, pk="condition_id", if_not_exists=True)
         logger.info("Created market_cache table")
+
+    if "frontier_decisions" not in db.table_names():
+        db["frontier_decisions"].create({
+            "id": int,
+            "market_id": str,
+            "estimated_prob": float,
+            "effective_prob": float,
+            "market_price": float,
+            "edge": float,
+            "kelly_fraction": float,
+            "bet_size_usd": float,
+            "confidence": float,
+            "should_trade": int,
+            "skip_reason": str,
+            "timestamp": str,
+        }, pk="id", if_not_exists=True)
+        logger.info("Created frontier_decisions table")
+
+    if "skipped_markets" not in db.table_names():
+        db["skipped_markets"].create({
+            "id": int,
+            "market_id": str,
+            "skip_reason": str,
+            "market_price_at_skip": float,
+            "estimated_prob": float,
+            "confidence": float,
+            "timestamp": str,
+            "resolution_outcome": float,
+        }, pk="id", if_not_exists=True)
+        logger.info("Created skipped_markets table")
 
     if "signal_calibration" not in db.table_names():
         db["signal_calibration"].create({
@@ -242,18 +278,45 @@ def upsert_position(
         "opened_at": now,
         "last_updated": now,
         "paper": int(paper),
+        "status": "open",
     }, pk="token_id")
 
 
-def close_position(token_id: str) -> None:
-    """Remove a position (closed)."""
+def close_position(
+    token_id: str,
+    exit_price: float = 0.0,
+    realized_pnl: float = 0.0,
+) -> None:
+    """Mark a position as closed and record realized PnL.
+
+    Updates status to 'closed', sets current_price to exit_price,
+    and records the realized PnL in the unrealized_pnl field (now realized).
+    """
     db = get_db()
-    db["positions"].delete(token_id)
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        db["positions"].update(token_id, {
+            "status": "closed",
+            "current_price": exit_price,
+            "unrealized_pnl": realized_pnl,
+            "last_updated": now,
+        })
+    except Exception:
+        # Fallback: delete if update fails (old schema)
+        db["positions"].delete(token_id)
 
 
 def get_open_positions() -> list[dict[str, Any]]:
-    """Return all open positions."""
+    """Return all open positions (status != 'closed')."""
     db = get_db()
+    try:
+        columns = {col.name for col in db["positions"].columns}
+        if "status" in columns:
+            return list(db["positions"].rows_where(
+                "status IS NULL OR status != 'closed'"
+            ))
+    except Exception:
+        pass
     return list(db["positions"].rows)
 
 
@@ -422,6 +485,59 @@ def clear_pipeline_cache() -> None:
     if "market_cache" in db.table_names():
         db["market_cache"].delete_where()
         logger.info("Cleared market_cache table")
+
+
+# ---------------------------------------------------------------------------
+# Frontier decision audit trail
+# ---------------------------------------------------------------------------
+
+def record_frontier_decision(
+    market_id: str,
+    estimated_prob: float,
+    effective_prob: float,
+    market_price: float,
+    edge: float,
+    kelly_fraction: float,
+    bet_size_usd: float,
+    confidence: float,
+    should_trade: bool,
+    skip_reason: str = "",
+) -> None:
+    """Record a frontier model decision for post-hoc analysis."""
+    db = get_db()
+    db["frontier_decisions"].insert({
+        "market_id": market_id,
+        "estimated_prob": estimated_prob,
+        "effective_prob": effective_prob,
+        "market_price": market_price,
+        "edge": edge,
+        "kelly_fraction": kelly_fraction,
+        "bet_size_usd": bet_size_usd,
+        "confidence": confidence,
+        "should_trade": int(should_trade),
+        "skip_reason": skip_reason,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+def record_skipped_market(
+    market_id: str,
+    skip_reason: str,
+    market_price: float = 0.0,
+    estimated_prob: float = 0.0,
+    confidence: float = 0.0,
+) -> None:
+    """Record a skipped market for later resolution analysis."""
+    db = get_db()
+    db["skipped_markets"].insert({
+        "market_id": market_id,
+        "skip_reason": skip_reason,
+        "market_price_at_skip": market_price,
+        "estimated_prob": estimated_prob,
+        "confidence": confidence,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "resolution_outcome": None,
+    })
 
 
 # Auto-create tables on import

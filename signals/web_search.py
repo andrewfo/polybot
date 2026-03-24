@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Cache: market_question -> (SignalResult, timestamp)
 _signal_cache: dict[str, tuple[SignalResult, float]] = {}
-CACHE_TTL_SECONDS = 1800  # 30 minutes
+CACHE_TTL_SECONDS = 600  # 10 minutes (crypto moves fast)
 
 
 class WebSearchSignalProvider(SignalProvider):

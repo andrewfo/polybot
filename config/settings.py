@@ -14,7 +14,7 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # --- Trading Parameters ---
 KELLY_FRACTION = float(os.getenv("KELLY_FRACTION", "0.25"))           # Quarter Kelly (conservative)
-MIN_EDGE_THRESHOLD = float(os.getenv("MIN_EDGE_THRESHOLD", "0.03"))   # Only trade when edge > 3%
+MIN_EDGE_THRESHOLD = float(os.getenv("MIN_EDGE_THRESHOLD", "0.02"))   # Only trade when edge > 2%
 MAX_POSITION_PCT = float(os.getenv("MAX_POSITION_PCT", "0.10"))       # Max 10% of bankroll per market
 MIN_BANKROLL_RESERVE = float(os.getenv("MIN_BANKROLL_RESERVE", "20")) # Always keep $20 USDC untouched
 TEST_BANKROLL = float(os.getenv("TEST_BANKROLL", "1000"))            # Placeholder bankroll for testing ($1000)
@@ -24,7 +24,7 @@ MIN_MARKET_LIQUIDITY = float(os.getenv("MIN_MARKET_LIQUIDITY", "500"))
 MAX_MARKET_LIQUIDITY = float(os.getenv("MAX_MARKET_LIQUIDITY", "500000"))
 MIN_HOURS_TO_RESOLUTION = int(os.getenv("MIN_HOURS_TO_RESOLUTION", "72"))
 MAX_DAYS_TO_RESOLUTION = int(os.getenv("MAX_DAYS_TO_RESOLUTION", "30"))
-MAX_SPREAD = float(os.getenv("MAX_SPREAD", "0.10"))
+MAX_SPREAD = float(os.getenv("MAX_SPREAD", "0.05"))
 MIN_24H_VOLUME = float(os.getenv("MIN_24H_VOLUME", "100"))
 MARKET_CACHE_REFRESH_SECONDS = int(os.getenv("MARKET_CACHE_REFRESH_SECONDS", "1800"))  # 30 minutes
 
@@ -37,7 +37,7 @@ POSITION_CHECK_INTERVAL_MINUTES = int(os.getenv("POSITION_CHECK_INTERVAL_MINUTES
 ORDER_TYPE = "limit"
 SLIPPAGE_BUFFER = float(os.getenv("SLIPPAGE_BUFFER", "0.02"))
 POLYMARKET_FEE_RATE = float(os.getenv("POLYMARKET_FEE_RATE", "0.02"))  # 2% fee on net winnings
-MIN_CONFIDENCE_BLEND = float(os.getenv("MIN_CONFIDENCE_BLEND", "0.50"))  # Floor for confidence blending (never dilute edge more than 50%)
+MIN_CONFIDENCE_BLEND = float(os.getenv("MIN_CONFIDENCE_BLEND", "0.15"))  # Floor for confidence blending
 
 # --- Risk Guardrails ---
 MAX_SIMULTANEOUS_POSITIONS = int(os.getenv("MAX_SIMULTANEOUS_POSITIONS", "5"))
@@ -68,11 +68,11 @@ DIVERGENCE_CONFIDENCE_THRESHOLD = float(os.getenv("DIVERGENCE_CONFIDENCE_THRESHO
 
 # --- Order Book Depth Analysis ---
 MAX_ACCEPTABLE_SLIPPAGE = float(os.getenv("MAX_ACCEPTABLE_SLIPPAGE", "0.03"))  # 3% max slippage
-MIN_DEPTH_USD = float(os.getenv("MIN_DEPTH_USD", "50"))  # Skip if total book depth < $50
+MIN_DEPTH_USD = float(os.getenv("MIN_DEPTH_USD", "200"))  # Skip if total book depth < $50
 DEPTH_ANALYSIS_ENABLED = os.getenv("DEPTH_ANALYSIS_ENABLED", "true").lower() == "true"
 
 # --- Aggregation ---
-USE_LOG_ODDS_AVERAGING = os.getenv("USE_LOG_ODDS_AVERAGING", "false").lower() == "true"
+USE_LOG_ODDS_AVERAGING = os.getenv("USE_LOG_ODDS_AVERAGING", "true").lower() == "true"
 
 # --- Signal Calibration ---
 MIN_CALIBRATION_SAMPLES = int(os.getenv("MIN_CALIBRATION_SAMPLES", "20"))  # Min resolved predictions to use dynamic weights
@@ -81,6 +81,8 @@ CALIBRATION_LOOKBACK_DAYS = int(os.getenv("CALIBRATION_LOOKBACK_DAYS", "90"))  #
 # --- Execution ---
 PAPER_TRADING = os.getenv("PAPER_TRADING", "true").lower() == "true"
 STALE_ORDER_MINUTES = int(os.getenv("STALE_ORDER_MINUTES", "15"))
+TAKE_PROFIT_PCT = float(os.getenv("TAKE_PROFIT_PCT", "0.25"))    # Close position at +25% profit
+STOP_LOSS_PCT = float(os.getenv("STOP_LOSS_PCT", "0.15"))        # Close position at -15% loss
 
 # --- Notifications ---
 NOTIFICATIONS_ENABLED = os.getenv("NOTIFICATIONS_ENABLED", "true").lower() == "true"

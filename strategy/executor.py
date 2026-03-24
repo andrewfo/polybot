@@ -18,6 +18,8 @@ from config.settings import (
     MAX_SIMULTANEOUS_POSITIONS,
     SLIPPAGE_BUFFER,
     STALE_ORDER_MINUTES,
+    STOP_LOSS_PCT,
+    TAKE_PROFIT_PCT,
     TEST_BANKROLL,
 )
 from core import db
@@ -194,7 +196,10 @@ class PaperExecutor:
                 logger.info("Paper trade %s auto-filled", trade["id"])
 
     async def manage_positions(self) -> None:
-        """Update unrealized PnL for all paper positions using Gamma API prices."""
+        """Update unrealized PnL for all paper positions using Gamma API prices.
+
+        Closes positions that hit take-profit or stop-loss thresholds.
+        """
         positions = db.get_open_positions()
         if not positions:
             return
@@ -208,8 +213,29 @@ class PaperExecutor:
             if current_price is None:
                 continue
 
+            cost_basis = pos["avg_entry"] * pos["size"]
             unrealized_pnl = (current_price - pos["avg_entry"]) * pos["size"]
-            loss_pct = unrealized_pnl / (pos["avg_entry"] * pos["size"]) if pos["avg_entry"] * pos["size"] > 0 else 0
+            pnl_pct = unrealized_pnl / cost_basis if cost_basis > 0 else 0
+
+            # Take-profit: close if unrealized PnL exceeds threshold
+            if pnl_pct >= TAKE_PROFIT_PCT:
+                logger.info(
+                    "TAKE PROFIT: %s up %.1f%% (entry=%.4f current=%.4f, PnL=$%.2f)",
+                    pos.get("market_question", pos["token_id"])[:50],
+                    pnl_pct * 100, pos["avg_entry"], current_price, unrealized_pnl,
+                )
+                db.close_position(pos["token_id"], exit_price=current_price, realized_pnl=unrealized_pnl)
+                continue
+
+            # Stop-loss: close if loss exceeds threshold
+            if pnl_pct <= -STOP_LOSS_PCT:
+                logger.warning(
+                    "STOP LOSS: %s down %.1f%% (entry=%.4f current=%.4f, PnL=$%.2f)",
+                    pos.get("market_question", pos["token_id"])[:50],
+                    pnl_pct * 100, pos["avg_entry"], current_price, unrealized_pnl,
+                )
+                db.close_position(pos["token_id"], exit_price=current_price, realized_pnl=unrealized_pnl)
+                continue
 
             db.upsert_position(
                 token_id=pos["token_id"],
@@ -222,11 +248,11 @@ class PaperExecutor:
                 paper=True,
             )
 
-            if loss_pct < -0.20:
+            if pnl_pct < -0.20:
                 logger.warning(
                     "LOSS WARNING: %s down %.1f%% (entry=%.4f current=%.4f)",
                     pos.get("market_question", pos["token_id"])[:50],
-                    loss_pct * 100, pos["avg_entry"], current_price,
+                    pnl_pct * 100, pos["avg_entry"], current_price,
                 )
 
 
@@ -349,7 +375,11 @@ class TradeExecutor:
                     pass
 
     async def manage_positions(self) -> None:
-        """Update unrealized PnL for all live positions using Gamma API prices."""
+        """Update unrealized PnL for all live positions using Gamma API prices.
+
+        Closes positions that hit take-profit or stop-loss thresholds
+        by placing limit sell orders on the CLOB.
+        """
         positions = db.get_open_positions()
         if not positions:
             return
@@ -362,8 +392,49 @@ class TradeExecutor:
             if current_price is None:
                 continue
 
+            cost_basis = pos["avg_entry"] * pos["size"]
             unrealized_pnl = (current_price - pos["avg_entry"]) * pos["size"]
-            loss_pct = unrealized_pnl / (pos["avg_entry"] * pos["size"]) if pos["avg_entry"] * pos["size"] > 0 else 0
+            pnl_pct = unrealized_pnl / cost_basis if cost_basis > 0 else 0
+
+            # Take-profit: place sell order
+            if pnl_pct >= TAKE_PROFIT_PCT:
+                logger.info(
+                    "TAKE PROFIT: %s up %.1f%% (entry=%.4f current=%.4f, PnL=$%.2f)",
+                    pos.get("market_question", pos["token_id"])[:50],
+                    pnl_pct * 100, pos["avg_entry"], current_price, unrealized_pnl,
+                )
+                try:
+                    sell_price = max(0.01, min(0.99, current_price - SLIPPAGE_BUFFER))
+                    await self._client.place_limit_order(
+                        token_id=pos["token_id"],
+                        side="SELL",
+                        price=sell_price,
+                        size=pos["size"],
+                    )
+                    db.close_position(pos["token_id"], exit_price=current_price, realized_pnl=unrealized_pnl)
+                except Exception as e:
+                    logger.error("Failed to close position for take-profit: %s", e)
+                continue
+
+            # Stop-loss: place sell order
+            if pnl_pct <= -STOP_LOSS_PCT:
+                logger.warning(
+                    "STOP LOSS: %s down %.1f%% (entry=%.4f current=%.4f, PnL=$%.2f)",
+                    pos.get("market_question", pos["token_id"])[:50],
+                    pnl_pct * 100, pos["avg_entry"], current_price, unrealized_pnl,
+                )
+                try:
+                    sell_price = max(0.01, min(0.99, current_price - SLIPPAGE_BUFFER))
+                    await self._client.place_limit_order(
+                        token_id=pos["token_id"],
+                        side="SELL",
+                        price=sell_price,
+                        size=pos["size"],
+                    )
+                    db.close_position(pos["token_id"], exit_price=current_price, realized_pnl=unrealized_pnl)
+                except Exception as e:
+                    logger.error("Failed to close position for stop-loss: %s", e)
+                continue
 
             db.upsert_position(
                 token_id=pos["token_id"],
@@ -376,11 +447,11 @@ class TradeExecutor:
                 paper=False,
             )
 
-            if loss_pct < -0.20:
+            if pnl_pct < -0.20:
                 logger.warning(
                     "LOSS WARNING: %s down %.1f%% (entry=%.4f current=%.4f)",
                     pos.get("market_question", pos["token_id"])[:50],
-                    loss_pct * 100, pos["avg_entry"], current_price,
+                    pnl_pct * 100, pos["avg_entry"], current_price,
                 )
 
 

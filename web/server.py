@@ -61,7 +61,7 @@ class BotEngine:
         self.phase: str = "idle"
         self.cycle_count: int = 0
         self.filtered_market_cache: list[dict[str, Any]] = []
-        self.aggregated_ids: set[str] = set()
+        self.aggregated_ids: dict[str, dict[str, Any]] = {}  # cid → {"timestamp": float, "market_price": float}
         self.analysis_entries: dict[str, dict[str, Any]] = {}
 
         self._ws = ws_manager
@@ -206,12 +206,34 @@ class BotEngine:
                     "phase": "aggregating", "cycle_count": self.cycle_count,
                 })
 
-                # Select candidates (dedup by conditionId)
+                # Select candidates (dedup by conditionId, allow re-analysis on price move)
                 batch_size = 40
-                candidates = [
-                    m for m in self.filtered_market_cache
-                    if m.get("conditionId", m.get("condition_id", "")) not in self.aggregated_ids
-                ][:batch_size]
+                now_ts = time.time()
+                candidates = []
+                for m in self.filtered_market_cache:
+                    cid = m.get("conditionId", m.get("condition_id", ""))
+                    if not cid:
+                        continue
+                    prev = self.aggregated_ids.get(cid)
+                    if prev is None:
+                        candidates.append(m)
+                    else:
+                        # Re-analyze if: price moved >5%, >6h elapsed, or <7d to expiry
+                        cur_price = self._parse_market_price(m)
+                        price_moved = abs(cur_price - prev["market_price"]) > 0.05 if cur_price > 0 else False
+                        hours_elapsed = (now_ts - prev["timestamp"]) / 3600
+                        days_to_expiry = None
+                        end_date = m.get("endDate", "")
+                        if end_date:
+                            try:
+                                end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+                                days_to_expiry = (end_dt - datetime.now(timezone.utc)).total_seconds() / 86400
+                            except Exception:
+                                pass
+                        if price_moved or hours_elapsed > 6 or (days_to_expiry is not None and days_to_expiry < 7):
+                            candidates.append(m)
+                    if len(candidates) >= batch_size:
+                        break
 
                 if not candidates:
                     logger.info("Aggregation cycle %d: no new candidates", self.cycle_count)
@@ -231,25 +253,32 @@ class BotEngine:
                         "market_data": m,
                     }
 
-                for i, m in enumerate(candidates):
-                    if not self.running:
-                        break
-                    cid = m.get("conditionId", m.get("condition_id", ""))
-                    self.analysis_entries[cid]["status"] = "processing"
+                # Parallel aggregation with semaphore (3 concurrent, respects frontier rate limit)
+                sem = asyncio.Semaphore(3)
 
+                async def _process_with_sem(m_item: dict[str, Any], idx: int) -> None:
+                    if not self.running:
+                        return
+                    c = m_item.get("conditionId", m_item.get("condition_id", ""))
+                    self.analysis_entries[c]["status"] = "processing"
                     await self._broadcast({
                         "type": "batch_update",
-                        "current_index": i,
+                        "current_index": idx,
                         "total": len(candidates),
-                        "condition_id": cid,
+                        "condition_id": c,
                         "status": "processing",
                     })
+                    async with sem:
+                        try:
+                            await self._process_candidate(m_item, c)
+                        except Exception:
+                            logger.exception("Aggregation failed for %s", c)
+                            self.analysis_entries[c]["status"] = "error"
 
-                    try:
-                        await self._process_candidate(m, cid)
-                    except Exception:
-                        logger.exception("Aggregation failed for %s", cid)
-                        self.analysis_entries[cid]["status"] = "error"
+                await asyncio.gather(
+                    *(_process_with_sem(m, i) for i, m in enumerate(candidates)),
+                    return_exceptions=True,
+                )
 
                 self.phase = "waiting"
                 await self._broadcast({"type": "bot_status", "running": True, "phase": "waiting"})
@@ -325,7 +354,7 @@ class BotEngine:
             resolution_keywords=m.get("_resolution_params"),
         )
 
-        self.aggregated_ids.add(cid)
+        self.aggregated_ids[cid] = {"timestamp": time.time(), "market_price": market_price}
 
         # Build market metadata for frontend (always, even if skipped)
         end_date = m.get("endDate", "")
@@ -370,6 +399,19 @@ class BotEngine:
         }
 
         if result is None or result.skipped:
+            # Record skipped market for audit trail
+            try:
+                from core.db import record_skipped_market
+                record_skipped_market(
+                    market_id=cid,
+                    skip_reason=result.skip_reason if result else "no usable signals",
+                    market_price=market_price,
+                    estimated_prob=result.final_probability if result else 0.0,
+                    confidence=result.confidence if result else 0.0,
+                )
+            except Exception:
+                pass
+
             # Still populate structured data so UI shows market info + signals
             from signals.aggregator import SIGNAL_WEIGHT_MULTIPLIERS, _compute_effective_weight
 
@@ -569,6 +611,32 @@ class BotEngine:
             "depth": depth_data,
             "execution": exec_data,
         })
+
+        # Record frontier decision for audit trail (Phase 6)
+        try:
+            from core.db import record_frontier_decision, record_skipped_market
+            record_frontier_decision(
+                market_id=cid,
+                estimated_prob=decision.estimated_prob,
+                effective_prob=decision.effective_prob,
+                market_price=decision.market_price,
+                edge=decision.edge,
+                kelly_fraction=decision.adjusted_fraction,
+                bet_size_usd=decision.bet_size_usd,
+                confidence=decision.confidence,
+                should_trade=decision.should_trade,
+                skip_reason=decision.skip_reason,
+            )
+            if not decision.should_trade:
+                record_skipped_market(
+                    market_id=cid,
+                    skip_reason=decision.skip_reason,
+                    market_price=decision.market_price,
+                    estimated_prob=decision.estimated_prob,
+                    confidence=decision.confidence,
+                )
+        except Exception as e:
+            logger.debug("Failed to record frontier decision: %s", e)
 
         # Extract price_history from crypto signal raw_data for the chart
         for s in (result.all_signals if result.all_signals else result.individual_signals):

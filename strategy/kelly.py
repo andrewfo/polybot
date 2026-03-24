@@ -93,10 +93,10 @@ def calculate_kelly(
         Full audit record including whether to trade and why/why not.
     """
     # Confidence-blend: shrink our estimate toward the market price.
-    # If confidence=1.0 we fully trust our estimate; if confidence=0.0
-    # we have no information and defer to the market entirely.
-    # Floor the blend weight so we never dilute more than 50% toward market.
-    blend_weight = max(confidence, MIN_CONFIDENCE_BLEND)
+    # Sublinear scaling: confidence^0.75 provides a natural shrinkage curve
+    # that preserves more edge at low confidence than linear blending.
+    # conf=0.25 → 0.35 blend, conf=0.50 → 0.59, conf=0.80 → 0.85
+    blend_weight = max(confidence ** 0.75, MIN_CONFIDENCE_BLEND)
     effective_prob = blend_weight * estimated_prob + (1.0 - blend_weight) * market_price
 
     # Determine side using the blended probability
@@ -162,9 +162,11 @@ def calculate_kelly(
         )
         bet_size = max_position
 
-    # --- Safety check 5: maintain MIN_BANKROLL_RESERVE ---
-    if available_bankroll - bet_size < MIN_BANKROLL_RESERVE:
-        bet_size = available_bankroll - MIN_BANKROLL_RESERVE
+    # --- Safety check 5: maintain dynamic bankroll reserve ---
+    # Scales with portfolio size: max(MIN_BANKROLL_RESERVE, bankroll * 5%)
+    effective_reserve = max(MIN_BANKROLL_RESERVE, available_bankroll * 0.05)
+    if available_bankroll - bet_size < effective_reserve:
+        bet_size = available_bankroll - effective_reserve
         if bet_size < 1.0:
             return _skip(
                 market_id, token_id, market_question, side,

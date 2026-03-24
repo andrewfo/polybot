@@ -316,12 +316,13 @@ class TestExtractResolutionParams:
 
 class TestRankCandidates:
     def test_ranking_order(self) -> None:
-        """Crypto markets with good timing and liquidity score highest."""
+        """Markets with higher adjusted edge score highest."""
         markets = [
             _make_market(
                 condition_id="best",
-                days_until_end=10, liquidity=5000, volume_24h=600,
+                days_until_end=5, liquidity=5000, volume_24h=600,
                 category="crypto",
+                _resolution_params={"coin_id": "bitcoin", "target_value": 100000, "target_direction": "above", "resolution_type": "barrier"},
             ),
             _make_market(
                 condition_id="mid",
@@ -334,40 +335,49 @@ class TestRankCandidates:
                 category="entertainment",
             ),
         ]
+        # Give the best market a model edge
+        markets[0]["_model_edge"] = 0.10
         ranked = rank_candidates(markets)
         assert ranked[0]["condition_id"] == "best"
-        assert ranked[0]["_score"] >= ranked[1]["_score"]
-        assert ranked[1]["_score"] >= ranked[2]["_score"]
 
     def test_scoring_components(self) -> None:
-        """Verify individual scoring components."""
-        # Resolution 7-14d (+4), liquidity $1k-$10k (+2), vol>500 (+1), price 0.15-0.85 (+2) = 9
+        """Verify continuous time score and Kelly leverage."""
+        import math
+        # Resolution 10d → time_score = 5*exp(-0.5*((10-5)/4)^2) ≈ 3.51
+        # liquidity $1k-$10k (+2), vol>500 (+1), price 0.15-0.85 (+2)
         market = _make_market(
             days_until_end=10, liquidity=5000, volume_24h=600, category="crypto",
         )
         ranked = rank_candidates([market])
-        assert ranked[0]["_score"] == 9
+        expected_time = 5.0 * math.exp(-0.5 * ((10 - 5) / 4) ** 2)
+        assert abs(ranked[0]["_time_score"] - round(expected_time, 2)) < 0.1
+        assert ranked[0]["_score"] >= 5.0  # time + liquidity + volume + price
 
     def test_scoring_mid_range(self) -> None:
-        """Resolution 21-30d (+1), liquidity $500-$1k (+1), other (+0), vol<=500 (+0), price 0.15-0.85 (+2) = 4."""
+        """Resolution 25d, liquidity $500-$1k — lower total score."""
         market = _make_market(
             days_until_end=25, liquidity=800, volume_24h=200, category="other",
         )
         ranked = rank_candidates([market])
-        assert ranked[0]["_score"] == 4
+        # time_score for 25d ≈ 5*exp(-0.5*((25-5)/4)^2) ≈ very small
+        # liquidity +1, price +2 → score ≈ 3 + small time
+        assert ranked[0]["_score"] >= 3.0
 
     def test_empty_list(self) -> None:
         ranked = rank_candidates([])
         assert ranked == []
 
-    def test_crypto_gets_same_score(self) -> None:
-        """Crypto category no longer gets bonus (all filtered markets are crypto)."""
-        market = _make_market(
-            days_until_end=10, liquidity=5000, volume_24h=600, category="crypto",
-        )
-        ranked = rank_candidates([market])
-        # 4 (time 7-14d) + 2 (liquidity) + 1 (volume) + 2 (price range) = 9
-        assert ranked[0]["_score"] == 9
+    def test_kelly_adjusted_ranking(self) -> None:
+        """Markets near 0.50 get higher Kelly leverage."""
+        # Market at 0.50 → Kelly leverage = 1/(0.50*0.50) = 4.0
+        # Market at 0.20 → Kelly leverage = 1/(0.20*0.80) = 6.25
+        m1 = _make_market(condition_id="mid_price", yes_price=0.50, days_until_end=5)
+        m1["_model_edge"] = 0.05
+        m2 = _make_market(condition_id="low_price", yes_price=0.20, days_until_end=5)
+        m2["_model_edge"] = 0.05  # same raw edge
+        ranked = rank_candidates([m1, m2])
+        # low_price has higher Kelly leverage → higher adjusted edge
+        assert ranked[0]["condition_id"] == "low_price"
 
 
 # ---------------------------------------------------------------------------

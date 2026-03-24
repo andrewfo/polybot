@@ -191,12 +191,18 @@ def _format_raw_evidence(signal: SignalResult) -> str:
         realized_drift = raw.get("realized_drift")
         shrunk_drift = raw.get("shrunk_drift")
         deribit_iv = raw.get("deribit_iv")
+        price_7d_ago = raw.get("price_7d_ago")
         if current is None and target is None:
             return ""
         lines = ["  Market data:"]
         if current is not None and target is not None:
             distance_pct = raw.get("distance_pct", 0)
-            lines.append(f"  - Current: ${current:,.0f} | Target: ${target:,.0f} ({direction}, {distance_pct:+.1f}% away)")
+            distance_usd = abs(current - target)
+            lines.append(f"  - Current: ${current:,.0f} | Target: ${target:,.0f} ({direction}, {distance_pct:+.1f}% / ${distance_usd:,.0f} away)")
+        # Price trajectory (7d)
+        if current is not None and price_7d_ago is not None and price_7d_ago > 0:
+            pct_7d = (current - price_7d_ago) / price_7d_ago
+            lines.append(f"  - Price: ${price_7d_ago:,.0f} → ${current:,.0f} over 7d ({pct_7d:+.1%})")
         if change_24h is not None and vol is not None:
             vol_label = f"{vol:.0%} ({vol_source})"
             if historical_vol is not None and ewm_vol is not None:
@@ -204,7 +210,9 @@ def _format_raw_evidence(signal: SignalResult) -> str:
                 if short_term_vol is not None:
                     vol_label += f", 7d={short_term_vol:.0%}"
                 vol_label += "]"
-            lines.append(f"  - 24h: {change_24h:+.1%} | Annual vol: {vol_label}")
+            # Vol regime label
+            vol_regime = "low" if vol < 0.40 else "moderate" if vol < 0.80 else "high" if vol < 1.50 else "extreme"
+            lines.append(f"  - 24h: {change_24h:+.1%} | Annual vol: {vol_label} ({vol_regime} regime)")
         if deribit_iv is not None:
             lines.append(f"  - Deribit implied vol: {deribit_iv:.0%}")
         if shrunk_drift is not None:
@@ -451,6 +459,24 @@ class SignalAggregator:
             market_question, "preliminary",
             f"weighted estimate: {preliminary_prob:.2f} from {len(usable_signals)} signals",
         )
+
+        # Step 4b: Pre-frontier divergence check
+        # If preliminary estimate diverges wildly from market AND signals disagree,
+        # skip the expensive frontier call — it won't resolve the conflict.
+        prelim_divergence = abs(preliminary_prob - market_price)
+        agreement = _compute_signals_agreement(usable_signals)
+        if prelim_divergence > 0.35 and agreement == "disagree":
+            reason = (
+                f"pre-frontier skip: divergence={prelim_divergence:.2f} with signals disagreeing "
+                f"(prelim={preliminary_prob:.2f}, market={market_price:.2f})"
+            )
+            logger.info("Skipping frontier for '%s': %s", market_question[:60], reason)
+            self._emit(market_question, "skip", reason)
+            self._log_aggregated_signal(
+                market_question, "aggregator_prefrontier_skip",
+                preliminary_prob, 0.0, reason, "none",
+            )
+            return None
 
         # Step 5: FRONTIER MODEL CALL
         self._emit(market_question, "frontier", "calling frontier model for final estimate")

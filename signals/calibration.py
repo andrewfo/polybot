@@ -96,15 +96,21 @@ def record_resolution(market_id: str, actual_outcome: float) -> None:
 
 
 def get_provider_brier_scores() -> dict[str, tuple[float, int]]:
-    """Compute Brier score per signal source from resolved predictions.
+    """Compute time-weighted Brier score per signal source from resolved predictions.
 
-    Returns dict of source -> (brier_score, sample_count).
+    Returns dict of source -> (weighted_brier_score, sample_count).
     Only considers predictions within CALIBRATION_LOOKBACK_DAYS.
+
+    Time decay: weight = exp(-age_days / 45) — predictions from 90 days ago
+    are weighted ~14% vs yesterday's at 100%. This ensures the bot adapts
+    to changing signal quality over time.
     """
+    import math
+
     try:
         d = db.get_db()
         rows = list(d.execute(
-            "SELECT signal_source, predicted_probability, actual_outcome "
+            "SELECT signal_source, predicted_probability, actual_outcome, resolved_at "
             "FROM signal_calibration "
             "WHERE actual_outcome IS NOT NULL "
             "AND resolved_at >= datetime('now', ?)",
@@ -117,19 +123,39 @@ def get_provider_brier_scores() -> dict[str, tuple[float, int]]:
     if not rows:
         return {}
 
-    # Group by source
-    scores: dict[str, list[float]] = {}
+    now = datetime.now(timezone.utc)
+
+    # Group by source with time-weighted Brier scores
+    scores: dict[str, list[tuple[float, float]]] = {}  # source -> [(brier, weight), ...]
     for row in rows:
         source = row[0]
         predicted = float(row[1])
         actual = float(row[2])
+        resolved_at_str = row[3]
         brier = (predicted - actual) ** 2
-        scores.setdefault(source, []).append(brier)
+
+        # Compute age-based decay weight
+        weight = 1.0
+        if resolved_at_str:
+            try:
+                resolved_at = datetime.fromisoformat(resolved_at_str)
+                if resolved_at.tzinfo is None:
+                    resolved_at = resolved_at.replace(tzinfo=timezone.utc)
+                age_days = (now - resolved_at).total_seconds() / 86400
+                weight = math.exp(-age_days / 45.0)
+            except (ValueError, TypeError):
+                pass
+
+        scores.setdefault(source, []).append((brier, weight))
 
     result: dict[str, tuple[float, int]] = {}
-    for source, brier_list in scores.items():
-        mean_brier = sum(brier_list) / len(brier_list)
-        result[source] = (mean_brier, len(brier_list))
+    for source, brier_weights in scores.items():
+        total_weight = sum(w for _, w in brier_weights)
+        if total_weight > 0:
+            weighted_brier = sum(b * w for b, w in brier_weights) / total_weight
+        else:
+            weighted_brier = sum(b for b, _ in brier_weights) / len(brier_weights)
+        result[source] = (weighted_brier, len(brier_weights))
 
     return result
 

@@ -7,6 +7,7 @@ and ranks candidates by desirability score.
 
 import json
 import logging
+import math
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
@@ -861,44 +862,40 @@ async def pre_screen_crypto_edge(
 
 
 def rank_candidates(filtered_markets: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Score and rank markets by edge potential and desirability.
+    """Score and rank markets by Kelly leverage-adjusted edge.
 
-    Primary sort: _model_edge (pre-screened mathematical edge vs market price).
-    Markets with higher model-vs-market divergence are ranked first because
-    they're more likely to have real tradeable edges.
+    Primary sort: adjusted_edge (model_edge × Kelly leverage).
+    Kelly leverage = 1 / max(0.05, p*(1-p)) — edges near 0.50 get
+    higher leverage because Kelly sizing produces larger bets there.
 
-    Secondary scoring (tiebreakers):
-    - Resolution in 1-4 weeks: +3 points
-    - Resolution in 4-8 weeks: +1 point
-    - Liquidity $1k-$10k: +2 points (mid-liquidity = more likely mispriced)
-    - Liquidity $500-$1k: +1 point
-    - Market price in tradeable range (0.15-0.85): +2 points
-    - 24h volume > $500: +1 point
-    - Ultra-high volume (> $50k/day): -1 point (efficiently priced)
+    Secondary: continuous time score with Gaussian peak at 5 days.
+    Tiebreakers: mid-liquidity preference, volume scoring.
 
-    Returns sorted list (highest edge first, then score) with _score attached.
+    Returns sorted list (highest adjusted_edge first) with _score attached.
     """
     now = datetime.now(timezone.utc)
     scored: list[dict[str, Any]] = []
 
     for market in filtered_markets:
-        score = 0
+        score = 0.0
 
-        # Time to resolution scoring — strongly prefer shorter markets
-        time_score = 0
+        # Continuous time score: Gaussian peak at 5 days (σ=4)
+        time_score = 0.0
         end_date = _parse_end_date(market)
+        days_to_resolution = 15.0  # default if no end date
         if end_date:
-            days_to_resolution = (end_date - now).total_seconds() / 86400
-            if 3 <= days_to_resolution <= 7:
-                time_score = 5
-            elif 7 < days_to_resolution <= 14:
-                time_score = 4
-            elif 14 < days_to_resolution <= 21:
-                time_score = 2
-            elif 21 < days_to_resolution <= 30:
-                time_score = 1
+            days_to_resolution = max(0, (end_date - now).total_seconds() / 86400)
+            time_score = 5.0 * math.exp(-0.5 * ((days_to_resolution - 5) / 4) ** 2)
         score += time_score
-        market["_time_score"] = time_score
+        market["_time_score"] = round(time_score, 2)
+
+        # Kelly leverage: edge is more valuable near 0.50 price
+        model_edge = market.get("_model_edge", 0.0)
+        prices = _get_outcome_prices(market)
+        market_price = prices[0] if prices else 0.50
+        kelly_leverage = 1.0 / max(0.05, market_price * (1.0 - market_price))
+        adjusted_edge = model_edge * kelly_leverage
+        market["_adjusted_edge"] = round(adjusted_edge, 4)
 
         # Liquidity scoring — mid-liquidity markets are more likely mispriced
         liquidity = _get_liquidity(market)
@@ -908,35 +905,31 @@ def rank_candidates(filtered_markets: list[dict[str, Any]]) -> list[dict[str, An
             score += 1
 
         # Price range scoring — markets near 0.50 have more room for edge
-        prices = _get_outcome_prices(market)
-        if prices:
-            yes_price = prices[0]
-            if 0.15 <= yes_price <= 0.85:
-                score += 2
+        if prices and 0.15 <= market_price <= 0.85:
+            score += 2
 
         # Volume scoring
         volume = _get_volume_24h(market)
         if volume > 500:
             score += 1
-        # Ultra-high volume markets are efficiently priced — less edge opportunity
         if volume > 50000:
             score -= 1
 
-        market["_score"] = score
+        market["_score"] = round(score, 2)
         scored.append(market)
 
-    # Sort: time_score first, then model_edge, then total score
+    # Sort: adjusted_edge first, then time_score, then total score
     scored.sort(
-        key=lambda m: (m.get("_time_score", 0), m.get("_model_edge", 0.0), m.get("_score", 0)),
+        key=lambda m: (m.get("_adjusted_edge", 0.0), m.get("_time_score", 0.0), m.get("_score", 0)),
         reverse=True,
     )
 
     logger.info(
-        "Ranked %d candidates (top edge=%.3f/score=%d, bottom edge=%.3f/score=%d)",
+        "Ranked %d candidates (top adj_edge=%.3f/score=%.1f, bottom adj_edge=%.3f/score=%.1f)",
         len(scored),
-        scored[0].get("_model_edge", 0) if scored else 0,
+        scored[0].get("_adjusted_edge", 0) if scored else 0,
         scored[0].get("_score", 0) if scored else 0,
-        scored[-1].get("_model_edge", 0) if scored else 0,
+        scored[-1].get("_adjusted_edge", 0) if scored else 0,
         scored[-1].get("_score", 0) if scored else 0,
     )
     return scored

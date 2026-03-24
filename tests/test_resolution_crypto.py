@@ -553,10 +553,9 @@ async def test_missing_coin_id_llm_maps_it(mock_session_cls, mock_db, mock_llm):
     assert result.probability is not None
     assert 0.0 <= result.probability <= 1.0
     assert result.model_used == "none"  # Pure math, no LLM adjustment
-    # Verify LLM was called once: extract (map coin_id only)
-    assert mock_llm.call_json.call_count == 1
-    first_call = mock_llm.call_json.call_args_list[0]
-    assert first_call[1].get("task_type") == "extract"
+    # With the ticker whitelist, "Ethereum" is resolved directly without LLM
+    # LLM should NOT be called (whitelist match for "ethereum")
+    assert mock_llm.call_json.call_count == 0
 
 
 @pytest.mark.asyncio

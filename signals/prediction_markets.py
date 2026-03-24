@@ -392,13 +392,16 @@ class PredictionMarketsSignalProvider(SignalProvider):
         self,
         market_question: str,
         matches: list[dict[str, Any]],
-        similarity_threshold: float = 0.30,
+        similarity_threshold: float = 0.40,
     ) -> SignalResult:
         """Match candidates by string similarity and compute consensus.
 
-        Filters matches by Jaccard similarity threshold, then computes a
-        weighted consensus probability where weight = similarity score.
+        Filters matches by Jaccard similarity threshold (0.40, tightened
+        from 0.30 to reduce false positive matches), then computes a
+        weighted consensus probability where weight = similarity × log(1 + volume).
         """
+        import math
+
         scored_matches = []
         for m in matches:
             title = m.get("title", "")
@@ -417,13 +420,20 @@ class PredictionMarketsSignalProvider(SignalProvider):
                 raw_data={"all_candidates": len(matches)},
             )
 
-        # Weighted consensus by similarity score
-        total_weight = sum(sim for _, sim in scored_matches)
-        consensus_prob = sum(m["probability"] * sim for m, sim in scored_matches) / total_weight
+        # Weighted consensus: similarity × log(1 + volume) for liquidity weighting
+        total_weight = 0.0
+        weighted_prob = 0.0
+        for m, sim in scored_matches:
+            volume = float(m.get("volume", 0) or m.get("liquidity", 0) or 0)
+            w = sim * math.log1p(max(volume, 1.0))
+            weighted_prob += m["probability"] * w
+            total_weight += w
+
+        consensus_prob = weighted_prob / total_weight if total_weight > 0 else 0.5
         consensus_prob = max(0.0, min(1.0, consensus_prob))
 
         # Confidence from match count + average similarity
-        avg_sim = total_weight / len(scored_matches)
+        avg_sim = sum(sim for _, sim in scored_matches) / len(scored_matches)
         match_count_factor = min(1.0, len(scored_matches) / 3.0)  # 3+ matches = full credit
         confidence = min(0.9, avg_sim * 0.6 + match_count_factor * 0.4)
 

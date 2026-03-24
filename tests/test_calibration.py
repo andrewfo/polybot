@@ -68,14 +68,17 @@ class TestRecordResolution:
 
 class TestBrierScores:
     def test_computes_correctly(self) -> None:
+        from datetime import datetime, timezone
         mock_db = MagicMock()
         # Simulate: web_search predicted 0.8, actual was 1.0 → brier = 0.04
         #           web_search predicted 0.6, actual was 0.0 → brier = 0.36
         #           resolution_crypto predicted 0.9, actual was 1.0 → brier = 0.01
+        # Include resolved_at timestamps (recent = weight ~1.0)
+        now = datetime.now(timezone.utc).isoformat()
         mock_db.execute.return_value.fetchall.return_value = [
-            ("web_search", 0.8, 1.0),
-            ("web_search", 0.6, 0.0),
-            ("resolution_crypto", 0.9, 1.0),
+            ("web_search", 0.8, 1.0, now),
+            ("web_search", 0.6, 0.0, now),
+            ("resolution_crypto", 0.9, 1.0, now),
         ]
 
         with patch("signals.calibration.db.get_db", return_value=mock_db):
@@ -83,11 +86,11 @@ class TestBrierScores:
 
         assert "web_search" in scores
         assert "resolution_crypto" in scores
-        # web_search: mean((0.8-1)^2, (0.6-0)^2) = mean(0.04, 0.36) = 0.20
-        assert abs(scores["web_search"][0] - 0.20) < 1e-6
+        # web_search: weighted mean((0.8-1)^2, (0.6-0)^2) ≈ 0.20 (weights ~1.0 for recent)
+        assert abs(scores["web_search"][0] - 0.20) < 0.01
         assert scores["web_search"][1] == 2
         # resolution_crypto: (0.9-1)^2 = 0.01
-        assert abs(scores["resolution_crypto"][0] - 0.01) < 1e-6
+        assert abs(scores["resolution_crypto"][0] - 0.01) < 0.01
         assert scores["resolution_crypto"][1] == 1
 
     def test_empty_data(self) -> None:
@@ -98,6 +101,28 @@ class TestBrierScores:
             scores = get_provider_brier_scores()
 
         assert scores == {}
+
+    def test_time_decay_weights(self) -> None:
+        """Older predictions should have lower weight (exponential decay)."""
+        from datetime import datetime, timezone, timedelta
+        import math
+
+        mock_db = MagicMock()
+        now = datetime.now(timezone.utc)
+        old_time = (now - timedelta(days=45)).isoformat()  # 45 days ago → weight ≈ 0.37
+        recent_time = now.isoformat()  # now → weight ≈ 1.0
+
+        # Two predictions with same brier but different ages
+        mock_db.execute.return_value.fetchall.return_value = [
+            ("web_search", 0.8, 1.0, recent_time),   # brier=0.04, weight≈1.0
+            ("web_search", 0.2, 1.0, old_time),       # brier=0.64, weight≈0.37
+        ]
+
+        with patch("signals.calibration.db.get_db", return_value=mock_db):
+            scores = get_provider_brier_scores()
+
+        # Weighted average should be closer to 0.04 (recent) than 0.64 (old)
+        assert scores["web_search"][0] < 0.25  # Much less than unweighted mean of 0.34
 
 
 # ---------------------------------------------------------------------------

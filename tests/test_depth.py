@@ -216,14 +216,15 @@ class TestAnalyzeDepth:
     @pytest.mark.asyncio
     async def test_high_slippage_reduces_bet(self) -> None:
         levels = [
-            OrderBookLevel(price=0.50, size=20.0),   # $10
-            OrderBookLevel(price=0.60, size=200.0),   # $120 — 20% higher
+            OrderBookLevel(price=0.50, size=200.0),   # $100 at best price
+            OrderBookLevel(price=0.55, size=400.0),   # $220 at +10%
+            OrderBookLevel(price=0.60, size=200.0),   # $120 at +20%
         ]
         with patch("strategy.depth.fetch_order_book", new_callable=AsyncMock, return_value=levels):
-            result = await analyze_depth("tok1", "BUY_YES", 100.0)
+            result = await analyze_depth("tok1", "BUY_YES", 400.0)
 
-        # Slippage for full $100 would be high — bet should be reduced
-        assert result.adjusted_bet_usd < 100.0
+        # Slippage for full $400 would be high — bet should be reduced
+        assert result.adjusted_bet_usd < 400.0
         assert result.adjusted_bet_usd > 0
 
 
