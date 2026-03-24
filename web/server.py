@@ -130,11 +130,15 @@ class BotEngine:
                 self.phase = "filtering"
                 await self._broadcast({"type": "bot_status", "running": True, "phase": "filtering"})
 
-                # Calibration check
+                # Calibration check + skipped market resolution tracking
                 from signals.calibration import check_and_record_resolutions
                 resolved = await check_and_record_resolutions()
                 if resolved > 0:
                     logger.info("Calibration: resolved %d markets", resolved)
+                from monitoring.learning import update_skipped_resolutions
+                skip_resolved = await update_skipped_resolutions()
+                if skip_resolved > 0:
+                    logger.info("Skip tracking: resolved %d skipped markets", skip_resolved)
 
                 # Full filter pipeline
                 from strategy.market_filter import (
@@ -279,6 +283,20 @@ class BotEngine:
                     *(_process_with_sem(m, i) for i, m in enumerate(candidates)),
                     return_exceptions=True,
                 )
+
+                # Run learning cycle after each aggregation batch
+                try:
+                    from monitoring.learning import run_learning_cycle
+                    self.phase = "learning"
+                    await self._broadcast({"type": "bot_status", "running": True, "phase": "learning"})
+                    learning_report = await run_learning_cycle()
+                    if learning_report.recommendations:
+                        logger.info(
+                            "Learning: %d recommendations generated",
+                            len(learning_report.recommendations),
+                        )
+                except Exception:
+                    logger.exception("Learning cycle error (non-fatal)")
 
                 self.phase = "waiting"
                 await self._broadcast({"type": "bot_status", "running": True, "phase": "waiting"})
@@ -1028,6 +1046,92 @@ def create_app() -> FastAPI:
         try:
             from core.db import get_open_trades
             return get_open_trades()
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": str(e)[:200]})
+
+    # -----------------------------------------------------------------------
+    # Learning / continuous improvement endpoints
+    # -----------------------------------------------------------------------
+
+    @app.get("/api/learning/report")
+    async def learning_report():
+        """Get the latest learning report with all analyses and recommendations."""
+        try:
+            from monitoring.learning import get_latest_report
+            report = get_latest_report()
+            if report is None:
+                return {"status": "no_data", "message": "No learning reports yet. Run a learning cycle first."}
+            import dataclasses
+            return dataclasses.asdict(report)
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": str(e)[:200]})
+
+    @app.get("/api/learning/history")
+    async def learning_history(limit: int = Query(20, ge=1, le=100)):
+        """Get trend data from recent learning reports."""
+        try:
+            from monitoring.learning import get_report_history
+            return get_report_history(limit=limit)
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": str(e)[:200]})
+
+    @app.post("/api/learning/run")
+    async def learning_run():
+        """Trigger a learning cycle manually (doesn't require bot to be running)."""
+        try:
+            from monitoring.learning import run_learning_cycle
+            report = run_learning_cycle()
+            # run_learning_cycle is async
+            if asyncio.iscoroutine(report):
+                report = await report
+            import dataclasses
+            return {
+                "status": "complete",
+                "recommendations": len(report.recommendations),
+                "data_sufficiency": report.data_sufficiency,
+                "report": dataclasses.asdict(report),
+            }
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": str(e)[:200]})
+
+    @app.get("/api/learning/recommendations")
+    async def learning_recommendations():
+        """Get just the parameter recommendations from the latest report."""
+        try:
+            from monitoring.learning import get_latest_report
+            report = get_latest_report()
+            if report is None:
+                return []
+            import dataclasses
+            return [dataclasses.asdict(r) for r in report.recommendations]
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": str(e)[:200]})
+
+    @app.get("/api/learning/calibration")
+    async def learning_calibration():
+        """Get calibration curve data for the frontier model."""
+        try:
+            from monitoring.learning import analyze_frontier_bias
+            bias = analyze_frontier_bias()
+            return {
+                "mean_bias": bias.mean_bias,
+                "abs_mean_error": bias.abs_mean_error,
+                "sample_count": bias.sample_count,
+                "calibration_curve": bias.calibration_curve,
+                "bias_by_confidence": bias.bias_by_confidence_band,
+                "bias_by_price": bias.bias_by_price_band,
+            }
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": str(e)[:200]})
+
+    @app.get("/api/learning/skip-analysis")
+    async def learning_skip_analysis():
+        """Get retrospective analysis of skipped markets."""
+        try:
+            from monitoring.learning import analyze_skipped_markets
+            report = analyze_skipped_markets()
+            import dataclasses
+            return dataclasses.asdict(report)
         except Exception as e:
             return JSONResponse(status_code=500, content={"error": str(e)[:200]})
 
