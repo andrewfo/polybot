@@ -111,7 +111,8 @@ def compute_limit_price(
 
     Returns (limit_price, token_id).
     """
-    clob_token_ids = market_data.get("clobTokenIds", [])
+    from strategy.market_filter import extract_clob_token_ids
+    clob_token_ids = extract_clob_token_ids(market_data)
     best_ask = float(market_data.get("bestAsk", 0) or 0)
     best_bid = float(market_data.get("bestBid", 0) or 0)
 

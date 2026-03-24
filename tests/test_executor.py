@@ -91,7 +91,7 @@ class TestCheckTradeRate:
 
     @patch("strategy.executor.db")
     def test_at_limit(self, mock_db):
-        mock_db.get_recent_trade_count.return_value = 3
+        mock_db.get_recent_trade_count.return_value = 50
         ok, reason = check_trade_rate()
         assert ok is False
         assert "trade rate" in reason

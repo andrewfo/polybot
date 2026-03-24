@@ -499,10 +499,11 @@ class BotEngine:
             except Exception:
                 bankroll = TEST_BANKROLL
 
-        tokens = m.get("clobTokenIds", "[]")
-        if isinstance(tokens, str):
-            tokens = json.loads(tokens)
-        token_id = tokens[0] if tokens else ""
+        from strategy.market_filter import extract_clob_token_ids
+        token_ids = extract_clob_token_ids(m)
+        token_id = token_ids[0] if token_ids else ""
+        # Normalize so compute_limit_price() and executor can find token IDs
+        m["clobTokenIds"] = token_ids
 
         decision = calculate_kelly(
             market_id=cid,
@@ -1080,10 +1081,7 @@ def create_app() -> FastAPI:
         """Trigger a learning cycle manually (doesn't require bot to be running)."""
         try:
             from monitoring.learning import run_learning_cycle
-            report = run_learning_cycle()
-            # run_learning_cycle is async
-            if asyncio.iscoroutine(report):
-                report = await report
+            report = await run_learning_cycle()
             import dataclasses
             return {
                 "status": "complete",

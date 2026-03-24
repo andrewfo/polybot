@@ -32,6 +32,37 @@ GAMMA_MAX_PAGES = 5      # up to 1000 markets total
 
 logger = logging.getLogger(__name__)
 
+
+def extract_clob_token_ids(market: dict[str, Any]) -> list[str]:
+    """Extract CLOB token IDs from Gamma market data.
+
+    Handles both formats:
+    - ``clobTokenIds``: JSON string or list of token ID strings
+    - ``tokens``: list of dicts with ``token_id`` keys (Gamma structured format)
+    """
+    # Try clobTokenIds first (JSON string or list)
+    raw = market.get("clobTokenIds") or []
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            raw = []
+    if raw and isinstance(raw[0], str):
+        return list(raw)
+
+    # Fall back to tokens field (list of dicts)
+    tokens = market.get("tokens") or []
+    if isinstance(tokens, str):
+        try:
+            tokens = json.loads(tokens)
+        except (json.JSONDecodeError, TypeError):
+            tokens = []
+    if tokens and isinstance(tokens[0], dict):
+        return [t["token_id"] for t in tokens if "token_id" in t]
+
+    return list(raw) if raw else []
+
+
 VALID_CATEGORIES = frozenset({"crypto", "other"})
 
 # Keyword-based crypto classification (saves ~20 LLM calls per cycle)
@@ -236,7 +267,7 @@ def _normalize_gamma_market(gamma: dict[str, Any]) -> dict[str, Any] | None:
 
     # Build tokens list from Gamma's separate arrays
     # Gamma API returns these as JSON strings, not Python lists — parse them
-    clob_ids = gamma.get("clobTokenIds", [])
+    clob_ids = extract_clob_token_ids(gamma)
     outcomes = gamma.get("outcomes", [])
     outcome_prices = gamma.get("outcomePrices", [])
     if isinstance(clob_ids, str):

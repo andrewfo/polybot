@@ -923,6 +923,10 @@ async def run_learning_cycle() -> LearningReport:
         "cost_effectiveness": cost_eff.total_llm_cost > 0,
     }
 
+    insufficient = [k for k, v in data_sufficiency.items() if not v]
+    if insufficient:
+        logger.info("Learning: insufficient data for: %s", ", ".join(insufficient))
+
     # Step 5: Build report
     report = LearningReport(
         timestamp=datetime.now(timezone.utc).isoformat(),
