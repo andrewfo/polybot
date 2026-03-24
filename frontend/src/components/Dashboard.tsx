@@ -452,9 +452,9 @@ export default function Dashboard({ wsBotStatus }: DashboardProps) {
                       </td>
                       <td style={{ padding: '10px 12px' }}>
                         <PillBadge
-                          text={p.side}
-                          bg={p.side === 'BUY_YES' ? colors.successDim : colors.dangerDim}
-                          fg={p.side === 'BUY_YES' ? colors.success : colors.danger}
+                          text={p.side === 'BUY_YES' ? 'YES' : p.side === 'BUY_NO' ? 'NO' : p.side}
+                          bg={p.side === 'BUY_NO' ? colors.dangerDim : colors.successDim}
+                          fg={p.side === 'BUY_NO' ? colors.danger : colors.success}
                         />
                       </td>
                       <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
