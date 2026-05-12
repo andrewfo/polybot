@@ -41,6 +41,7 @@ class BiasReport:
     bias_by_confidence_band: dict[str, float] = field(default_factory=dict)  # "low/mid/high" -> bias
     bias_by_price_band: dict[str, float] = field(default_factory=dict)       # "0-0.3/0.3-0.7/0.7-1" -> bias
     calibration_curve: list[dict[str, float]] = field(default_factory=list)  # [{bin_center, predicted_mean, actual_mean, count}]
+    bias_by_regime: dict[str, float] = field(default_factory=dict)  # regime -> mean bias
 
 
 @dataclass
@@ -52,6 +53,7 @@ class SkipRetroReport:
     would_have_profited: int = 0       # edge was real (estimate closer to outcome than market)
     by_skip_reason: dict[str, dict[str, Any]] = field(default_factory=dict)
     missed_profit_estimate: float = 0.0  # rough $ we left on table
+    skip_by_regime: dict[str, dict[str, Any]] = field(default_factory=dict)  # regime -> skip stats
 
 
 @dataclass
@@ -67,6 +69,7 @@ class EdgeRealizationReport:
     avg_loss: float = 0.0
     by_confidence_band: dict[str, dict[str, float]] = field(default_factory=dict)
     by_edge_band: dict[str, dict[str, float]] = field(default_factory=dict)
+    edge_by_regime: dict[str, dict[str, float]] = field(default_factory=dict)  # regime -> edge stats
 
 
 @dataclass
@@ -240,10 +243,8 @@ def analyze_frontier_bias() -> BiasReport:
             if vals:
                 report.bias_by_price_band[band] = round(_weighted_avg(vals), 4)
 
-        # Store bias by regime in calibration_curve field extension (via bias_by_confidence_band pattern)
-        # We add a bias_by_regime attribute dynamically for the report
         if regime_bands:
-            report.bias_by_regime = {  # type: ignore[attr-defined]
+            report.bias_by_regime = {
                 regime: round(_weighted_avg(vals), 4)
                 for regime, vals in regime_bands.items() if vals
             }
@@ -353,7 +354,7 @@ def analyze_skipped_markets() -> SkipRetroReport:
 
         report.by_skip_reason = reason_stats
         if regime_stats:
-            report.skip_by_regime = regime_stats  # type: ignore[attr-defined]
+            report.skip_by_regime = regime_stats
 
     except Exception as e:
         logger.warning("Skipped market analysis failed: %s", e)
@@ -469,7 +470,7 @@ def analyze_edge_realization() -> EdgeRealizationReport:
                 }
 
         if regime_perf:
-            report.edge_by_regime = {  # type: ignore[attr-defined]
+            report.edge_by_regime = {
                 regime: {
                     "avg_return": sum(returns) / len(returns),
                     "win_rate": sum(1 for r in returns if r > 0) / len(returns),
@@ -1375,6 +1376,9 @@ def get_latest_report() -> LearningReport | None:
         report = LearningReport(
             timestamp=data.get("timestamp", ""),
             data_sufficiency=data.get("data_sufficiency", {}),
+            applied_overrides=data.get("applied_overrides", []),
+            reverted_overrides=data.get("reverted_overrides", []),
+            current_regime=data.get("current_regime", ""),
         )
         # Reconstruct nested reports
         if "bias" in data:
@@ -1383,6 +1387,8 @@ def get_latest_report() -> LearningReport | None:
             report.skip_retro = SkipRetroReport(**{k: v for k, v in data["skip_retro"].items()})
         if "edge_realization" in data:
             report.edge_realization = EdgeRealizationReport(**{k: v for k, v in data["edge_realization"].items()})
+        if "signal_features" in data:
+            report.signal_features = SignalFeatureReport(**{k: v for k, v in data["signal_features"].items()})
         if "cost_effectiveness" in data:
             report.cost_effectiveness = CostEffectivenessReport(**{k: v for k, v in data["cost_effectiveness"].items()})
         if "recommendations" in data:
@@ -1417,6 +1423,9 @@ def get_report_history(limit: int = 20) -> list[dict[str, Any]]:
                 "win_rate": data.get("edge_realization", {}).get("win_rate", 0),
                 "roi": data.get("cost_effectiveness", {}).get("roi", 0),
                 "rec_count": len(data.get("recommendations", [])),
+                "applied_overrides": data.get("applied_overrides", []),
+                "reverted_overrides": data.get("reverted_overrides", []),
+                "current_regime": data.get("current_regime", ""),
             })
         return summaries
     except Exception as e:
