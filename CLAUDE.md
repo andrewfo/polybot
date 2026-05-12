@@ -55,6 +55,10 @@ strategy/depth.py            → CLOB order book depth analysis, slippage estima
 ### Audit Trail (core/db.py)
 - `frontier_decisions` table: market_id, estimated_prob, effective_prob, market_price, edge, kelly_fraction, bet_size_usd, confidence, should_trade, skip_reason, timestamp
 - `skipped_markets` table: market_id, skip_reason, market_price_at_skip, estimated_prob, confidence, timestamp, resolution_outcome
+- `parameter_overrides` table: parameter (PK), original_value, current_value, applied_at, source_report_ts, confidence, sample_count, reason, active
+- `parameter_change_snapshots` table: pre/post win_rate, edge_efficiency, profit_factor per parameter change, verdict (pending/improved/degraded)
+- `market_regimes` table: date (PK), regime, btc_30d_return, btc_30d_vol — cached regime classifications
+- `positions` table: includes `realized_pnl` and `exit_price` columns (separate from legacy `unrealized_pnl`)
 - `record_frontier_decision()` called after every Kelly computation
 - `record_skipped_market()` called on every skip (aggregation or Kelly)
 
@@ -66,9 +70,13 @@ strategy/depth.py            → CLOB order book depth analysis, slippage estima
 - **Signal feature analysis**: mines signals.raw_data JSON for accuracy by vol_regime, time-to-expiry bucket, resolution_type, and source
 - **LLM cost-effectiveness**: ROI (total_pnl / total_llm_cost), cost per trade, cost per profitable trade, frontier vs cheap vs sonar breakdown
 - **Adaptive parameter recommendations**: generates suggestions for KELLY_FRACTION, MIN_EDGE_THRESHOLD, MIN_CONFIDENCE_BLEND, TAKE_PROFIT_PCT, STOP_LOSS_PCT, skip filter relaxation — all with confidence scores and sample counts
+- **Auto-apply loop**: `apply_recommendations()` auto-applies qualifying recs (conf≥0.7, n≥30) with guardrails (max 10% change/cycle, hard floors/ceilings per param). Writes to `parameter_overrides` DB table. `get_effective_param()` in `config/settings.py` reads overrides at point of use (no restart needed).
+- **Impact tracking**: `parameter_change_snapshots` table records pre/post performance metrics. `assess_parameter_impact()` compares win_rate, edge_efficiency, profit_factor before/after each change. Auto-reverts parameters that degrade >20% on any metric.
+- **Time-decay weighting**: `analyze_frontier_bias()` and `analyze_skipped_markets()` apply `exp(-age/45)` decay so recent data dominates (matches calibration system's decay)
+- **Market regime awareness**: `classify_and_store_regime()` uses BTC 30d return + vol to classify "trending_up/trending_down/sideways/high_vol". Cached in `market_regimes` DB table. Bias, edge, and skip analyses include `_by_regime` breakdowns. `LearningReport.current_regime` stores regime at report time.
 - **Report persistence**: `learning_reports` DB table stores full JSON reports; `get_report_history()` for trend analysis
 - **Skipped resolution tracking**: `update_skipped_resolutions()` polls Gamma API for resolved skipped markets (runs in discovery loop)
-- API endpoints: GET /api/learning/report, /api/learning/history, /api/learning/recommendations, /api/learning/calibration, /api/learning/skip-analysis, POST /api/learning/run
+- API endpoints: GET /api/learning/report, /api/learning/history, /api/learning/recommendations, /api/learning/calibration, /api/learning/skip-analysis, /api/learning/overrides, POST /api/learning/run, /api/learning/overrides/{param}/revert, /api/learning/overrides/{param}/set
 
 ### Not Yet Implemented (build plan sections 7-11)
 ```
@@ -223,7 +231,7 @@ No race conditions: all workers are coroutines in the same event loop.
 
 ### Data Integrity
 - All config values in `config/settings.py` must be overridable via environment variables
-- SQLite tables auto-create on first import of `core/db.py` (9 tables: trades, positions, signals, bankroll, llm_costs, market_cache, signal_calibration, frontier_decisions, skipped_markets)
+- SQLite tables auto-create on first import of `core/db.py` (12 tables: trades, positions, signals, bankroll, llm_costs, market_cache, signal_calibration, frontier_decisions, skipped_markets, parameter_overrides, parameter_change_snapshots, market_regimes)
 - Paper trades stored in same tables with `paper=True` column
 - All timestamps ISO 8601 UTC
 

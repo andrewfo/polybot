@@ -15,6 +15,7 @@ from config.settings import (
     MIN_CONFIDENCE_BLEND,
     MIN_EDGE_THRESHOLD,
     POLYMARKET_FEE_RATE,
+    get_effective_param,
 )
 from core import db
 
@@ -92,11 +93,16 @@ def calculate_kelly(
     TradeDecision
         Full audit record including whether to trade and why/why not.
     """
+    # Resolve effective parameters (DB overrides if active, else defaults)
+    eff_kelly_fraction = get_effective_param("KELLY_FRACTION", KELLY_FRACTION)
+    eff_min_edge = get_effective_param("MIN_EDGE_THRESHOLD", MIN_EDGE_THRESHOLD)
+    eff_min_conf_blend = get_effective_param("MIN_CONFIDENCE_BLEND", MIN_CONFIDENCE_BLEND)
+
     # Confidence-blend: shrink our estimate toward the market price.
     # Sublinear scaling: confidence^0.75 provides a natural shrinkage curve
     # that preserves more edge at low confidence than linear blending.
     # conf=0.25 → 0.35 blend, conf=0.50 → 0.59, conf=0.80 → 0.85
-    blend_weight = max(confidence ** 0.75, MIN_CONFIDENCE_BLEND)
+    blend_weight = max(confidence ** 0.75, eff_min_conf_blend)
     effective_prob = blend_weight * estimated_prob + (1.0 - blend_weight) * market_price
 
     # Determine side using the blended probability
@@ -122,7 +128,7 @@ def calculate_kelly(
         q = effective_prob
 
     # --- Safety check 1: edge below threshold ---
-    if edge < MIN_EDGE_THRESHOLD:
+    if edge < eff_min_edge:
         return _skip(
             market_id, token_id, market_question, side,
             estimated_prob, effective_prob, market_price, edge, confidence,
@@ -141,7 +147,7 @@ def calculate_kelly(
         )
 
     # Apply fractional Kelly
-    adjusted_f = full_kelly_f * KELLY_FRACTION
+    adjusted_f = full_kelly_f * eff_kelly_fraction
     bet_size = available_bankroll * adjusted_f
 
     # --- Safety check 3: bet too small ---
@@ -260,7 +266,7 @@ def _skip(
         market_price=market_price,
         edge=edge,
         full_kelly_fraction=full_kelly_f,
-        adjusted_fraction=full_kelly_f * KELLY_FRACTION if full_kelly_f > 0 else 0.0,
+        adjusted_fraction=full_kelly_f * get_effective_param("KELLY_FRACTION", KELLY_FRACTION) if full_kelly_f > 0 else 0.0,
         bet_size_usd=0.0,
         expected_value=0.0,
         confidence=confidence,

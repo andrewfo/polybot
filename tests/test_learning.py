@@ -50,17 +50,17 @@ def mock_db(monkeypatch):
 def frontier_decision_rows():
     """Sample frontier decision + calibration join data."""
     return [
-        # (estimated_prob, effective_prob, market_price, confidence, actual_outcome)
-        (0.70, 0.65, 0.50, 0.80, 1.0),   # Correct YES, slight overestimate
-        (0.30, 0.35, 0.50, 0.60, 0.0),   # Correct NO
-        (0.80, 0.75, 0.60, 0.90, 1.0),   # Correct YES
-        (0.20, 0.25, 0.40, 0.50, 1.0),   # Wrong — we said NO, was YES
-        (0.60, 0.55, 0.45, 0.70, 1.0),   # Correct YES
-        (0.75, 0.70, 0.55, 0.85, 0.0),   # Wrong — we said YES, was NO
-        (0.40, 0.42, 0.50, 0.40, 0.0),   # Correct NO
-        (0.65, 0.60, 0.50, 0.75, 1.0),   # Correct YES
-        (0.55, 0.52, 0.48, 0.65, 1.0),   # Correct YES (small edge)
-        (0.45, 0.47, 0.50, 0.55, 0.0),   # Correct NO
+        # (estimated_prob, effective_prob, market_price, confidence, actual_outcome, resolved_at)
+        (0.70, 0.65, 0.50, 0.80, 1.0, "2026-05-01T00:00:00+00:00"),
+        (0.30, 0.35, 0.50, 0.60, 0.0, "2026-05-02T00:00:00+00:00"),
+        (0.80, 0.75, 0.60, 0.90, 1.0, "2026-05-03T00:00:00+00:00"),
+        (0.20, 0.25, 0.40, 0.50, 1.0, "2026-04-15T00:00:00+00:00"),
+        (0.60, 0.55, 0.45, 0.70, 1.0, "2026-05-05T00:00:00+00:00"),
+        (0.75, 0.70, 0.55, 0.85, 0.0, "2026-04-20T00:00:00+00:00"),
+        (0.40, 0.42, 0.50, 0.40, 0.0, "2026-05-07T00:00:00+00:00"),
+        (0.65, 0.60, 0.50, 0.75, 1.0, "2026-05-08T00:00:00+00:00"),
+        (0.55, 0.52, 0.48, 0.65, 1.0, "2026-05-09T00:00:00+00:00"),
+        (0.45, 0.47, 0.50, 0.55, 0.0, "2026-05-10T00:00:00+00:00"),
     ]
 
 
@@ -68,14 +68,14 @@ def frontier_decision_rows():
 def skipped_market_rows():
     """Sample skipped market data."""
     return [
-        # (market_id, skip_reason, market_price, estimated_prob, confidence, resolution_outcome)
-        ("m1", "edge below threshold", 0.50, 0.53, 0.30, 1.0),   # Would have profited
-        ("m2", "edge below threshold", 0.40, 0.42, 0.25, 0.0),   # Correct skip
-        ("m3", "no positive edge", 0.60, 0.58, 0.40, 1.0),       # We were wrong to skip
-        ("m4", "bet too small", 0.70, 0.72, 0.35, 1.0),          # Would have profited
-        ("m5", "edge below threshold", 0.55, 0.57, 0.30, None),  # Not resolved yet
-        ("m6", "no positive edge", 0.45, 0.43, 0.50, 0.0),       # Correct skip
-        ("m7", "edge below threshold", 0.30, 0.32, 0.20, 0.0),   # Correct skip
+        # (market_id, skip_reason, market_price, estimated_prob, confidence, resolution_outcome, timestamp)
+        ("m1", "edge below threshold", 0.50, 0.53, 0.30, 1.0, "2026-05-01T00:00:00+00:00"),
+        ("m2", "edge below threshold", 0.40, 0.42, 0.25, 0.0, "2026-05-02T00:00:00+00:00"),
+        ("m3", "no positive edge", 0.60, 0.58, 0.40, 1.0, "2026-05-03T00:00:00+00:00"),
+        ("m4", "bet too small", 0.70, 0.72, 0.35, 1.0, "2026-05-04T00:00:00+00:00"),
+        ("m5", "edge below threshold", 0.55, 0.57, 0.30, None, "2026-05-05T00:00:00+00:00"),
+        ("m6", "no positive edge", 0.45, 0.43, 0.50, 0.0, "2026-05-06T00:00:00+00:00"),
+        ("m7", "edge below threshold", 0.30, 0.32, 0.20, 0.0, "2026-05-07T00:00:00+00:00"),
     ]
 
 
@@ -95,10 +95,11 @@ class TestFrontierBias:
         report = analyze_frontier_bias()
 
         assert report.sample_count == 10
-        # Mean bias: avg(est - actual) across all rows
+        # Mean bias is time-weighted — all data is recent so should be close
+        # to simple average but not exact (time-decay weighting)
         expected_biases = [r[0] - r[4] for r in frontier_decision_rows]
         expected_mean = sum(expected_biases) / len(expected_biases)
-        assert abs(report.mean_bias - expected_mean) < 0.001
+        assert abs(report.mean_bias - expected_mean) < 0.05  # Wider tolerance for decay weighting
 
     def test_confidence_bands(self, mock_db, frontier_decision_rows):
         mock_db.execute.return_value.fetchall.return_value = frontier_decision_rows
@@ -165,13 +166,13 @@ class TestEdgeRealization:
         assert report.total_trades == 0
 
     def test_edge_analysis(self, mock_db):
-        # (edge, confidence, estimated_prob, market_price, bet_size, realized_pnl, entry, size)
+        # (edge, confidence, estimated_prob, market_price, bet_size, realized_pnl, entry, size, timestamp)
         trade_rows = [
-            (0.10, 0.80, 0.60, 0.50, 100, 15.0, 0.50, 200),    # Winner
-            (0.05, 0.60, 0.55, 0.50, 50, -8.0, 0.50, 100),     # Loser
-            (0.15, 0.90, 0.70, 0.55, 150, 30.0, 0.55, 273),    # Winner
-            (0.08, 0.70, 0.58, 0.50, 80, 12.0, 0.50, 160),     # Winner
-            (0.12, 0.85, 0.62, 0.50, 120, -20.0, 0.50, 240),   # Loser
+            (0.10, 0.80, 0.60, 0.50, 100, 15.0, 0.50, 200, "2026-05-01T00:00:00+00:00"),
+            (0.05, 0.60, 0.55, 0.50, 50, -8.0, 0.50, 100, "2026-05-02T00:00:00+00:00"),
+            (0.15, 0.90, 0.70, 0.55, 150, 30.0, 0.55, 273, "2026-05-03T00:00:00+00:00"),
+            (0.08, 0.70, 0.58, 0.50, 80, 12.0, 0.50, 160, "2026-05-04T00:00:00+00:00"),
+            (0.12, 0.85, 0.62, 0.50, 120, -20.0, 0.50, 240, "2026-05-05T00:00:00+00:00"),
         ]
         mock_db.execute.return_value.fetchall.return_value = trade_rows
         report = analyze_edge_realization()
@@ -390,13 +391,17 @@ class TestLearningCycle:
     @pytest.mark.asyncio
     async def test_full_cycle(self, mock_db):
         mock_db.execute.return_value.fetchall.return_value = []
+        mock_db.table_names.return_value = ["learning_reports", "parameter_overrides",
+                                             "parameter_change_snapshots", "market_regimes"]
 
-        with patch("monitoring.learning.update_skipped_resolutions", new_callable=AsyncMock, return_value=0):
+        with patch("monitoring.learning.update_skipped_resolutions", new_callable=AsyncMock, return_value=0), \
+             patch("monitoring.learning.classify_and_store_regime", new_callable=AsyncMock, return_value="sideways"):
             report = await run_learning_cycle()
 
         assert report.timestamp != ""
         assert isinstance(report.data_sufficiency, dict)
         assert isinstance(report.recommendations, list)
+        assert report.current_regime == "sideways"
 
 
 # ---------------------------------------------------------------------------

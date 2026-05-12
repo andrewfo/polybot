@@ -113,6 +113,9 @@ class LearningReport:
     cost_effectiveness: CostEffectivenessReport = field(default_factory=CostEffectivenessReport)
     recommendations: list[ParameterRecommendation] = field(default_factory=list)
     data_sufficiency: dict[str, bool] = field(default_factory=dict)  # which analyses have enough data
+    applied_overrides: list[str] = field(default_factory=list)  # parameters auto-applied this cycle
+    reverted_overrides: list[str] = field(default_factory=list)  # parameters auto-reverted this cycle
+    current_regime: str = ""  # market regime at time of report
 
 
 # ---------------------------------------------------------------------------
@@ -123,20 +126,21 @@ def analyze_frontier_bias() -> BiasReport:
     """Analyze systematic bias in frontier model probability estimates.
 
     Joins frontier_decisions with signal_calibration resolutions to see
-    how our estimates compared to actual outcomes.
+    how our estimates compared to actual outcomes. Uses time-decay weighting
+    (exp(-age/45)) so recent data dominates.
     """
     report = BiasReport()
     try:
         d = db.get_db()
 
-        # Get frontier decisions for markets that have resolved
+        # Get frontier decisions for markets that have resolved (with resolution timestamp)
         rows = list(d.execute(
             """
             SELECT fd.estimated_prob, fd.effective_prob, fd.market_price, fd.confidence,
-                   sc.actual_outcome
+                   sc.actual_outcome, sc.resolved_at
             FROM frontier_decisions fd
             INNER JOIN (
-                SELECT market_id, actual_outcome
+                SELECT market_id, actual_outcome, MAX(resolved_at) as resolved_at
                 FROM signal_calibration
                 WHERE actual_outcome IS NOT NULL
                 GROUP BY market_id
@@ -149,15 +153,21 @@ def analyze_frontier_bias() -> BiasReport:
             return report
 
         report.sample_count = len(rows)
-        biases = []
-        abs_errors = []
+        now = datetime.now(timezone.utc)
 
-        # Bands for grouping
-        conf_bands: dict[str, list[float]] = {"low": [], "mid": [], "high": []}
-        price_bands: dict[str, list[float]] = {"0-0.3": [], "0.3-0.7": [], "0.7-1.0": []}
+        # Weighted accumulators
+        total_weight = 0.0
+        weighted_bias_sum = 0.0
+        weighted_abs_error_sum = 0.0
+        abs_errors: list[float] = []
 
-        # Calibration curve bins (10 bins)
-        cal_bins: dict[int, list[tuple[float, float]]] = {i: [] for i in range(10)}
+        # Bands for grouping (store (bias, weight) tuples)
+        conf_bands: dict[str, list[tuple[float, float]]] = {"low": [], "mid": [], "high": []}
+        price_bands: dict[str, list[tuple[float, float]]] = {"0-0.3": [], "0.3-0.7": [], "0.7-1.0": []}
+        regime_bands: dict[str, list[tuple[float, float]]] = {}
+
+        # Calibration curve bins (10 bins) — store (predicted, actual, weight)
+        cal_bins: dict[int, list[tuple[float, float, float]]] = {i: [] for i in range(10)}
 
         for row in rows:
             est_prob = float(row[0])
@@ -165,54 +175,90 @@ def analyze_frontier_bias() -> BiasReport:
             mkt_price = float(row[2])
             conf = float(row[3])
             actual = float(row[4])
+            resolved_at_str = row[5]
+
+            # Compute time-decay weight
+            age_days = 0.0
+            if resolved_at_str:
+                try:
+                    resolved_dt = datetime.fromisoformat(resolved_at_str)
+                    if resolved_dt.tzinfo is None:
+                        resolved_dt = resolved_dt.replace(tzinfo=timezone.utc)
+                    age_days = (now - resolved_dt).total_seconds() / 86400
+                except (ValueError, TypeError):
+                    pass
+            weight = math.exp(-age_days / 45.0)
 
             bias = est_prob - actual
-            biases.append(bias)
+            total_weight += weight
+            weighted_bias_sum += bias * weight
+            weighted_abs_error_sum += abs(bias) * weight
             abs_errors.append(abs(bias))
 
             # Confidence bands
             if conf < 0.4:
-                conf_bands["low"].append(bias)
+                conf_bands["low"].append((bias, weight))
             elif conf < 0.7:
-                conf_bands["mid"].append(bias)
+                conf_bands["mid"].append((bias, weight))
             else:
-                conf_bands["high"].append(bias)
+                conf_bands["high"].append((bias, weight))
 
             # Price bands
             if mkt_price < 0.3:
-                price_bands["0-0.3"].append(bias)
+                price_bands["0-0.3"].append((bias, weight))
             elif mkt_price < 0.7:
-                price_bands["0.3-0.7"].append(bias)
+                price_bands["0.3-0.7"].append((bias, weight))
             else:
-                price_bands["0.7-1.0"].append(bias)
+                price_bands["0.7-1.0"].append((bias, weight))
+
+            # Regime dimension
+            regime = _lookup_regime_for_date(resolved_at_str)
+            if regime:
+                regime_bands.setdefault(regime, []).append((bias, weight))
 
             # Calibration curve
             bin_idx = min(9, int(est_prob * 10))
-            cal_bins[bin_idx].append((est_prob, actual))
+            cal_bins[bin_idx].append((est_prob, actual, weight))
 
-        report.mean_bias = sum(biases) / len(biases)
-        report.abs_mean_error = sum(abs_errors) / len(abs_errors)
+        if total_weight > 0:
+            report.mean_bias = weighted_bias_sum / total_weight
+            report.abs_mean_error = weighted_abs_error_sum / total_weight
         sorted_errors = sorted(abs_errors)
         report.median_abs_error = sorted_errors[len(sorted_errors) // 2]
 
+        def _weighted_avg(pairs: list[tuple[float, float]]) -> float:
+            w_sum = sum(w for _, w in pairs)
+            if w_sum == 0:
+                return 0.0
+            return sum(v * w for v, w in pairs) / w_sum
+
         for band, vals in conf_bands.items():
             if vals:
-                report.bias_by_confidence_band[band] = sum(vals) / len(vals)
+                report.bias_by_confidence_band[band] = round(_weighted_avg(vals), 4)
 
         for band, vals in price_bands.items():
             if vals:
-                report.bias_by_price_band[band] = sum(vals) / len(vals)
+                report.bias_by_price_band[band] = round(_weighted_avg(vals), 4)
 
-        for bin_idx, pairs in cal_bins.items():
-            if pairs:
+        # Store bias by regime in calibration_curve field extension (via bias_by_confidence_band pattern)
+        # We add a bias_by_regime attribute dynamically for the report
+        if regime_bands:
+            report.bias_by_regime = {  # type: ignore[attr-defined]
+                regime: round(_weighted_avg(vals), 4)
+                for regime, vals in regime_bands.items() if vals
+            }
+
+        for bin_idx, triples in cal_bins.items():
+            if triples:
                 bin_center = (bin_idx + 0.5) / 10
-                pred_mean = sum(p for p, _ in pairs) / len(pairs)
-                actual_mean = sum(a for _, a in pairs) / len(pairs)
+                w_sum = sum(w for _, _, w in triples)
+                pred_mean = sum(p * w for p, _, w in triples) / w_sum if w_sum > 0 else 0
+                actual_mean = sum(a * w for _, a, w in triples) / w_sum if w_sum > 0 else 0
                 report.calibration_curve.append({
                     "bin_center": round(bin_center, 2),
                     "predicted_mean": round(pred_mean, 3),
                     "actual_mean": round(actual_mean, 3),
-                    "count": len(pairs),
+                    "count": len(triples),
                 })
 
     except Exception as e:
@@ -226,35 +272,52 @@ def analyze_skipped_markets() -> SkipRetroReport:
 
     For resolved skipped markets, checks whether our estimate was actually
     closer to the outcome than the market price — i.e., did we have real edge
-    that we threw away?
+    that we threw away? Uses time-decay weighting (exp(-age/45)).
     """
     report = SkipRetroReport()
     try:
         d = db.get_db()
         rows = list(d.execute(
             "SELECT market_id, skip_reason, market_price_at_skip, "
-            "estimated_prob, confidence, resolution_outcome "
+            "estimated_prob, confidence, resolution_outcome, timestamp "
             "FROM skipped_markets"
         ).fetchall())
 
         if not rows:
             return report
 
+        now = datetime.now(timezone.utc)
         report.total_skipped = len(rows)
         reason_stats: dict[str, dict[str, Any]] = {}
+        regime_stats: dict[str, dict[str, Any]] = {}
 
         for row in rows:
             reason = row[1] or "unknown"
             mkt_price = float(row[2]) if row[2] else 0.5
             est_prob = float(row[3]) if row[3] else 0.5
             outcome = row[5]
+            ts_str = row[6]
+
+            # Compute time-decay weight
+            age_days = 0.0
+            if ts_str:
+                try:
+                    ts_dt = datetime.fromisoformat(ts_str)
+                    if ts_dt.tzinfo is None:
+                        ts_dt = ts_dt.replace(tzinfo=timezone.utc)
+                    age_days = (now - ts_dt).total_seconds() / 86400
+                except (ValueError, TypeError):
+                    pass
+            weight = math.exp(-age_days / 45.0)
 
             if reason not in reason_stats:
                 reason_stats[reason] = {
                     "total": 0, "resolved": 0, "correct": 0,
                     "profited": 0, "missed_edge_sum": 0.0,
+                    "weighted_total": 0.0, "weighted_profited": 0.0,
                 }
             reason_stats[reason]["total"] += 1
+            reason_stats[reason]["weighted_total"] += weight
 
             if outcome is not None:
                 actual = float(outcome)
@@ -273,12 +336,24 @@ def analyze_skipped_markets() -> SkipRetroReport:
                 if our_error < mkt_error:
                     report.would_have_profited += 1
                     reason_stats[reason]["profited"] += 1
-                    # Rough profit estimate: edge × hypothetical $10 bet
+                    reason_stats[reason]["weighted_profited"] += weight
+                    # Rough profit estimate: edge × hypothetical $10 bet (weighted)
                     edge = mkt_error - our_error
-                    reason_stats[reason]["missed_edge_sum"] += edge * 10
-                    report.missed_profit_estimate += edge * 10
+                    reason_stats[reason]["missed_edge_sum"] += edge * 10 * weight
+                    report.missed_profit_estimate += edge * 10 * weight
+
+                # Regime dimension
+                regime = _lookup_regime_for_date(ts_str)
+                if regime:
+                    if regime not in regime_stats:
+                        regime_stats[regime] = {"total": 0, "profited": 0}
+                    regime_stats[regime]["total"] += 1
+                    if our_error < mkt_error:
+                        regime_stats[regime]["profited"] += 1
 
         report.by_skip_reason = reason_stats
+        if regime_stats:
+            report.skip_by_regime = regime_stats  # type: ignore[attr-defined]
 
     except Exception as e:
         logger.warning("Skipped market analysis failed: %s", e)
@@ -290,20 +365,25 @@ def analyze_edge_realization() -> EdgeRealizationReport:
     """Compare predicted edge to actual realized P&L on closed trades.
 
     Joins frontier_decisions (predicted edge) with positions (realized P&L)
-    to see if our edge estimates are accurate.
+    to see if our edge estimates are accurate. Uses the dedicated realized_pnl
+    column (not unrealized_pnl) to avoid corruption from post-close price updates.
     """
     report = EdgeRealizationReport()
     try:
         d = db.get_db()
 
         # Get closed positions with their frontier decision data
+        # Use realized_pnl column (falls back to unrealized_pnl for pre-migration data)
         rows = list(d.execute(
             """
             SELECT fd.edge, fd.confidence, fd.estimated_prob, fd.market_price,
-                   fd.bet_size_usd, p.unrealized_pnl, p.avg_entry, p.size
+                   fd.bet_size_usd,
+                   COALESCE(p.realized_pnl, p.unrealized_pnl) as rpnl,
+                   p.avg_entry, p.size, fd.timestamp
             FROM frontier_decisions fd
             INNER JOIN positions p ON fd.market_id = p.market_id
             WHERE fd.should_trade = 1 AND p.status = 'closed'
+                  AND COALESCE(p.realized_pnl, p.unrealized_pnl) IS NOT NULL
             """
         ).fetchall())
 
@@ -311,22 +391,24 @@ def analyze_edge_realization() -> EdgeRealizationReport:
             return report
 
         report.total_trades = len(rows)
-        predicted_edges = []
-        realized_returns = []
+        predicted_edges: list[float] = []
+        realized_returns: list[float] = []
         wins = 0
         gross_wins = 0.0
         gross_losses = 0.0
 
         conf_perf: dict[str, list[float]] = {"low": [], "mid": [], "high": []}
         edge_perf: dict[str, list[float]] = {"small": [], "medium": [], "large": []}
+        regime_perf: dict[str, list[float]] = {}
 
         for row in rows:
             edge = float(row[0])
             conf = float(row[1])
             bet_size = float(row[4])
-            realized_pnl = float(row[5])  # stored in unrealized_pnl field after close
+            realized_pnl = float(row[5])
             entry = float(row[6])
             size = float(row[7])
+            fd_timestamp = row[8]
 
             predicted_edges.append(edge)
             ret = realized_pnl / bet_size if bet_size > 0 else 0
@@ -354,6 +436,11 @@ def analyze_edge_realization() -> EdgeRealizationReport:
             else:
                 edge_perf["large"].append(ret)
 
+            # Regime dimension
+            regime = _lookup_regime_for_date(fd_timestamp)
+            if regime:
+                regime_perf.setdefault(regime, []).append(ret)
+
         report.avg_predicted_edge = sum(predicted_edges) / len(predicted_edges)
         report.avg_realized_return = sum(realized_returns) / len(realized_returns)
         report.edge_efficiency = (
@@ -380,6 +467,16 @@ def analyze_edge_realization() -> EdgeRealizationReport:
                     "win_rate": sum(1 for r in returns if r > 0) / len(returns),
                     "count": len(returns),
                 }
+
+        if regime_perf:
+            report.edge_by_regime = {  # type: ignore[attr-defined]
+                regime: {
+                    "avg_return": sum(returns) / len(returns),
+                    "win_rate": sum(1 for r in returns if r > 0) / len(returns),
+                    "count": len(returns),
+                }
+                for regime, returns in regime_perf.items() if returns
+            }
 
     except Exception as e:
         logger.warning("Edge realization analysis failed: %s", e)
@@ -706,6 +803,444 @@ def compute_parameter_recommendations(
 
 
 # ---------------------------------------------------------------------------
+# Market regime classification (Improvement 5)
+# ---------------------------------------------------------------------------
+
+def _lookup_regime_for_date(timestamp_str: str | None) -> str:
+    """Look up the cached market regime for a given timestamp's date.
+
+    Returns the regime string or "" if not available.
+    """
+    if not timestamp_str:
+        return ""
+    try:
+        dt = datetime.fromisoformat(timestamp_str)
+        date_key = dt.strftime("%Y-%m-%d")
+        d = db.get_db()
+        if "market_regimes" not in d.table_names():
+            return ""
+        try:
+            row = d["market_regimes"].get(date_key)
+            return row["regime"] if row else ""
+        except Exception:
+            return ""
+    except (ValueError, TypeError):
+        return ""
+
+
+async def classify_and_store_regime() -> str:
+    """Classify current crypto market regime using BTC 30-day price data.
+
+    Fetches BTC price history from CoinGecko, computes 30-day return and
+    annualized volatility, classifies into regime, and caches in DB.
+
+    Returns: "trending_up", "trending_down", "sideways", or "high_vol"
+    """
+    import aiohttp
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # Check cache first
+    d = db.get_db()
+    try:
+        existing = d["market_regimes"].get(today)
+        if existing:
+            return existing["regime"]
+    except Exception:
+        pass
+
+    # Fetch 31 days of BTC data from CoinGecko
+    regime = "sideways"
+    btc_return = 0.0
+    btc_vol = 0.0
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=15)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(
+                "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart",
+                params={"vs_currency": "usd", "days": "30", "interval": "daily"},
+            ) as resp:
+                if resp.status != 200:
+                    logger.debug("CoinGecko regime fetch failed: HTTP %d", resp.status)
+                    return regime
+                data = await resp.json()
+
+        prices = data.get("prices", [])
+        if len(prices) < 2:
+            return regime
+
+        # Extract daily closing prices
+        daily_prices = [p[1] for p in prices]
+        first_price = daily_prices[0]
+        last_price = daily_prices[-1]
+
+        # 30-day return
+        btc_return = (last_price - first_price) / first_price if first_price > 0 else 0
+
+        # Annualized volatility from daily log returns
+        log_returns = []
+        for i in range(1, len(daily_prices)):
+            if daily_prices[i] > 0 and daily_prices[i - 1] > 0:
+                log_returns.append(math.log(daily_prices[i] / daily_prices[i - 1]))
+
+        if log_returns:
+            mean_lr = sum(log_returns) / len(log_returns)
+            variance = sum((lr - mean_lr) ** 2 for lr in log_returns) / max(1, len(log_returns) - 1)
+            daily_vol = math.sqrt(variance)
+            btc_vol = daily_vol * math.sqrt(365)
+
+        # Classify
+        if btc_vol > 0.80:
+            regime = "high_vol"
+        elif btc_return > 0.15:
+            regime = "trending_up"
+        elif btc_return < -0.15:
+            regime = "trending_down"
+        else:
+            regime = "sideways"
+
+    except Exception as e:
+        logger.debug("Regime classification failed: %s", e)
+        return regime
+
+    # Cache in DB
+    try:
+        d["market_regimes"].upsert({
+            "date": today,
+            "regime": regime,
+            "btc_30d_return": round(btc_return, 4),
+            "btc_30d_vol": round(btc_vol, 4),
+        }, pk="date")
+        logger.info("Market regime classified: %s (BTC 30d return=%.1f%%, vol=%.0f%%)",
+                     regime, btc_return * 100, btc_vol * 100)
+    except Exception as e:
+        logger.debug("Failed to cache regime: %s", e)
+
+    return regime
+
+
+# ---------------------------------------------------------------------------
+# Auto-apply recommendations (Improvement 1E)
+# ---------------------------------------------------------------------------
+
+AUTO_APPLY_MIN_CONFIDENCE = 0.7
+AUTO_APPLY_MIN_SAMPLES = 30
+MAX_CHANGE_PER_CYCLE_PCT = 0.10  # max 10% change per cycle
+
+# Hard floor/ceiling per parameter
+PARAMETER_LIMITS: dict[str, tuple[float, float]] = {
+    "KELLY_FRACTION": (0.05, 0.50),
+    "MIN_EDGE_THRESHOLD": (0.01, 0.08),
+    "MIN_CONFIDENCE_BLEND": (0.05, 0.30),
+    "TAKE_PROFIT_PCT": (0.05, 0.40),
+    "STOP_LOSS_PCT": (0.05, 0.25),
+}
+
+
+def apply_recommendations(
+    recs: list[ParameterRecommendation],
+    report_timestamp: str = "",
+) -> list[str]:
+    """Auto-apply recommendations that meet confidence/sample thresholds.
+
+    Guardrails:
+    - confidence >= AUTO_APPLY_MIN_CONFIDENCE
+    - sample_count >= AUTO_APPLY_MIN_SAMPLES
+    - change magnitude <= MAX_CHANGE_PER_CYCLE_PCT of current value
+    - Hard floor/ceiling per parameter
+    - Skip SKIP_FILTER:* recommendations (informational only)
+
+    Returns list of applied parameter names.
+    """
+    from config.settings import get_effective_param
+
+    applied: list[str] = []
+    d = db.get_db()
+    now = datetime.now(timezone.utc).isoformat()
+
+    for rec in recs:
+        # Skip informational-only recommendations
+        if rec.parameter.startswith("SKIP_FILTER:"):
+            continue
+
+        # Skip if not a tunable parameter we know about
+        if rec.parameter not in PARAMETER_LIMITS:
+            continue
+
+        # Confidence and sample checks
+        if rec.confidence < AUTO_APPLY_MIN_CONFIDENCE:
+            logger.debug("Skip auto-apply %s: confidence %.2f < %.2f",
+                         rec.parameter, rec.confidence, AUTO_APPLY_MIN_CONFIDENCE)
+            continue
+        if rec.sample_count < AUTO_APPLY_MIN_SAMPLES:
+            logger.debug("Skip auto-apply %s: samples %d < %d",
+                         rec.parameter, rec.sample_count, AUTO_APPLY_MIN_SAMPLES)
+            continue
+
+        # Get current effective value
+        current = get_effective_param(rec.parameter, rec.current_value)
+        new_val = rec.recommended_value
+
+        # Clamp to hard limits
+        floor, ceiling = PARAMETER_LIMITS[rec.parameter]
+        new_val = max(floor, min(ceiling, new_val))
+
+        # Max change per cycle
+        if current > 0:
+            change_pct = abs(new_val - current) / current
+            if change_pct > MAX_CHANGE_PER_CYCLE_PCT:
+                # Clamp to max change
+                direction = 1.0 if new_val > current else -1.0
+                new_val = current * (1.0 + direction * MAX_CHANGE_PER_CYCLE_PCT)
+                new_val = max(floor, min(ceiling, new_val))
+
+        # Skip if effectively no change
+        if abs(new_val - current) < 1e-6:
+            continue
+
+        new_val = round(new_val, 4)
+
+        # Deactivate previous override for this parameter
+        try:
+            existing = d["parameter_overrides"].get(rec.parameter)
+            if existing and existing["active"] == 1:
+                d["parameter_overrides"].update(rec.parameter, {"active": 0})
+        except Exception:
+            pass
+
+        # Upsert new override
+        d["parameter_overrides"].upsert({
+            "parameter": rec.parameter,
+            "original_value": rec.current_value,
+            "current_value": new_val,
+            "applied_at": now,
+            "source_report_ts": report_timestamp,
+            "confidence": rec.confidence,
+            "sample_count": rec.sample_count,
+            "reason": rec.reason[:500],
+            "active": 1,
+        }, pk="parameter")
+
+        # Record snapshot for impact tracking
+        _record_change_snapshot(rec.parameter, current, new_val, now)
+
+        logger.info(
+            "AUTO-APPLIED: %s %.4f → %.4f (conf=%.2f, n=%d) — %s",
+            rec.parameter, current, new_val, rec.confidence, rec.sample_count, rec.reason[:80],
+        )
+        applied.append(rec.parameter)
+
+    return applied
+
+
+def revert_override(parameter: str) -> bool:
+    """Deactivate the override for a parameter. Returns True if found."""
+    d = db.get_db()
+    try:
+        row = d["parameter_overrides"].get(parameter)
+        if row and row["active"] == 1:
+            d["parameter_overrides"].update(parameter, {"active": 0})
+            logger.info("Reverted parameter override: %s", parameter)
+            return True
+        return False
+    except Exception as e:
+        logger.warning("Failed to revert override %s: %s", parameter, e)
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Parameter impact assessment (Improvement 2)
+# ---------------------------------------------------------------------------
+
+def _record_change_snapshot(
+    parameter: str,
+    old_value: float,
+    new_value: float,
+    applied_at: str,
+    window_days: int = 7,
+) -> None:
+    """Record a pre-change performance snapshot for later comparison."""
+    d = db.get_db()
+
+    # Compute pre-change metrics from positions closed in [applied_at - window, applied_at]
+    try:
+        applied_dt = datetime.fromisoformat(applied_at)
+        if applied_dt.tzinfo is None:
+            applied_dt = applied_dt.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        applied_dt = datetime.now(timezone.utc)
+
+    from datetime import timedelta
+    window_start = (applied_dt - timedelta(days=window_days)).isoformat()
+
+    pre_metrics = _compute_window_metrics(window_start, applied_at)
+
+    d["parameter_change_snapshots"].insert({
+        "parameter": parameter,
+        "old_value": old_value,
+        "new_value": new_value,
+        "applied_at": applied_at,
+        "snapshot_window_days": window_days,
+        "pre_win_rate": pre_metrics["win_rate"],
+        "pre_edge_efficiency": pre_metrics["edge_efficiency"],
+        "pre_profit_factor": pre_metrics["profit_factor"],
+        "post_win_rate": None,
+        "post_edge_efficiency": None,
+        "post_profit_factor": None,
+        "verdict": "pending",
+    })
+
+
+def _compute_window_metrics(start_iso: str, end_iso: str) -> dict[str, float]:
+    """Compute win_rate, edge_efficiency, profit_factor for positions closed in [start, end]."""
+    d = db.get_db()
+    try:
+        rows = list(d.execute(
+            """
+            SELECT COALESCE(p.realized_pnl, p.unrealized_pnl) as rpnl,
+                   fd.edge, fd.bet_size_usd
+            FROM positions p
+            LEFT JOIN frontier_decisions fd ON p.market_id = fd.market_id AND fd.should_trade = 1
+            WHERE p.status = 'closed'
+                  AND p.last_updated >= ? AND p.last_updated < ?
+                  AND COALESCE(p.realized_pnl, p.unrealized_pnl) IS NOT NULL
+            """,
+            [start_iso, end_iso],
+        ).fetchall())
+    except Exception:
+        return {"win_rate": 0.0, "edge_efficiency": 0.0, "profit_factor": 0.0}
+
+    if not rows:
+        return {"win_rate": 0.0, "edge_efficiency": 0.0, "profit_factor": 0.0}
+
+    wins = 0
+    gross_wins = 0.0
+    gross_losses = 0.0
+    predicted_edges: list[float] = []
+    realized_returns: list[float] = []
+
+    for row in rows:
+        rpnl = float(row[0])
+        edge = float(row[1]) if row[1] is not None else 0.0
+        bet_size = float(row[2]) if row[2] is not None else 1.0
+
+        if rpnl > 0:
+            wins += 1
+            gross_wins += rpnl
+        else:
+            gross_losses += abs(rpnl)
+
+        if edge > 0:
+            predicted_edges.append(edge)
+        ret = rpnl / bet_size if bet_size > 0 else 0.0
+        realized_returns.append(ret)
+
+    win_rate = wins / len(rows) if rows else 0.0
+    profit_factor = gross_wins / gross_losses if gross_losses > 0 else float("inf")
+
+    avg_predicted = sum(predicted_edges) / len(predicted_edges) if predicted_edges else 0.0
+    avg_realized = sum(realized_returns) / len(realized_returns) if realized_returns else 0.0
+    edge_efficiency = avg_realized / avg_predicted if avg_predicted > 0 else 0.0
+
+    return {
+        "win_rate": win_rate,
+        "edge_efficiency": edge_efficiency,
+        "profit_factor": profit_factor if profit_factor != float("inf") else 99.0,
+    }
+
+
+def assess_parameter_impact(days_window: int = 7) -> list[dict[str, Any]]:
+    """Compare performance metrics before/after each parameter change.
+
+    For each change older than `days_window`:
+    1. Query positions closed in [applied_at - window, applied_at]
+    2. Query positions closed in [applied_at, applied_at + window]
+    3. Compute win_rate, edge_efficiency, profit_factor for both windows
+    4. If post-window shows degradation > 20% on any metric, mark verdict="degraded"
+
+    Returns list of change records with verdicts.
+    """
+    d = db.get_db()
+    now = datetime.now(timezone.utc)
+    results: list[dict[str, Any]] = []
+
+    try:
+        rows = list(d.execute(
+            "SELECT id, parameter, old_value, new_value, applied_at, "
+            "snapshot_window_days, pre_win_rate, pre_edge_efficiency, "
+            "pre_profit_factor, verdict "
+            "FROM parameter_change_snapshots WHERE verdict = 'pending'"
+        ).fetchall())
+    except Exception:
+        return []
+
+    from datetime import timedelta
+
+    for row in rows:
+        snap_id = row[0]
+        parameter = row[1]
+        applied_at = row[4]
+        window = int(row[5]) if row[5] else days_window
+        pre_wr = float(row[6]) if row[6] is not None else 0.0
+        pre_ee = float(row[7]) if row[7] is not None else 0.0
+        pre_pf = float(row[8]) if row[8] is not None else 0.0
+
+        try:
+            applied_dt = datetime.fromisoformat(applied_at)
+            if applied_dt.tzinfo is None:
+                applied_dt = applied_dt.replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            continue
+
+        # Check if enough time has passed
+        window_end = applied_dt + timedelta(days=window)
+        if now < window_end:
+            continue  # Not enough time yet
+
+        # Compute post-change metrics
+        post_start = applied_at
+        post_end = window_end.isoformat()
+        post_metrics = _compute_window_metrics(post_start, post_end)
+
+        # Determine verdict
+        verdict = "insufficient_data"
+        if post_metrics["win_rate"] > 0 or post_metrics["profit_factor"] > 0:
+            degraded = False
+            # Check for >20% degradation on any metric (only where pre > 0)
+            if pre_wr > 0 and post_metrics["win_rate"] < pre_wr * 0.80:
+                degraded = True
+            if pre_ee > 0 and post_metrics["edge_efficiency"] < pre_ee * 0.80:
+                degraded = True
+            if pre_pf > 0 and pre_pf < 90 and post_metrics["profit_factor"] < pre_pf * 0.80:
+                degraded = True
+            verdict = "degraded" if degraded else "improved"
+
+        # Update snapshot
+        try:
+            d["parameter_change_snapshots"].update(snap_id, {
+                "post_win_rate": post_metrics["win_rate"],
+                "post_edge_efficiency": post_metrics["edge_efficiency"],
+                "post_profit_factor": post_metrics["profit_factor"],
+                "verdict": verdict,
+            })
+        except Exception:
+            pass
+
+        results.append({
+            "parameter": parameter,
+            "old_value": float(row[2]),
+            "new_value": float(row[3]),
+            "applied_at": applied_at,
+            "verdict": verdict,
+            "pre": {"win_rate": pre_wr, "edge_efficiency": pre_ee, "profit_factor": pre_pf},
+            "post": post_metrics,
+        })
+
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Skipped market resolution tracking
 # ---------------------------------------------------------------------------
 
@@ -904,6 +1439,9 @@ async def run_learning_cycle() -> LearningReport:
     # Step 1: Update skipped market resolutions from Gamma API
     await update_skipped_resolutions()
 
+    # Step 1b: Classify current market regime
+    current_regime = await classify_and_store_regime()
+
     # Step 2: Run all analyses
     bias = analyze_frontier_bias()
     skip_retro = analyze_skipped_markets()
@@ -927,9 +1465,28 @@ async def run_learning_cycle() -> LearningReport:
     if insufficient:
         logger.info("Learning: insufficient data for: %s", ", ".join(insufficient))
 
-    # Step 5: Build report
+    # Step 5: Auto-apply qualifying recommendations
+    report_ts = datetime.now(timezone.utc).isoformat()
+    applied = apply_recommendations(recs, report_timestamp=report_ts)
+
+    # Step 5b: Assess impact of previous parameter changes and auto-revert degraded ones
+    reverted: list[str] = []
+    degraded_changes = assess_parameter_impact()
+    for change in degraded_changes:
+        if change["verdict"] == "degraded":
+            revert_override(change["parameter"])
+            reverted.append(change["parameter"])
+            logger.warning(
+                "Auto-reverted %s: post-change degradation detected "
+                "(pre WR=%.2f → post WR=%.2f)",
+                change["parameter"],
+                change["pre"]["win_rate"],
+                change["post"]["win_rate"],
+            )
+
+    # Step 6: Build report
     report = LearningReport(
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=report_ts,
         bias=bias,
         skip_retro=skip_retro,
         edge_realization=edge_real,
@@ -937,16 +1494,20 @@ async def run_learning_cycle() -> LearningReport:
         cost_effectiveness=cost_eff,
         recommendations=recs,
         data_sufficiency=data_sufficiency,
+        applied_overrides=applied,
+        reverted_overrides=reverted,
+        current_regime=current_regime,
     )
 
-    # Step 6: Persist
+    # Step 7: Persist
     try:
         save_report(report)
         logger.info(
             "Learning cycle complete: %d bias samples, %d skip retros, "
-            "%d edge samples, %d recommendations",
+            "%d edge samples, %d recommendations, %d applied, %d reverted, regime=%s",
             bias.sample_count, skip_retro.resolved_skipped,
-            edge_real.total_trades, len(recs),
+            edge_real.total_trades, len(recs), len(applied), len(reverted),
+            current_regime,
         )
     except Exception as e:
         logger.warning("Failed to save learning report: %s", e)

@@ -76,6 +76,12 @@ def ensure_tables() -> None:
         if "status" not in columns:
             db.execute("ALTER TABLE positions ADD COLUMN status TEXT DEFAULT 'open'")
             logger.info("Added status column to positions table")
+        if "realized_pnl" not in columns:
+            db.execute("ALTER TABLE positions ADD COLUMN realized_pnl FLOAT")
+            logger.info("Added realized_pnl column to positions table")
+        if "exit_price" not in columns:
+            db.execute("ALTER TABLE positions ADD COLUMN exit_price FLOAT")
+            logger.info("Added exit_price column to positions table")
 
     if "signals" not in db.table_names():
         db["signals"].create({
@@ -158,6 +164,47 @@ def ensure_tables() -> None:
             "resolution_outcome": float,
         }, pk="id", if_not_exists=True)
         logger.info("Created skipped_markets table")
+
+    if "parameter_overrides" not in db.table_names():
+        db["parameter_overrides"].create({
+            "parameter": str,
+            "original_value": float,
+            "current_value": float,
+            "applied_at": str,
+            "source_report_ts": str,
+            "confidence": float,
+            "sample_count": int,
+            "reason": str,
+            "active": int,
+        }, pk="parameter", if_not_exists=True)
+        logger.info("Created parameter_overrides table")
+
+    if "parameter_change_snapshots" not in db.table_names():
+        db["parameter_change_snapshots"].create({
+            "id": int,
+            "parameter": str,
+            "old_value": float,
+            "new_value": float,
+            "applied_at": str,
+            "snapshot_window_days": int,
+            "pre_win_rate": float,
+            "pre_edge_efficiency": float,
+            "pre_profit_factor": float,
+            "post_win_rate": float,
+            "post_edge_efficiency": float,
+            "post_profit_factor": float,
+            "verdict": str,
+        }, pk="id", if_not_exists=True)
+        logger.info("Created parameter_change_snapshots table")
+
+    if "market_regimes" not in db.table_names():
+        db["market_regimes"].create({
+            "date": str,
+            "regime": str,
+            "btc_30d_return": float,
+            "btc_30d_vol": float,
+        }, pk="date", if_not_exists=True)
+        logger.info("Created market_regimes table")
 
     if "signal_calibration" not in db.table_names():
         db["signal_calibration"].create({
@@ -299,7 +346,9 @@ def close_position(
         db["positions"].update(token_id, {
             "status": "closed",
             "current_price": exit_price,
-            "unrealized_pnl": realized_pnl,
+            "exit_price": exit_price,
+            "realized_pnl": realized_pnl,
+            "unrealized_pnl": realized_pnl,  # legacy compat
             "last_updated": now,
         })
     except Exception:
@@ -562,6 +611,22 @@ def record_skipped_market(
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "resolution_outcome": None,
     })
+
+
+# ---------------------------------------------------------------------------
+# Parameter override helpers
+# ---------------------------------------------------------------------------
+
+def get_active_overrides() -> dict[str, float]:
+    """Return {parameter_name: current_value} for all active overrides."""
+    db = get_db()
+    try:
+        if "parameter_overrides" not in db.table_names():
+            return {}
+        rows = list(db["parameter_overrides"].rows_where("active = 1"))
+        return {row["parameter"]: float(row["current_value"]) for row in rows}
+    except Exception:
+        return {}
 
 
 # Auto-create tables on import

@@ -21,6 +21,7 @@ from config.settings import (
     STOP_LOSS_PCT,
     TAKE_PROFIT_PCT,
     TEST_BANKROLL,
+    get_effective_param,
 )
 from core import db
 from core.client import ClobClientWrapper
@@ -205,6 +206,9 @@ class PaperExecutor:
         if not positions:
             return
 
+        eff_tp = get_effective_param("TAKE_PROFIT_PCT", TAKE_PROFIT_PCT)
+        eff_sl = get_effective_param("STOP_LOSS_PCT", STOP_LOSS_PCT)
+
         for pos in positions:
             if not pos.get("paper"):
                 continue
@@ -219,7 +223,7 @@ class PaperExecutor:
             pnl_pct = unrealized_pnl / cost_basis if cost_basis > 0 else 0
 
             # Take-profit: close if unrealized PnL exceeds threshold
-            if pnl_pct >= TAKE_PROFIT_PCT:
+            if pnl_pct >= eff_tp:
                 logger.info(
                     "TAKE PROFIT: %s up %.1f%% (entry=%.4f current=%.4f, PnL=$%.2f)",
                     pos.get("market_question", pos["token_id"])[:50],
@@ -229,7 +233,7 @@ class PaperExecutor:
                 continue
 
             # Stop-loss: close if loss exceeds threshold
-            if pnl_pct <= -STOP_LOSS_PCT:
+            if pnl_pct <= -eff_sl:
                 logger.warning(
                     "STOP LOSS: %s down %.1f%% (entry=%.4f current=%.4f, PnL=$%.2f)",
                     pos.get("market_question", pos["token_id"])[:50],
@@ -385,6 +389,9 @@ class TradeExecutor:
         if not positions:
             return
 
+        eff_tp = get_effective_param("TAKE_PROFIT_PCT", TAKE_PROFIT_PCT)
+        eff_sl = get_effective_param("STOP_LOSS_PCT", STOP_LOSS_PCT)
+
         for pos in positions:
             if pos.get("paper"):
                 continue
@@ -398,7 +405,7 @@ class TradeExecutor:
             pnl_pct = unrealized_pnl / cost_basis if cost_basis > 0 else 0
 
             # Take-profit: place sell order
-            if pnl_pct >= TAKE_PROFIT_PCT:
+            if pnl_pct >= eff_tp:
                 logger.info(
                     "TAKE PROFIT: %s up %.1f%% (entry=%.4f current=%.4f, PnL=$%.2f)",
                     pos.get("market_question", pos["token_id"])[:50],
@@ -418,7 +425,7 @@ class TradeExecutor:
                 continue
 
             # Stop-loss: place sell order
-            if pnl_pct <= -STOP_LOSS_PCT:
+            if pnl_pct <= -eff_sl:
                 logger.warning(
                     "STOP LOSS: %s down %.1f%% (entry=%.4f current=%.4f, PnL=$%.2f)",
                     pos.get("market_question", pos["token_id"])[:50],

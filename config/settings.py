@@ -90,3 +90,10 @@ TELEGRAM_ENABLED = os.getenv("TELEGRAM_ENABLED", "false").lower() == "true"
 
 # --- Web UI ---
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
+
+
+def get_effective_param(name: str, default: float) -> float:
+    """Return DB override if active, else the module-level default."""
+    from core.db import get_active_overrides
+    overrides = get_active_overrides()
+    return overrides.get(name, default)

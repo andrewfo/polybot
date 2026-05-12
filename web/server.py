@@ -1264,6 +1264,82 @@ def create_app() -> FastAPI:
         except Exception as e:
             return JSONResponse(status_code=500, content={"error": str(e)[:200]})
 
+    @app.get("/api/learning/overrides")
+    async def learning_overrides():
+        """Return all active parameter overrides."""
+        try:
+            from core.db import get_db
+            d = get_db()
+            if "parameter_overrides" not in d.table_names():
+                return []
+            return list(d["parameter_overrides"].rows_where("active = 1"))
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": str(e)[:200]})
+
+    @app.post("/api/learning/overrides/{parameter}/revert")
+    async def learning_override_revert(parameter: str):
+        """Revert (deactivate) a parameter override."""
+        try:
+            from monitoring.learning import revert_override
+            success = revert_override(parameter)
+            if success:
+                return {"status": "reverted", "parameter": parameter}
+            return JSONResponse(status_code=404, content={"error": f"No active override for {parameter}"})
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": str(e)[:200]})
+
+    @app.post("/api/learning/overrides/{parameter}/set")
+    async def learning_override_set(parameter: str, request: Request):
+        """Manually set a parameter override value."""
+        try:
+            body = await request.json()
+            value = float(body.get("value", 0))
+            reason = str(body.get("reason", "manual override"))
+
+            from monitoring.learning import PARAMETER_LIMITS
+            if parameter not in PARAMETER_LIMITS:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": f"Unknown parameter: {parameter}. "
+                             f"Valid: {list(PARAMETER_LIMITS.keys())}"},
+                )
+
+            floor, ceiling = PARAMETER_LIMITS[parameter]
+            value = max(floor, min(ceiling, value))
+
+            from core.db import get_db
+            from config.settings import get_effective_param
+            d = get_db()
+            now_str = datetime.now(timezone.utc).isoformat()
+
+            # Get current default
+            import config.settings as _s
+            default = getattr(_s, parameter, value)
+
+            # Deactivate previous
+            try:
+                existing = d["parameter_overrides"].get(parameter)
+                if existing and existing["active"] == 1:
+                    d["parameter_overrides"].update(parameter, {"active": 0})
+            except Exception:
+                pass
+
+            d["parameter_overrides"].upsert({
+                "parameter": parameter,
+                "original_value": default,
+                "current_value": round(value, 4),
+                "applied_at": now_str,
+                "source_report_ts": "",
+                "confidence": 1.0,
+                "sample_count": 0,
+                "reason": reason[:500],
+                "active": 1,
+            }, pk="parameter")
+
+            return {"status": "set", "parameter": parameter, "value": round(value, 4)}
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": str(e)[:200]})
+
     # -----------------------------------------------------------------------
     # Logs endpoint
     # -----------------------------------------------------------------------
