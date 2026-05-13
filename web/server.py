@@ -612,12 +612,13 @@ class BotEngine:
                         decision.should_trade = False
                         decision.skip_reason = depth.skip_reason
                     else:
+                        original_bet = decision.bet_size_usd
                         decision.bet_size_usd = depth.adjusted_bet_usd
                         decision.depth_total_usd = depth.total_depth_usd
                         decision.depth_slippage = depth.slippage
-                        decision.depth_adjusted = depth.adjusted_bet_usd < decision.bet_size_usd
+                        decision.depth_adjusted = depth.adjusted_bet_usd < original_bet
                         depth_data["adjusted_bet_usd"] = depth.adjusted_bet_usd
-                        depth_data["was_adjusted"] = depth.adjusted_bet_usd < decision.bet_size_usd
+                        depth_data["was_adjusted"] = depth.adjusted_bet_usd < original_bet
             except Exception as e:
                 logger.debug("Depth analysis failed for %s: %s", cid, e)
 
