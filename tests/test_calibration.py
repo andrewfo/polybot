@@ -153,7 +153,7 @@ class TestDynamicMultipliers:
 
         # avg_brier = (0.20 + 0.10 + 0.15) / 3 = 0.15
         # web_search ratio = 0.15 / 0.20 = 0.75 → mult = 1.5 * 0.75 = 1.125
-        # resolution_crypto ratio = 0.15 / 0.10 = 1.5 → mult = 2.0 * 1.5 = 3.0
+        # resolution_crypto ratio = 0.15 / 0.10 = 1.5 → mult = 1.3 * 1.5 = 1.95
         # prediction_markets ratio = 0.15 / 0.15 = 1.0 → mult = 1.8 * 1.0 = 1.8
         ws = result["web_search"]
         assert ws.is_default is False
@@ -161,7 +161,7 @@ class TestDynamicMultipliers:
 
         rc = result["resolution_crypto"]
         assert rc.is_default is False
-        assert abs(rc.multiplier - 3.0) < 0.01
+        assert abs(rc.multiplier - 1.95) < 0.01
 
         pm = result["prediction_markets"]
         assert pm.is_default is False

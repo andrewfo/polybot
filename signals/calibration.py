@@ -18,6 +18,10 @@ import aiohttp
 from config.settings import (
     CALIBRATION_LOOKBACK_DAYS,
     MIN_CALIBRATION_SAMPLES,
+    ONCHAIN_FLOW_SIGNAL_WEIGHT,
+    PREDICTION_MARKETS_SIGNAL_WEIGHT,
+    RESOLUTION_SIGNAL_WEIGHT,
+    WEB_SEARCH_SIGNAL_WEIGHT,
 )
 from core import db
 
@@ -25,9 +29,10 @@ logger = logging.getLogger(__name__)
 
 # Default multipliers (used when insufficient calibration data)
 DEFAULT_MULTIPLIERS: dict[str, float] = {
-    "resolution_crypto": 2.0,
-    "prediction_markets": 1.8,
-    "web_search": 1.5,
+    "resolution_crypto": RESOLUTION_SIGNAL_WEIGHT,
+    "prediction_markets": PREDICTION_MARKETS_SIGNAL_WEIGHT,
+    "web_search": WEB_SEARCH_SIGNAL_WEIGHT,
+    "onchain_flow": ONCHAIN_FLOW_SIGNAL_WEIGHT,
 }
 
 # Brier score of a random guesser (always predicting 0.5)

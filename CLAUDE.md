@@ -31,6 +31,7 @@ signals/aggregator.py         → Weighted signal merge → frontier model final
 signals/temporal.py           → Date context, urgency tiers for frontier prompt
 signals/web_search.py         → Perplexity Sonar search-grounded signal
 signals/prediction_markets.py → Cross-platform consensus (Metaculus/Kalshi/Gamma)
+signals/onchain_flow.py       → CryptoQuant exchange flow + whale tx signal (NO LLM)
 signals/calibration.py        → Brier-score calibration, dynamic source multipliers
 monitoring/learning.py        → Continuous learning engine, auto-apply recommendations
 web/server.py                 → FastAPI backend, BotEngine, REST endpoints
@@ -40,7 +41,7 @@ frontend/                     → React (Vite) dashboard: Dashboard, Markets, An
 ## Build Sequence & Progress
 Built section by section from `POLYMARKET_BOT_PLAN (1).md`. Build in order, run tests after each section.
 
-**Sections 0-6: COMPLETE** — Core infra, LLM, wallet, DB, market filtering, signal engine (3 providers + aggregator), Kelly criterion, order execution, web dashboard, continuous learning engine.
+**Sections 0-6: COMPLETE** — Core infra, LLM, wallet, DB, market filtering, signal engine (4 providers + aggregator), Kelly criterion, order execution, web dashboard, continuous learning engine.
 
 **Next up: Section 7** — Monitoring & notifications (pnl.py, health.py, notifications.py)
 Then: Section 8 (health checks) → 9 (pipeline integration / main loop) → 10 (paper executor polish) → 11 (docs)
