@@ -165,6 +165,11 @@ class WebSearchSignalProvider(SignalProvider):
             prob = max(0.0, min(1.0, prob))
         conf = max(0.0, min(1.0, conf))
 
+        # Sonar is a search/synthesis model, not calibration-trained.
+        # Its self-reported confidence is systematically inflated (0.6-0.8
+        # even for highly uncertain events). Discount by 0.7x.
+        conf *= 0.7
+
         return SignalResult(
             source="web_search",
             probability=prob,

@@ -107,8 +107,13 @@ def check_all_guardrails(bankroll: float) -> tuple[bool, str]:
 def compute_limit_price(
     decision: TradeDecision,
     market_data: dict[str, Any],
+    depth_slippage: float | None = None,
 ) -> tuple[float, str]:
     """Compute limit price and select token_id based on trade side.
+
+    When depth_slippage is provided (from DepthAnalysis), the buffer is set
+    to 1.5x the measured slippage instead of the fixed SLIPPAGE_BUFFER.
+    This produces tighter limits on deep books and wider limits on thin ones.
 
     Returns (limit_price, token_id).
     """
@@ -117,13 +122,19 @@ def compute_limit_price(
     best_ask = float(market_data.get("bestAsk", 0) or 0)
     best_bid = float(market_data.get("bestBid", 0) or 0)
 
+    # Use measured slippage when available, otherwise fall back to fixed buffer
+    if depth_slippage is not None and depth_slippage > 0:
+        buffer = min(depth_slippage * 1.5, 0.05)  # cap at 5%
+    else:
+        buffer = SLIPPAGE_BUFFER
+
     if decision.side == "BUY_YES":
         # Buy YES token at slightly below best ask
-        price = best_ask - SLIPPAGE_BUFFER
+        price = best_ask - buffer
         token_id = clob_token_ids[0] if clob_token_ids else decision.token_id
     else:
         # Buy NO token: NO price = 1 - YES price
-        price = (1.0 - best_bid) - SLIPPAGE_BUFFER
+        price = (1.0 - best_bid) - buffer
         token_id = clob_token_ids[1] if len(clob_token_ids) > 1 else decision.token_id
 
     # Clamp to valid range

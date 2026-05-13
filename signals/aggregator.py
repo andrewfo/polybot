@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # data is insufficient). Dynamic multipliers from signals/calibration.py
 # override these when enough resolved predictions exist.
 DEFAULT_SIGNAL_WEIGHT_MULTIPLIERS: dict[str, float] = {
-    "resolution_crypto": RESOLUTION_SIGNAL_WEIGHT,   # Direct resolution source — data from CoinGecko
+    "resolution_crypto": RESOLUTION_SIGNAL_WEIGHT,   # CoinGecko-based math model (not the actual resolution source)
     "prediction_markets": 1.8,                       # Cross-platform market consensus (strong)
     "web_search": 1.5,                               # Search-grounded LLM (Perplexity Sonar)
 }
@@ -116,21 +116,28 @@ def _log_odds_average(signals: list[SignalResult]) -> float:
 
 
 def _compute_signals_agreement(signals: list[SignalResult]) -> str:
-    """Pre-compute signal agreement from standard deviation of probabilities.
+    """Pre-compute signal agreement using confidence-weighted standard deviation.
 
-    Returns "agree" if stdev < 0.05, "mixed" if < 0.15, else "disagree".
+    Weights disagreement by confidence so a low-confidence outlier doesn't
+    register as real disagreement.
+    Returns "agree" if weighted stdev < 0.05, "mixed" if < 0.15, else "disagree".
     """
-    probs = [s.probability for s in signals if s.probability is not None and s.confidence > 0]
-    if len(probs) < 2:
+    usable = [(s.probability, s.confidence) for s in signals
+              if s.probability is not None and s.confidence > 0]
+    if len(usable) < 2:
         return "agree"
 
-    mean_p = sum(probs) / len(probs)
-    variance = sum((p - mean_p) ** 2 for p in probs) / len(probs)
-    stdev = math.sqrt(variance)
-
-    if stdev < 0.05:
+    total_conf = sum(c for _, c in usable)
+    if total_conf == 0:
         return "agree"
-    elif stdev < 0.15:
+
+    weighted_mean = sum(p * c for p, c in usable) / total_conf
+    weighted_var = sum(c * (p - weighted_mean) ** 2 for p, c in usable) / total_conf
+    weighted_stdev = math.sqrt(weighted_var)
+
+    if weighted_stdev < 0.05:
+        return "agree"
+    elif weighted_stdev < 0.15:
         return "mixed"
     else:
         return "disagree"
@@ -310,6 +317,7 @@ def _build_frontier_prompt(
         f'1. Critically evaluate each signal source. Are any likely biased or unreliable?\n'
         f'2. Signals marked as "DIRECT RESOLUTION SOURCE" come from the actual data providers (FRED, CoinGecko) whose data would be used to resolve this market. Weight these more heavily than news or sentiment signals.\n'
         f'3. IMPORTANT: Check whether the market\'s resolution criteria specifies a particular data source, exchange, timestamp methodology, or TWAP that might differ from the signal data provided. If the resolution source differs from our data source (e.g., market resolves on Binance spot price but our data is from CoinGecko aggregated price), adjust your confidence downward accordingly.\n'
+        f'3b. For crypto markets showing both Terminal and Barrier model probabilities: evaluate which resolution type actually applies. "Will price reach X by date Y" is barrier (touch anytime). "Will price be above X on date Y" is terminal (price at expiry). If the selected model seems wrong for the market question, use the other model\'s probability instead.\n'
         f'4. Consider base rates for this type of event.\n'
         f'5. Consider what information the market might have that our signals don\'t.\n'
         f'6. Provide your final probability estimate.\n'
@@ -459,24 +467,6 @@ class SignalAggregator:
             market_question, "preliminary",
             f"weighted estimate: {preliminary_prob:.2f} from {len(usable_signals)} signals",
         )
-
-        # Step 4b: Pre-frontier divergence check
-        # If preliminary estimate diverges wildly from market AND signals disagree,
-        # skip the expensive frontier call — it won't resolve the conflict.
-        prelim_divergence = abs(preliminary_prob - market_price)
-        agreement = _compute_signals_agreement(usable_signals)
-        if prelim_divergence > 0.35 and agreement == "disagree":
-            reason = (
-                f"pre-frontier skip: divergence={prelim_divergence:.2f} with signals disagreeing "
-                f"(prelim={preliminary_prob:.2f}, market={market_price:.2f})"
-            )
-            logger.info("Skipping frontier for '%s': %s", market_question[:60], reason)
-            self._emit(market_question, "skip", reason)
-            self._log_aggregated_signal(
-                market_question, "aggregator_prefrontier_skip",
-                preliminary_prob, 0.0, reason, "none",
-            )
-            return None
 
         # Step 5: FRONTIER MODEL CALL
         self._emit(market_question, "frontier", "calling frontier model for final estimate")
