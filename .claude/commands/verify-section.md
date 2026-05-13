@@ -1,4 +1,4 @@
-Read the build plan at POLYMARKET_BOT_PLAN.md, Section $ARGUMENTS.
+Read the build plan at "POLYMARKET_BOT_PLAN (1).md", Section $ARGUMENTS.
 
 Check every acceptance criterion listed for that section:
 1. Verify each criterion by reading the relevant code and running tests

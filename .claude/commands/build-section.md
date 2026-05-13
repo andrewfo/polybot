@@ -1,4 +1,4 @@
-Read the build plan at POLYMARKET_BOT_PLAN.md, Section $ARGUMENTS.
+Read the build plan at "POLYMARKET_BOT_PLAN (1).md", Section $ARGUMENTS.
 
 Implement everything specified in that section completely:
 1. Read the section's Context, Tasks, and Acceptance Criteria carefully
