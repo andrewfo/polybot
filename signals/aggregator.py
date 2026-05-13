@@ -19,8 +19,12 @@ from config.settings import (
     DIVERGENCE_CONFIDENCE_THRESHOLD,
     MAX_DIVERGENCE_ANY_CONFIDENCE,
     MAX_DIVERGENCE_LOW_CONFIDENCE,
+    MIN_FRONTIER_CONFIDENCE,
+    ONCHAIN_FLOW_SIGNAL_WEIGHT,
+    PREDICTION_MARKETS_SIGNAL_WEIGHT,
     RESOLUTION_SIGNAL_WEIGHT,
     USE_LOG_ODDS_AVERAGING,
+    WEB_SEARCH_SIGNAL_WEIGHT,
 )
 from core import db
 from core.llm import LLMClient, LLMError
@@ -38,10 +42,10 @@ logger = logging.getLogger(__name__)
 # data is insufficient). Dynamic multipliers from signals/calibration.py
 # override these when enough resolved predictions exist.
 DEFAULT_SIGNAL_WEIGHT_MULTIPLIERS: dict[str, float] = {
-    "resolution_crypto": RESOLUTION_SIGNAL_WEIGHT,   # CoinGecko-based math model (not the actual resolution source)
-    "prediction_markets": 1.8,                       # Cross-platform market consensus (strong)
-    "web_search": 1.5,                               # Search-grounded LLM (Perplexity Sonar)
-    "onchain_flow": 1.3,                             # Exchange flow + whale txs (meaningful but noisy)
+    "resolution_crypto": RESOLUTION_SIGNAL_WEIGHT,
+    "prediction_markets": PREDICTION_MARKETS_SIGNAL_WEIGHT,
+    "web_search": WEB_SEARCH_SIGNAL_WEIGHT,
+    "onchain_flow": ONCHAIN_FLOW_SIGNAL_WEIGHT,
 }
 
 
@@ -59,8 +63,7 @@ def _get_signal_weight_multipliers() -> dict[str, float]:
 # Active multipliers — refreshed per aggregation cycle
 SIGNAL_WEIGHT_MULTIPLIERS: dict[str, float] = DEFAULT_SIGNAL_WEIGHT_MULTIPLIERS
 
-# Minimum frontier confidence to proceed
-MIN_FRONTIER_CONFIDENCE = 0.35
+# MIN_FRONTIER_CONFIDENCE imported from config.settings
 
 
 @dataclass

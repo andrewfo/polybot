@@ -45,8 +45,12 @@ MAX_NEW_TRADES_PER_HOUR = int(os.getenv("MAX_NEW_TRADES_PER_HOUR", "50"))
 MAX_DRAWDOWN_PCT = float(os.getenv("MAX_DRAWDOWN_PCT", "0.30"))       # Stop trading if down 30%
 MAX_DAILY_LOSS_PCT = float(os.getenv("MAX_DAILY_LOSS_PCT", "0.15"))   # Stop for 24h if down 15% in a day
 
-# --- Resolution Source Monitoring ---
+# --- Signal Weights (defaults, overridden by calibration when enough data) ---
 RESOLUTION_SIGNAL_WEIGHT = float(os.getenv("RESOLUTION_SIGNAL_WEIGHT", "1.3"))
+PREDICTION_MARKETS_SIGNAL_WEIGHT = float(os.getenv("PREDICTION_MARKETS_SIGNAL_WEIGHT", "1.8"))
+WEB_SEARCH_SIGNAL_WEIGHT = float(os.getenv("WEB_SEARCH_SIGNAL_WEIGHT", "1.5"))
+ONCHAIN_FLOW_SIGNAL_WEIGHT = float(os.getenv("ONCHAIN_FLOW_SIGNAL_WEIGHT", "1.3"))
+MIN_FRONTIER_CONFIDENCE = float(os.getenv("MIN_FRONTIER_CONFIDENCE", "0.35"))
 
 # --- New Signal Source API Keys ---
 # Serper.dev: 2,500 free searches/month (https://serper.dev)
