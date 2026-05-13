@@ -1,10 +1,10 @@
 """Signal aggregator with frontier model final probability call.
 
-Collects signals from 3 providers (resolution_crypto, web_search,
-prediction_markets), computes a weighted preliminary estimate,
-then makes the single FRONTIER MODEL call that determines the final
-probability. This is the only place the expensive frontier model is used
-in the signal pipeline.
+Collects signals from 4 providers (resolution_crypto, web_search,
+prediction_markets, onchain_flow), computes a weighted preliminary
+estimate, then makes the single FRONTIER MODEL call that determines
+the final probability. This is the only place the expensive frontier
+model is used in the signal pipeline.
 """
 
 import asyncio
@@ -26,6 +26,7 @@ from core import db
 from core.llm import LLMClient, LLMError
 from signals.base import SignalProvider, SignalResult
 from signals.calibration import get_multiplier_dict, record_prediction
+from signals.onchain_flow import OnchainFlowProvider
 from signals.prediction_markets import PredictionMarketsSignalProvider
 from signals.resolution_crypto import CryptoResolutionProvider
 from signals.web_search import WebSearchSignalProvider
@@ -40,6 +41,7 @@ DEFAULT_SIGNAL_WEIGHT_MULTIPLIERS: dict[str, float] = {
     "resolution_crypto": RESOLUTION_SIGNAL_WEIGHT,   # CoinGecko-based math model (not the actual resolution source)
     "prediction_markets": 1.8,                       # Cross-platform market consensus (strong)
     "web_search": 1.5,                               # Search-grounded LLM (Perplexity Sonar)
+    "onchain_flow": 1.3,                             # Exchange flow + whale txs (meaningful but noisy)
 }
 
 
@@ -259,6 +261,25 @@ def _format_raw_evidence(signal: SignalResult) -> str:
             lines.append(f"  - [{m.get('platform', '?')}] \"{m.get('title', '')}\" = {m.get('probability', '?')}")
         return "\n".join(lines)
 
+    if source == "onchain_flow":
+        pressure = raw.get("pressure_score")
+        if pressure is None:
+            return ""
+        data_source = raw.get("data_source", "unknown")
+        flow_dir = raw.get("net_flow_direction", "unknown")
+        z = raw.get("z_score", 0.0)
+        asset = raw.get("asset", "?").upper()
+        lines = [f"  On-chain flow data ({data_source}, {asset}):"]
+        lines.append(f"  - Pressure score: {pressure:+.2f} (z-score: {z:+.2f})")
+        lines.append(f"  - Net flow direction: {flow_dir}")
+        if raw.get("mean_7d_netflow") is not None:
+            lines.append(f"  - 7d avg netflow: {raw['mean_7d_netflow']:,.0f} | 30d avg: {raw.get('mean_30d_netflow', 0):,.0f}")
+        if raw.get("whale_data_available"):
+            whale_count = raw.get("whale_tx_count", "?")
+            whale_trend = raw.get("whale_trend", "?")
+            lines.append(f"  - Whale txs (>$1M): {whale_count} ({whale_trend})")
+        return "\n".join(lines)
+
     return ""
 
 
@@ -341,7 +362,7 @@ class SignalAggregator:
     """Aggregates signals from all providers and calls the frontier model.
 
     This is the central orchestrator for the signal pipeline. It:
-    1. Collects signals from 3 providers for a given market
+    1. Collects signals from 4 providers for a given market
     2. Filters out signals with confidence=0 or probability=None
     3. Computes a weighted preliminary estimate
     4. Makes the single FRONTIER MODEL call for the final probability
@@ -364,6 +385,7 @@ class SignalAggregator:
                 CryptoResolutionProvider(llm=llm),
                 WebSearchSignalProvider(llm=llm),
                 PredictionMarketsSignalProvider(llm=llm),
+                OnchainFlowProvider(llm=llm),
             ]
 
     def _emit(self, question: str, stage: str, detail: str = "") -> None:
