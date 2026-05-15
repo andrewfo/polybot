@@ -539,7 +539,19 @@ export default function Learning() {
   }
 
   const recommendations = report?.recommendations ?? []
-  const dataSufficiency = report?.data_sufficiency ?? 'unknown'
+
+  // data_sufficiency is a dict {analysis_name: bool} from the backend, or a string for the no_data stub
+  const rawSuff = report?.data_sufficiency
+  let dataSufficiency = 'unknown'
+  if (typeof rawSuff === 'string') {
+    dataSufficiency = rawSuff
+  } else if (rawSuff && typeof rawSuff === 'object') {
+    const vals = Object.values(rawSuff as Record<string, boolean>)
+    if (vals.length === 0) dataSufficiency = 'unknown'
+    else if (vals.every(Boolean)) dataSufficiency = 'sufficient'
+    else if (vals.some(Boolean)) dataSufficiency = 'partial'
+    else dataSufficiency = 'insufficient'
+  }
   const suffColor = dataSufficiency === 'sufficient' ? colors.success
     : dataSufficiency === 'partial' ? colors.warning : colors.textDim
 

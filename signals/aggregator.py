@@ -269,18 +269,37 @@ def _format_raw_evidence(signal: SignalResult) -> str:
         if pressure is None:
             return ""
         data_source = raw.get("data_source", "unknown")
-        flow_dir = raw.get("net_flow_direction", "unknown")
-        z = raw.get("z_score", 0.0)
         asset = raw.get("asset", "?").upper()
-        lines = [f"  On-chain flow data ({data_source}, {asset}):"]
-        lines.append(f"  - Pressure score: {pressure:+.2f} (z-score: {z:+.2f})")
-        lines.append(f"  - Net flow direction: {flow_dir}")
-        if raw.get("mean_7d_netflow") is not None:
-            lines.append(f"  - 7d avg netflow: {raw['mean_7d_netflow']:,.0f} | 30d avg: {raw.get('mean_30d_netflow', 0):,.0f}")
-        if raw.get("whale_data_available"):
-            whale_count = raw.get("whale_tx_count", "?")
-            whale_trend = raw.get("whale_trend", "?")
-            lines.append(f"  - Whale txs (>$1M): {whale_count} ({whale_trend})")
+        sources_n = raw.get("sources_available", 1)
+        agreement = raw.get("source_agreement", 0)
+        lines = [f"  Capital flow data ({data_source}, {asset}, {sources_n} sources, agreement={agreement:.0%}):"]
+        lines.append(f"  - Composite pressure: {pressure:+.2f}")
+        # Per-source pressures
+        sp = raw.get("source_pressures", {})
+        if sp:
+            parts = [f"{k}={v:+.2f}" for k, v in sp.items()]
+            lines.append(f"  - Source breakdown: {', '.join(parts)}")
+        # Stablecoin detail
+        weekly = raw.get("weekly_change_pct")
+        monthly = raw.get("monthly_change_pct")
+        if weekly is not None:
+            lines.append(f"  - Stablecoin supply: weekly {weekly:+.1f}%, monthly {monthly:+.1f}%")
+        supply = raw.get("total_stablecoin_supply")
+        if supply:
+            lines.append(f"  - Total stablecoin supply: ${supply/1e9:.1f}B")
+        # Fear & Greed
+        fg = raw.get("fear_greed_value")
+        if fg is not None:
+            lines.append(f"  - Fear & Greed Index: {fg}/100 ({raw.get('fear_greed_label', '')})")
+        # TVL
+        tvl_chg = raw.get("tvl_weekly_change_pct")
+        if tvl_chg is not None:
+            tvl = raw.get("current_tvl", 0)
+            lines.append(f"  - DeFi TVL: ${tvl/1e9:.1f}B (weekly {tvl_chg:+.1f}%)")
+        # Global market
+        mcap_chg = raw.get("market_cap_change_24h_pct")
+        if mcap_chg is not None:
+            lines.append(f"  - Global market cap: 24h {mcap_chg:+.1f}%, BTC dominance {raw.get('btc_dominance', '?')}%")
         return "\n".join(lines)
 
     return ""

@@ -199,14 +199,24 @@ export interface LearningReport {
   status?: string
   message?: string
   timestamp?: string
-  data_sufficiency?: string
+  data_sufficiency?: string | Record<string, boolean>
   total_decisions?: number
   resolved_decisions?: number
   recommendations?: LearningRecommendation[]
+  bias?: {
+    mean_bias: number
+    abs_mean_error: number
+    sample_count: number
+  }
   frontier_bias?: {
     mean_bias: number
     abs_mean_error: number
     sample_count: number
+  }
+  skip_retro?: {
+    total_skipped: number
+    resolved_skipped: number
+    would_have_profited: number
   }
   skip_summary?: {
     total_skipped: number

@@ -31,7 +31,7 @@ signals/aggregator.py         → Weighted signal merge → frontier model final
 signals/temporal.py           → Date context, urgency tiers for frontier prompt
 signals/web_search.py         → Perplexity Sonar search-grounded signal
 signals/prediction_markets.py → Cross-platform consensus (Manifold/Kalshi/Gamma)
-signals/onchain_flow.py       → Glassnode exchange flow + DeFi Llama fallback (NO LLM)
+signals/onchain_flow.py       → Multi-source capital flow signal: DeFi Llama stablecoins+TVL, Fear&Greed, CoinGecko global (NO LLM)
 signals/calibration.py        → Brier-score calibration, dynamic source multipliers
 monitoring/learning.py        → Continuous learning engine, auto-apply recommendations
 web/server.py                 → FastAPI backend, BotEngine, REST endpoints

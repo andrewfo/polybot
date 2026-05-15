@@ -141,6 +141,8 @@ Paper trading is already implemented in `strategy/executor.py` (PaperExecutor). 
 | Deribit API (options IV) | `www.deribit.com/api/v2/` | No |
 | Perplexity Sonar | Via OpenRouter | Yes |
 | Metaculus API | `www.metaculus.com/api/` | Yes |
+| DeFi Llama TVL | `api.llama.fi/v2/historicalChainTvl` | No |
+| Fear & Greed Index | `api.alternative.me/fng/` | No |
 
 ## Appendix B: LLM Task Routing
 

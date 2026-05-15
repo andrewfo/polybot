@@ -29,9 +29,9 @@ MIN_24H_VOLUME = float(os.getenv("MIN_24H_VOLUME", "500"))
 MARKET_CACHE_REFRESH_SECONDS = int(os.getenv("MARKET_CACHE_REFRESH_SECONDS", "1800"))  # 30 minutes
 
 # --- Operational ---
-DISCOVERY_INTERVAL_MINUTES = int(os.getenv("DISCOVERY_INTERVAL_MINUTES", "120"))     # 2 hours
-AGGREGATION_INTERVAL_MINUTES = int(os.getenv("AGGREGATION_INTERVAL_MINUTES", "120")) # 2 hours
-POSITION_CHECK_INTERVAL_MINUTES = int(os.getenv("POSITION_CHECK_INTERVAL_MINUTES", "30"))
+DISCOVERY_INTERVAL_MINUTES = int(os.getenv("DISCOVERY_INTERVAL_MINUTES", "30"))      # 30 minutes
+AGGREGATION_INTERVAL_MINUTES = int(os.getenv("AGGREGATION_INTERVAL_MINUTES", "30"))  # 30 minutes
+POSITION_CHECK_INTERVAL_MINUTES = int(os.getenv("POSITION_CHECK_INTERVAL_MINUTES", "10"))
 SLIPPAGE_BUFFER = float(os.getenv("SLIPPAGE_BUFFER", "0.02"))
 POLYMARKET_FEE_RATE = float(os.getenv("POLYMARKET_FEE_RATE", "0.02"))  # 2% fee on net winnings
 MIN_CONFIDENCE_BLEND = float(os.getenv("MIN_CONFIDENCE_BLEND", "0.15"))  # Floor for confidence blending
@@ -53,10 +53,6 @@ MIN_FRONTIER_CONFIDENCE = float(os.getenv("MIN_FRONTIER_CONFIDENCE", "0.35"))
 # Metaculus API token (required — their API returns 403 without auth)
 # Get one at https://www.metaculus.com/aib/  (free tier available)
 METACULUS_API_TOKEN = os.getenv("METACULUS_API_TOKEN", "")
-
-# Glassnode API key (required for on-chain exchange flow data)
-# Free tier at https://studio.glassnode.com — covers BTC/ETH exchange flows
-GLASSNODE_API_KEY = os.getenv("GLASSNODE_API_KEY", "")
 
 # Perplexity Sonar model via OpenRouter (search-grounded LLM)
 SONAR_MODEL = os.getenv("SONAR_MODEL", "perplexity/sonar")
