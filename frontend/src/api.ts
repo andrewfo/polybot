@@ -64,6 +64,7 @@ export interface CostResponse {
 
 export interface BotStatus {
   running: boolean
+  paused: boolean
   phase: string
   cycle_count: number
   paper_trading: boolean
@@ -320,6 +321,8 @@ export const api = {
     fetchJSON<LogEntry[]>(`/api/logs?level=${level}&limit=${limit}`),
   startBot: () => postJSON<{ status: string }>('/api/bot/start'),
   stopBot: () => postJSON<{ status: string }>('/api/bot/stop'),
+  pauseBot: () => postJSON<{ status: string }>('/api/bot/pause'),
+  resumeBot: () => postJSON<{ status: string }>('/api/bot/resume'),
   runAggregate: (question: string, marketPrice: number) =>
     postJSON<{ status: string; condition_id?: string; probability?: number }>(
       '/api/commands/aggregate',

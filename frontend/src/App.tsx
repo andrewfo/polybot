@@ -47,6 +47,7 @@ function useWebSocket() {
         if (data.type === 'bot_status') {
           setBotStatus({
             running: data.running,
+            paused: data.paused ?? false,
             phase: data.phase || 'idle',
             cycle_count: data.cycle_count ?? 0,
             paper_trading: data.paper_trading ?? true,
@@ -225,23 +226,28 @@ export default function App() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{
               padding: '4px 12px', borderRadius: 20,
-              background: wsBotStatus?.running ? colors.successDim : 'rgba(85,102,136,0.1)',
-              border: `1px solid ${wsBotStatus?.running ? 'rgba(0,255,136,0.2)' : 'rgba(85,102,136,0.15)'}`,
+              background: wsBotStatus?.paused ? colors.warningDim
+                : wsBotStatus?.running ? colors.successDim : 'rgba(85,102,136,0.1)',
+              border: `1px solid ${wsBotStatus?.paused ? 'rgba(255,180,0,0.2)'
+                : wsBotStatus?.running ? 'rgba(0,255,136,0.2)' : 'rgba(85,102,136,0.15)'}`,
               display: 'flex', alignItems: 'center', gap: 6,
             }}>
               <div style={{
                 width: 6, height: 6, borderRadius: '50%',
-                background: wsBotStatus?.running ? colors.success : colors.textDim,
-                boxShadow: wsBotStatus?.running ? `0 0 8px ${colors.success}` : 'none',
+                background: wsBotStatus?.paused ? colors.warning
+                  : wsBotStatus?.running ? colors.success : colors.textDim,
+                boxShadow: wsBotStatus?.paused ? `0 0 8px ${colors.warning}`
+                  : wsBotStatus?.running ? `0 0 8px ${colors.success}` : 'none',
                 animation: wsBotStatus?.running ? 'pulse 2s ease-in-out infinite' : 'none',
               }} />
               <span style={{
                 fontSize: 11, fontWeight: 600,
                 fontFamily: fonts.mono,
-                color: wsBotStatus?.running ? colors.success : colors.textMuted,
+                color: wsBotStatus?.paused ? colors.warning
+                  : wsBotStatus?.running ? colors.success : colors.textMuted,
                 letterSpacing: '0.04em',
               }}>
-                {wsBotStatus?.running ? 'LIVE' : 'OFFLINE'}
+                {wsBotStatus?.paused ? 'PAUSED' : wsBotStatus?.running ? 'LIVE' : 'OFFLINE'}
               </span>
             </div>
           </div>

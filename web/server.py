@@ -71,6 +71,7 @@ class BotEngine:
 
     def __init__(self, ws_manager: "WSManager") -> None:
         self.running: bool = False
+        self.paused: bool = False
         self.phase: str = "idle"
         self.cycle_count: int = 0
         self.filtered_market_cache: list[dict[str, Any]] = []
@@ -114,10 +115,29 @@ class BotEngine:
     # Start / Stop
     # ------------------------------------------------------------------
 
+    async def pause(self) -> None:
+        if not self.running or self.paused:
+            return
+        self.paused = True
+        self.phase = "paused"
+        logger.info("BotEngine paused — discovery/aggregation suspended, position monitor active")
+        self._push_activity("system", "Bot paused", "No new trades; position monitoring continues")
+        await self._broadcast({"type": "bot_status", "running": True, "paused": True, "phase": "paused"})
+
+    async def resume(self) -> None:
+        if not self.running or not self.paused:
+            return
+        self.paused = False
+        self.phase = "waiting"
+        logger.info("BotEngine resumed — full pipeline active")
+        self._push_activity("system", "Bot resumed", "Discovery and aggregation restarted")
+        await self._broadcast({"type": "bot_status", "running": True, "paused": False, "phase": "waiting"})
+
     async def start(self) -> None:
         if self.running:
             return
         self.running = True
+        self.paused = False
         self.phase = "idle"
         self.cycle_count = 0
         self._started_at = time.time()
@@ -151,6 +171,7 @@ class BotEngine:
 
     async def stop(self) -> None:
         self.running = False
+        self.paused = False
         self.phase = "idle"
         current = asyncio.current_task()
         for task in self._tasks:
@@ -176,6 +197,9 @@ class BotEngine:
     async def _discovery_loop(self) -> None:
         """Run immediately on start, then every DISCOVERY_INTERVAL_MINUTES."""
         while self.running:
+            if self.paused:
+                await self._cancellable_sleep(10)
+                continue
             try:
                 self.phase = "filtering"
                 await self._broadcast({"type": "bot_status", "running": True, "phase": "filtering"})
@@ -312,6 +336,9 @@ class BotEngine:
             await self._cancellable_sleep(10)
 
         while self.running:
+            if self.paused:
+                await self._cancellable_sleep(10)
+                continue
             try:
                 self.phase = "aggregating"
                 self.cycle_count += 1
@@ -1204,6 +1231,7 @@ def create_app() -> FastAPI:
     async def bot_status():
         return {
             "running": engine.running,
+            "paused": engine.paused,
             "phase": engine.phase,
             "cycle_count": engine.cycle_count,
             "paper_trading": PAPER_TRADING,
@@ -1543,6 +1571,24 @@ def create_app() -> FastAPI:
             return {"status": "already_stopped"}
         await engine.stop()
         return {"status": "stopped"}
+
+    @app.post("/api/bot/pause")
+    async def bot_pause():
+        if not engine.running:
+            return {"status": "not_running"}
+        if engine.paused:
+            return {"status": "already_paused"}
+        await engine.pause()
+        return {"status": "paused"}
+
+    @app.post("/api/bot/resume")
+    async def bot_resume():
+        if not engine.running:
+            return {"status": "not_running"}
+        if not engine.paused:
+            return {"status": "not_paused"}
+        await engine.resume()
+        return {"status": "resumed"}
 
     # -----------------------------------------------------------------------
     # Command endpoints

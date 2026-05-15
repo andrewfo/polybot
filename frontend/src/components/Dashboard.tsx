@@ -352,6 +352,19 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
     finally { setActionLoading(false) }
   }
 
+  const handlePauseResume = async () => {
+    setActionLoading(true)
+    try {
+      if (displayStatus?.paused) {
+        await api.resumeBot()
+      } else {
+        await api.pauseBot()
+      }
+      await api.fetchBotStatus().then(setBotStatus)
+    } catch (e) { console.error('Failed to pause/resume bot:', e) }
+    finally { setActionLoading(false) }
+  }
+
   const totalPnl = pnlData?.total_pnl ?? 0
   const dailyPnl = pnlData?.daily_pnl ?? 0
   const unrealizedPnl = positions.reduce((s, p) => s + p.unrealized_pnl, 0)
@@ -361,14 +374,14 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
       {/* Row 1: Key metrics strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
         {/* Bot Status */}
-        <Card title="Bot Status" accent={displayStatus?.running ? colors.success : colors.textDim} index={0}>
+        <Card title="Bot Status" accent={displayStatus?.paused ? colors.warning : displayStatus?.running ? colors.success : colors.textDim} index={0}>
           {displayStatus ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <PillBadge
-                  text={displayStatus.running ? 'RUNNING' : 'STOPPED'}
-                  bg={displayStatus.running ? colors.successDim : 'rgba(85,102,136,0.1)'}
-                  fg={displayStatus.running ? colors.success : colors.textDim}
+                  text={displayStatus.paused ? 'PAUSED' : displayStatus.running ? 'RUNNING' : 'STOPPED'}
+                  bg={displayStatus.paused ? colors.warningDim : displayStatus.running ? colors.successDim : 'rgba(85,102,136,0.1)'}
+                  fg={displayStatus.paused ? colors.warning : displayStatus.running ? colors.success : colors.textDim}
                 />
                 {displayStatus.paper_trading && (
                   <PillBadge text="PAPER" bg={colors.warningDim} fg={colors.warning} />
@@ -393,24 +406,43 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                   Uptime: <span style={{ color: colors.textMuted }}>{formatUptime(liveUptime)}</span>
                 </div>
               )}
-              <button
-                disabled={actionLoading}
-                onClick={displayStatus.running ? handleStop : handleStart}
-                style={{
-                  padding: '8px 0', borderRadius: 6, border: 'none', fontFamily: fonts.mono,
-                  background: displayStatus.running
-                    ? colors.dangerDim
-                    : colors.gradientAccent,
-                  color: displayStatus.running ? colors.danger : '#000',
-                  cursor: actionLoading ? 'wait' : 'pointer',
-                  fontSize: 11, fontWeight: 600, transition: 'all 0.3s',
-                  boxShadow: displayStatus.running ? 'none' : `0 2px 12px rgba(0,229,255,0.25)`,
-                  letterSpacing: '0.06em',
-                  textTransform: 'uppercase',
-                }}
-              >
-                {actionLoading ? '...' : displayStatus.running ? 'Stop Bot' : 'Start Bot'}
-              </button>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {displayStatus.running && (
+                  <button
+                    disabled={actionLoading}
+                    onClick={handlePauseResume}
+                    style={{
+                      flex: 1, padding: '8px 0', borderRadius: 6, border: 'none', fontFamily: fonts.mono,
+                      background: displayStatus.paused ? colors.successDim : colors.warningDim,
+                      color: displayStatus.paused ? colors.success : colors.warning,
+                      cursor: actionLoading ? 'wait' : 'pointer',
+                      fontSize: 11, fontWeight: 600, transition: 'all 0.3s',
+                      letterSpacing: '0.06em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {actionLoading ? '...' : displayStatus.paused ? 'Resume' : 'Pause'}
+                  </button>
+                )}
+                <button
+                  disabled={actionLoading}
+                  onClick={displayStatus.running ? handleStop : handleStart}
+                  style={{
+                    flex: 1, padding: '8px 0', borderRadius: 6, border: 'none', fontFamily: fonts.mono,
+                    background: displayStatus.running
+                      ? colors.dangerDim
+                      : colors.gradientAccent,
+                    color: displayStatus.running ? colors.danger : '#000',
+                    cursor: actionLoading ? 'wait' : 'pointer',
+                    fontSize: 11, fontWeight: 600, transition: 'all 0.3s',
+                    boxShadow: displayStatus.running ? 'none' : `0 2px 12px rgba(0,229,255,0.25)`,
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {actionLoading ? '...' : displayStatus.running ? 'Stop' : 'Start Bot'}
+                </button>
+              </div>
             </div>
           ) : (
             <Skeleton />
