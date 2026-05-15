@@ -491,7 +491,7 @@ class BotEngine:
             "resolution_params": m.get("_resolution_params"),
             "model_edge": m.get("_model_edge"),
             "time_score": m.get("_time_score"),
-            "total_score": m.get("_total_score"),
+            "total_score": m.get("_score"),
         }
 
         skip_thresholds = {
@@ -1305,13 +1305,36 @@ def create_app() -> FastAPI:
         try:
             from monitoring.learning import analyze_frontier_bias
             bias = analyze_frontier_bias()
+
+            # Transform calibration_curve: backend {bin_center, predicted_mean, actual_mean, count}
+            # → frontend {bucket, avg_estimated, avg_actual, bias, count}
+            calibration_curve = []
+            for entry in bias.calibration_curve:
+                predicted = entry.get("predicted_mean", 0)
+                actual = entry.get("actual_mean", 0)
+                calibration_curve.append({
+                    "bucket": f"{entry.get('bin_center', 0):.1f}",
+                    "count": entry.get("count", 0),
+                    "avg_estimated": predicted,
+                    "avg_actual": actual,
+                    "bias": round(predicted - actual, 4),
+                })
+
+            # Transform bias bands: backend dict[str, float] → frontend dict[str, {count, mean_bias}]
+            bias_by_confidence: dict[str, Any] = {}
+            for band, mean_bias_val in bias.bias_by_confidence_band.items():
+                bias_by_confidence[band] = {"count": bias.sample_count, "mean_bias": mean_bias_val}
+            bias_by_price: dict[str, Any] = {}
+            for band, mean_bias_val in bias.bias_by_price_band.items():
+                bias_by_price[band] = {"count": bias.sample_count, "mean_bias": mean_bias_val}
+
             return {
                 "mean_bias": bias.mean_bias,
                 "abs_mean_error": bias.abs_mean_error,
                 "sample_count": bias.sample_count,
-                "calibration_curve": bias.calibration_curve,
-                "bias_by_confidence": bias.bias_by_confidence_band,
-                "bias_by_price": bias.bias_by_price_band,
+                "calibration_curve": calibration_curve,
+                "bias_by_confidence": bias_by_confidence,
+                "bias_by_price": bias_by_price,
             }
         except Exception as e:
             return JSONResponse(status_code=500, content={"error": str(e)[:200]})
@@ -1322,8 +1345,40 @@ def create_app() -> FastAPI:
         try:
             from monitoring.learning import analyze_skipped_markets
             report = analyze_skipped_markets()
-            import dataclasses
-            return dataclasses.asdict(report)
+
+            # Transform SkipRetroReport → SkipAnalysis shape expected by frontend
+            top_missed_reasons: dict[str, int] = {}
+            for reason, info in report.by_skip_reason.items():
+                if isinstance(info, dict):
+                    top_missed_reasons[reason] = info.get("would_have_profited", info.get("count", 0))
+                else:
+                    top_missed_reasons[reason] = int(info)
+
+            avg_missed_edge = 0.0
+            if report.resolved_skipped > 0 and report.missed_profit_estimate > 0:
+                avg_missed_edge = report.missed_profit_estimate / max(report.would_have_profited, 1)
+
+            recommendation = ""
+            if report.would_have_profited > 0 and report.resolved_skipped > 0:
+                miss_rate = report.would_have_profited / report.resolved_skipped
+                if miss_rate > 0.3:
+                    recommendation = (
+                        f"Missing {miss_rate:.0%} of resolved skips — consider loosening "
+                        f"edge or confidence thresholds."
+                    )
+                elif miss_rate > 0.1:
+                    recommendation = "Some missed opportunities, but skip filters are mostly working."
+                else:
+                    recommendation = "Skip filters are well-calibrated — very few missed opportunities."
+
+            return {
+                "total_skipped": report.total_skipped,
+                "resolved_count": report.resolved_skipped,
+                "missed_opportunities": report.would_have_profited,
+                "avg_missed_edge": round(avg_missed_edge, 4),
+                "top_missed_reasons": top_missed_reasons,
+                "recommendation": recommendation,
+            }
         except Exception as e:
             return JSONResponse(status_code=500, content={"error": str(e)[:200]})
 

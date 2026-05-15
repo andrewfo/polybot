@@ -15,7 +15,7 @@ import time
 from typing import Any
 
 from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import OrderArgs, OrderType
+from py_clob_client.clob_types import OrderArgs
 from py_clob_client.order_builder.constants import BUY, SELL
 
 from config.settings import SLIPPAGE_BUFFER

@@ -40,6 +40,9 @@ def ensure_tables() -> None:
             "fill_price": float,
             "pnl": float,
             "paper": int,
+            "order_id": str,
+            "placed_at": str,
+            "market_question": str,
         }, pk="id", if_not_exists=True)
         logger.info("Created trades table")
 
@@ -69,6 +72,8 @@ def ensure_tables() -> None:
             "last_updated": str,
             "paper": int,
             "status": str,
+            "exit_price": float,
+            "realized_pnl": float,
         }, pk="token_id", if_not_exists=True)
         logger.info("Created positions table")
     else:
@@ -402,10 +407,12 @@ def record_signal(
 def get_latest_signals(market_id: str, limit: int = 10) -> list[dict[str, Any]]:
     """Return the most recent signals for a market."""
     db = get_db()
-    return list(db.execute(
+    rows = db.execute(
         "SELECT * FROM signals WHERE market_id = ? ORDER BY timestamp DESC LIMIT ?",
         [market_id, limit],
-    ).fetchall())
+    ).fetchall()
+    columns = [col.name for col in db["signals"].columns]
+    return [{columns[i]: row[i] for i in range(len(columns))} for row in rows]
 
 
 # ---------------------------------------------------------------------------

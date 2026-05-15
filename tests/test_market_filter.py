@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.llm import LLMClient
 from strategy.market_filter import (
     VALID_CATEGORIES,
     categorize_market,
@@ -454,7 +455,6 @@ from strategy.market_filter import (
     filter_computable_markets,
     validate_resolution_params,
 )
-from core.llm import LLMClient
 
 
 # ---------------------------------------------------------------------------

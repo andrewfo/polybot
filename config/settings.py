@@ -29,12 +29,9 @@ MIN_24H_VOLUME = float(os.getenv("MIN_24H_VOLUME", "500"))
 MARKET_CACHE_REFRESH_SECONDS = int(os.getenv("MARKET_CACHE_REFRESH_SECONDS", "1800"))  # 30 minutes
 
 # --- Operational ---
-POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "300"))
-SIGNAL_REFRESH_SECONDS = int(os.getenv("SIGNAL_REFRESH_SECONDS", "600"))
 DISCOVERY_INTERVAL_MINUTES = int(os.getenv("DISCOVERY_INTERVAL_MINUTES", "120"))     # 2 hours
 AGGREGATION_INTERVAL_MINUTES = int(os.getenv("AGGREGATION_INTERVAL_MINUTES", "120")) # 2 hours
 POSITION_CHECK_INTERVAL_MINUTES = int(os.getenv("POSITION_CHECK_INTERVAL_MINUTES", "30"))
-ORDER_TYPE = "limit"
 SLIPPAGE_BUFFER = float(os.getenv("SLIPPAGE_BUFFER", "0.02"))
 POLYMARKET_FEE_RATE = float(os.getenv("POLYMARKET_FEE_RATE", "0.02"))  # 2% fee on net winnings
 MIN_CONFIDENCE_BLEND = float(os.getenv("MIN_CONFIDENCE_BLEND", "0.15"))  # Floor for confidence blending
@@ -53,9 +50,6 @@ ONCHAIN_FLOW_SIGNAL_WEIGHT = float(os.getenv("ONCHAIN_FLOW_SIGNAL_WEIGHT", "1.3"
 MIN_FRONTIER_CONFIDENCE = float(os.getenv("MIN_FRONTIER_CONFIDENCE", "0.35"))
 
 # --- New Signal Source API Keys ---
-# Serper.dev: 2,500 free searches/month (https://serper.dev)
-SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
-
 # Metaculus API token (required — their API returns 403 without auth)
 # Get one at https://www.metaculus.com/aib/  (free tier available)
 METACULUS_API_TOKEN = os.getenv("METACULUS_API_TOKEN", "")
@@ -87,10 +81,6 @@ PAPER_TRADING = os.getenv("PAPER_TRADING", "true").lower() == "true"
 STALE_ORDER_MINUTES = int(os.getenv("STALE_ORDER_MINUTES", "15"))
 TAKE_PROFIT_PCT = float(os.getenv("TAKE_PROFIT_PCT", "0.12"))    # Close position at +12% profit
 STOP_LOSS_PCT = float(os.getenv("STOP_LOSS_PCT", "0.10"))        # Close position at -10% loss
-
-# --- Notifications ---
-NOTIFICATIONS_ENABLED = os.getenv("NOTIFICATIONS_ENABLED", "true").lower() == "true"
-TELEGRAM_ENABLED = os.getenv("TELEGRAM_ENABLED", "false").lower() == "true"
 
 # --- Web UI ---
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))

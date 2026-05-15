@@ -948,6 +948,7 @@ class CryptoResolutionProvider(SignalProvider):
                 "change_24h": change_24h / 100 if change_24h else 0.0,
                 "trend": trend_description,
                 "distance_pct": distance_pct,
+                "price_7d_ago": chart_data[-8][1] if chart_data and len(chart_data) >= 8 else (chart_data[0][1] if chart_data else None),
                 "avg_interval_hours": vol_est.avg_interval_hours,
                 "price_history": [
                     {"date": datetime.fromtimestamp(pt[0] / 1000, tz=timezone.utc).strftime("%Y-%m-%d"), "price": round(pt[1], 2)}
