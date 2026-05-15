@@ -350,9 +350,8 @@ async def _fetch_deribit_iv(
     if not deribit_currency:
         return None
 
-    # Deribit perpetual index gives current price; we use the DVOL instrument
-    # for overall implied vol.  Format: {CURRENCY}-DVOL
-    dvol_instrument = f"{deribit_currency}VOL-USDC"
+    # Deribit DVOL index instrument.  Format: {CURRENCY}_DVOL
+    dvol_instrument = f"{deribit_currency}_DVOL"
     params = {"instrument_name": dvol_instrument}
 
     async def _attempt() -> float | None:
