@@ -48,6 +48,19 @@ from config.settings import (
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Cached Wallet singleton — avoid re-initializing on every API call
+# ---------------------------------------------------------------------------
+_wallet_instance = None
+
+
+async def _get_wallet():
+    global _wallet_instance
+    if _wallet_instance is None:
+        from core.wallet import Wallet
+        _wallet_instance = await asyncio.to_thread(Wallet)
+    return _wallet_instance
+
 
 # ---------------------------------------------------------------------------
 # BotEngine — manages 3 worker tasks on the FastAPI event loop
@@ -637,8 +650,7 @@ class BotEngine:
             bankroll = max(paper_bal["available_cash"], 0)
         else:
             try:
-                from core.wallet import Wallet
-                w = await asyncio.to_thread(Wallet)
+                w = await _get_wallet()
                 bankroll = await asyncio.to_thread(w.get_usdc_balance)
             except Exception:
                 bankroll = TEST_BANKROLL
@@ -1011,9 +1023,8 @@ def create_app() -> FastAPI:
 
         # 2. Polygon RPC
         try:
-            from core.wallet import Wallet
             t0 = time.monotonic()
-            wallet = await asyncio.to_thread(Wallet)
+            wallet = await _get_wallet()
             await asyncio.to_thread(wallet.get_usdc_balance)
             latency = round((time.monotonic() - t0) * 1000)
             services.append({"name": "Polygon RPC", "healthy": True, "latency_ms": latency, "error": None})
@@ -1056,8 +1067,7 @@ def create_app() -> FastAPI:
     @app.get("/api/wallet")
     async def wallet():
         try:
-            from core.wallet import Wallet
-            w = await asyncio.to_thread(Wallet)
+            w = await _get_wallet()
             usdc = await asyncio.to_thread(w.get_usdc_balance)
             matic = await asyncio.to_thread(w.get_matic_balance)
             has_gas = await asyncio.to_thread(w.has_sufficient_gas)

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { colors, cardStyle, glowShadow, fonts, animDelay } from '../theme'
 import {
   api, HealthResponse, WalletResponse, CostResponse, BotStatus,
-  Position, PnlResponse, PaperBalance, CyclesResponse, ActivityEvent,
+  Position, PnlResponse, PaperBalance, CyclesResponse, ActivityEvent, Trade,
 } from '../api'
 import CostBreakdown from './charts/CostBreakdown'
 import PnlChart from './charts/PnlChart'
@@ -255,9 +255,11 @@ function timeAgo(isoStr: string): string {
 
 interface DashboardProps {
   wsBotStatus?: BotStatus | null
+  wsDiscovery?: { discovered: number; filtered: number } | null
+  wsBatchProgress?: { current_index: number; total: number; condition_id: string; status: string } | null
 }
 
-export default function Dashboard({ wsBotStatus }: DashboardProps) {
+export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }: DashboardProps) {
   const [health, setHealth] = useState<HealthResponse | null>(null)
   const [wallet, setWallet] = useState<WalletResponse | null>(null)
   const [costData, setCostData] = useState<CostResponse | null>(null)
@@ -266,6 +268,7 @@ export default function Dashboard({ wsBotStatus }: DashboardProps) {
   const [pnlData, setPnlData] = useState<PnlResponse | null>(null)
   const [paperBal, setPaperBal] = useState<PaperBalance | null>(null)
   const [cycles, setCycles] = useState<CyclesResponse | null>(null)
+  const [trades, setTrades] = useState<Trade[]>([])
   const [actionLoading, setActionLoading] = useState(false)
 
   // Live countdown state — ticks every second
@@ -287,6 +290,7 @@ export default function Dashboard({ wsBotStatus }: DashboardProps) {
     api.fetchPnl().then(setPnlData).catch(() => {})
     api.fetchPaperBalance().then(setPaperBal).catch(() => {})
     api.fetchCycles().then(setCycles).catch(() => {})
+    api.fetchTrades().then(setTrades).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -606,8 +610,12 @@ export default function Dashboard({ wsBotStatus }: DashboardProps) {
                 fontSize: 10, fontFamily: fonts.mono, color: colors.textSecondary,
                 letterSpacing: '0.04em', textTransform: 'uppercase',
               }}>
-                {displayStatus.phase === 'filtering' && 'Discovering & filtering markets...'}
-                {displayStatus.phase === 'aggregating' && 'Running signal aggregation...'}
+                {displayStatus.phase === 'filtering' && (
+                  wsDiscovery ? `Discovery: ${wsDiscovery.filtered} ranked from ${wsDiscovery.discovered} markets` : 'Discovering & filtering markets...'
+                )}
+                {displayStatus.phase === 'aggregating' && (
+                  wsBatchProgress ? `Aggregating ${wsBatchProgress.current_index + 1}/${wsBatchProgress.total}...` : 'Running signal aggregation...'
+                )}
                 {displayStatus.phase === 'learning' && 'Analyzing performance...'}
                 {displayStatus.phase === 'monitoring' && 'Checking positions & orders...'}
               </span>
@@ -797,6 +805,34 @@ export default function Dashboard({ wsBotStatus }: DashboardProps) {
                     <CostBreakdown data={costData.model_breakdown} />
                   </div>
                 )}
+                {/* Task-type cost breakdown */}
+                {costData.task_breakdown.length > 0 && (
+                  <div style={{
+                    marginTop: 8, paddingTop: 8,
+                    borderTop: `1px solid ${colors.border}`,
+                  }}>
+                    <div style={{
+                      fontSize: 9, color: colors.textDim, fontFamily: fonts.mono,
+                      letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6,
+                    }}>
+                      By Task Type
+                    </div>
+                    {costData.task_breakdown.slice(0, 5).map((t) => (
+                      <div key={t.task_type} style={{
+                        display: 'flex', justifyContent: 'space-between',
+                        fontSize: 10, fontFamily: fonts.mono, padding: '2px 0',
+                        color: colors.textMuted,
+                      }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 110 }}>
+                          {t.task_type || 'unknown'}
+                        </span>
+                        <span style={{ color: colors.textSecondary }}>
+                          ${t.cost.toFixed(4)} ({t.calls})
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ) : (
               <Skeleton />
@@ -907,6 +943,93 @@ export default function Dashboard({ wsBotStatus }: DashboardProps) {
           )}
         </Card>
       </div>
+
+      {/* Row 5: Trade History */}
+      <Card title={`Trade History (${trades.length})`} accent={trades.length > 0 ? colors.purple : undefined} index={11}>
+        {trades.length === 0 ? (
+          <div style={{
+            padding: 24, textAlign: 'center', color: colors.textDim,
+            background: 'rgba(139, 92, 246, 0.01)',
+            border: `1px dashed ${colors.border}`,
+            borderRadius: 8,
+          }}>
+            <div style={{ fontSize: 13, marginBottom: 4, fontFamily: fonts.body }}>No trades yet</div>
+            <div style={{ fontSize: 11, fontFamily: fonts.mono, letterSpacing: '0.02em' }}>
+              Trades will appear here as the bot executes orders
+            </div>
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 3px', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  {['Time', 'Market', 'Side', 'Price', 'Size', 'Status', 'P&L'].map(h => (
+                    <th key={h} style={{
+                      padding: '8px 12px', textAlign: h === 'Market' || h === 'Time' ? 'left' : 'right',
+                      color: colors.textDim, fontWeight: 500, fontSize: 10,
+                      textTransform: 'uppercase', letterSpacing: '0.08em',
+                      fontFamily: fonts.mono,
+                    }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {trades.slice(0, 20).map((t, ti) => (
+                  <tr key={t.id || ti} style={{
+                    background: colors.bgCard,
+                    borderRadius: 6,
+                  }}>
+                    <td style={{
+                      padding: '8px 12px', fontSize: 10, fontFamily: fonts.mono,
+                      color: colors.textDim, whiteSpace: 'nowrap', borderRadius: '6px 0 0 6px',
+                    }}>
+                      {t.timestamp ? t.timestamp.replace('T', ' ').slice(0, 19) : '--'}
+                    </td>
+                    <td style={{
+                      padding: '8px 12px', maxWidth: 250, overflow: 'hidden',
+                      textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12,
+                    }}>
+                      {t.market_question || t.market_id}
+                      {t.paper === 1 && (
+                        <> <PillBadge text="PAPER" bg={colors.warningDim} fg={colors.warning} /></>
+                      )}
+                    </td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                      <PillBadge
+                        text={t.side === 'BUY_YES' ? 'YES' : t.side === 'BUY_NO' ? 'NO' : t.side}
+                        bg={t.side === 'BUY_NO' ? colors.dangerDim : colors.successDim}
+                        fg={t.side === 'BUY_NO' ? colors.danger : colors.success}
+                      />
+                    </td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
+                      ${t.price.toFixed(3)}
+                    </td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
+                      ${t.size.toFixed(2)}
+                    </td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                      <PillBadge
+                        text={t.status.toUpperCase()}
+                        bg={t.status === 'filled' ? colors.successDim : t.status === 'pending' ? colors.warningDim : colors.accentDim}
+                        fg={t.status === 'filled' ? colors.success : t.status === 'pending' ? colors.warning : colors.textMuted}
+                      />
+                    </td>
+                    <td style={{
+                      padding: '8px 12px', textAlign: 'right', fontFamily: fonts.mono,
+                      fontSize: 11, borderRadius: '0 6px 6px 0',
+                      color: colors.textDim,
+                    }}>
+                      --
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
     </div>
   )
 }

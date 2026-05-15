@@ -351,6 +351,106 @@ function PredictionMarketsDetail({ raw, consensusProb }: { raw: Record<string, u
   )
 }
 
+function OnchainFlowDetail({ raw }: { raw: Record<string, unknown> }) {
+  const sources = (raw.sources || []) as Record<string, unknown>[]
+  const sentiment = raw.composite_sentiment as string | undefined
+  const sentimentColor = sentiment === 'bullish' ? colors.success
+    : sentiment === 'bearish' ? colors.danger : colors.warning
+
+  return (
+    <div>
+      {/* Composite Sentiment */}
+      {sentiment && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10,
+        }}>
+          <span style={{ fontSize: 10, color: colors.textDim, textTransform: 'uppercase' }}>Sentiment:</span>
+          <span style={{
+            fontSize: 14, fontWeight: 700, fontFamily: fonts.mono, color: sentimentColor,
+            textTransform: 'uppercase',
+          }}>
+            {sentiment}
+          </span>
+          {raw.fear_greed_index != null && (
+            <span style={{
+              padding: '2px 8px', borderRadius: 10, fontSize: 10,
+              background: 'rgba(255,170,0,0.1)', color: colors.warning,
+              fontFamily: fonts.mono,
+            }}>
+              Fear/Greed: {String(raw.fear_greed_index)}
+              {raw.fear_greed_label ? ` (${String(raw.fear_greed_label)})` : ''}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Key Metrics Grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 8, marginBottom: 10 }}>
+        {raw.total_stablecoin_mcap != null && (
+          <Stat label="Stablecoin MCap" value={`$${(Number(raw.total_stablecoin_mcap) / 1e9).toFixed(1)}B`} small />
+        )}
+        {raw.stablecoin_change_7d != null && (
+          <Stat label="Stablecoin 7d" value={fmtPct(raw.stablecoin_change_7d)}
+            highlight={(raw.stablecoin_change_7d as number) > 0 ? colors.success : colors.danger} small />
+        )}
+        {raw.total_tvl != null && (
+          <Stat label="DeFi TVL" value={`$${(Number(raw.total_tvl) / 1e9).toFixed(1)}B`} small />
+        )}
+        {raw.tvl_change_7d != null && (
+          <Stat label="TVL 7d" value={fmtPct(raw.tvl_change_7d)}
+            highlight={(raw.tvl_change_7d as number) > 0 ? colors.success : colors.danger} small />
+        )}
+        {raw.btc_dominance != null && (
+          <Stat label="BTC Dominance" value={fmtPct(raw.btc_dominance)} small />
+        )}
+        {raw.total_market_cap != null && (
+          <Stat label="Total MCap" value={`$${(Number(raw.total_market_cap) / 1e12).toFixed(2)}T`} small />
+        )}
+      </div>
+
+      {/* Individual Source Signals */}
+      {sources.length > 0 && (
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: colors.textMuted, marginBottom: 6, textTransform: 'uppercase' }}>
+            Data Sources ({sources.length})
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {sources.map((src, i) => {
+              const srcSentiment = src.sentiment as string | undefined
+              const srcColor = srcSentiment === 'bullish' ? colors.success
+                : srcSentiment === 'bearish' ? colors.danger : colors.warning
+              return (
+                <div key={i} style={{
+                  padding: '6px 8px', borderRadius: 6,
+                  background: 'rgba(0,0,0,0.2)', fontSize: 11,
+                  borderLeft: `3px solid ${srcColor}`,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                    <span style={{ fontWeight: 600, color: colors.textSecondary }}>
+                      {String(src.source || src.name || '?')}
+                    </span>
+                    {srcSentiment && (
+                      <span style={{ fontSize: 9, fontFamily: fonts.mono, color: srcColor, fontWeight: 600 }}>
+                        {srcSentiment.toUpperCase()}
+                      </span>
+                    )}
+                    {src.weight != null && (
+                      <span style={{ fontSize: 9, color: colors.textDim }}>wt: {String(src.weight)}</span>
+                    )}
+                  </div>
+                  {src.reasoning != null && (
+                    <div style={{ fontSize: 10, color: colors.textDim }}>{String(src.reasoning)}</div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function WebSearchDetail({ raw }: { raw: Record<string, unknown> }) {
   const evidence = (raw.key_evidence || raw.evidence || []) as (string | Record<string, unknown>)[]
   const sourcesFound = raw.sources_found as number | undefined
@@ -494,8 +594,14 @@ function SignalCard({ signal, index }: { signal: Record<string, unknown>; index:
             </div>
           )}
 
+          {source === 'onchain_flow' && Object.keys(raw).length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <OnchainFlowDetail raw={raw} />
+            </div>
+          )}
+
           {/* Fallback: show all raw_data as JSON for any other source */}
-          {Object.keys(raw).length > 0 && !['resolution_crypto', 'prediction_markets', 'web_search'].includes(source) && (
+          {Object.keys(raw).length > 0 && !['resolution_crypto', 'prediction_markets', 'web_search', 'onchain_flow'].includes(source) && (
             <details style={{ marginTop: 8 }}>
               <summary style={{ fontSize: 10, color: colors.textDim, cursor: 'pointer' }}>Raw Data</summary>
               <pre style={{

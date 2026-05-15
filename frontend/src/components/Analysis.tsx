@@ -50,6 +50,9 @@ export default function Analysis() {
   const [aggPrice, setAggPrice] = useState('0.5')
   const [aggLoading, setAggLoading] = useState(false)
   const [aggError, setAggError] = useState<string | null>(null)
+  const [sigTestQuestion, setSigTestQuestion] = useState('')
+  const [sigTestLoading, setSigTestLoading] = useState(false)
+  const [sigTestResults, setSigTestResults] = useState<Array<{ source: string; probability: number | null; confidence: number; reasoning: string }> | null>(null)
 
   const refresh = useCallback(() => {
     api.fetchAnalysisList().then(setEntries).catch(() => {})
@@ -74,6 +77,20 @@ export default function Analysis() {
       setAggError(e instanceof Error ? e.message : 'Failed')
     } finally {
       setAggLoading(false)
+    }
+  }
+
+  const handleSignalTest = async () => {
+    if (!sigTestQuestion.trim()) return
+    setSigTestLoading(true)
+    setSigTestResults(null)
+    try {
+      const result = await api.runSignalTest(sigTestQuestion.trim())
+      setSigTestResults(result.signals)
+    } catch (e) {
+      setSigTestResults([])
+    } finally {
+      setSigTestLoading(false)
     }
   }
 
@@ -131,6 +148,76 @@ export default function Analysis() {
           <span style={{ color: colors.danger, fontSize: 11, fontFamily: fonts.mono }}>{aggError}</span>
         )}
       </div>
+
+      {/* Signal Test form */}
+      <div style={{
+        ...cardStyle, padding: 12,
+        display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap',
+      }}>
+        <input
+          type="text"
+          placeholder="Signal test: test individual providers (no frontier model)"
+          value={sigTestQuestion}
+          onChange={e => setSigTestQuestion(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && !sigTestLoading) handleSignalTest() }}
+          style={{ ...inputStyle, flex: 1, minWidth: 250 }}
+        />
+        <button
+          disabled={sigTestLoading || !sigTestQuestion.trim()}
+          onClick={handleSignalTest}
+          style={{
+            padding: '8px 20px', borderRadius: 4, border: `1px solid ${colors.border}`,
+            background: sigTestLoading ? colors.bgSecondary : 'rgba(139,92,246,0.1)',
+            color: sigTestLoading ? colors.textMuted : colors.purple,
+            cursor: sigTestLoading ? 'wait' : 'pointer',
+            fontSize: 11, fontWeight: 600, fontFamily: fonts.mono,
+            transition: 'all 0.3s',
+            opacity: !sigTestQuestion.trim() ? 0.5 : 1,
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+          }}
+        >
+          {sigTestLoading ? 'Testing...' : 'Test Signals'}
+        </button>
+      </div>
+
+      {/* Signal test results */}
+      {sigTestResults && sigTestResults.length > 0 && (
+        <div style={{ ...cardStyle, padding: 12 }}>
+          <div style={{
+            fontSize: 10, color: colors.textMuted, fontFamily: fonts.mono,
+            textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8,
+          }}>
+            Signal Test Results
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {sigTestResults.map((s, i) => (
+              <div key={i} style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px',
+                borderRadius: 6, background: 'rgba(0,0,0,0.2)',
+                borderLeft: `3px solid ${s.probability != null ? colors.accent : colors.textDim}`,
+              }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: colors.textPrimary, minWidth: 120 }}>
+                  {s.source.replace(/_/g, ' ')}
+                </span>
+                <span style={{ fontFamily: fonts.mono, fontSize: 13, fontWeight: 700, color: s.probability != null ? colors.accent : colors.textDim, minWidth: 50 }}>
+                  {s.probability != null ? (s.probability * 100).toFixed(1) + '%' : '--'}
+                </span>
+                <span style={{
+                  fontSize: 10, padding: '1px 6px', borderRadius: 10, fontFamily: fonts.mono,
+                  background: s.confidence > 0.5 ? colors.successDim : s.confidence > 0.25 ? colors.warningDim : colors.dangerDim,
+                  color: s.confidence > 0.5 ? colors.success : s.confidence > 0.25 ? colors.warning : colors.danger,
+                }}>
+                  conf {(s.confidence * 100).toFixed(0)}%
+                </span>
+                <span style={{ fontSize: 11, color: colors.textSecondary, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {s.reasoning}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Main split view */}
       <div style={{ display: 'grid', gridTemplateColumns: '40% 60%', gap: 14, minHeight: 500 }}>

@@ -11,8 +11,22 @@ import Logs from './components/Logs'
 
 type Tab = 'dashboard' | 'markets' | 'analysis' | 'learning' | 'database' | 'logs'
 
+interface DiscoveryEvent {
+  discovered: number
+  filtered: number
+}
+
+interface BatchEvent {
+  current_index: number
+  total: number
+  condition_id: string
+  status: string
+}
+
 function useWebSocket() {
   const [botStatus, setBotStatus] = useState<BotStatus | null>(null)
+  const [lastDiscovery, setLastDiscovery] = useState<DiscoveryEvent | null>(null)
+  const [batchProgress, setBatchProgress] = useState<BatchEvent | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const retryRef = useRef(0)
 
@@ -37,6 +51,15 @@ function useWebSocket() {
             cycle_count: data.cycle_count ?? 0,
             paper_trading: data.paper_trading ?? true,
           })
+        } else if (data.type === 'discovery_complete') {
+          setLastDiscovery({ discovered: data.discovered, filtered: data.filtered })
+        } else if (data.type === 'batch_update') {
+          setBatchProgress({
+            current_index: data.current_index,
+            total: data.total,
+            condition_id: data.condition_id,
+            status: data.status,
+          })
         }
       } catch { /* ignore */ }
     }
@@ -56,7 +79,7 @@ function useWebSocket() {
     return () => { wsRef.current?.close() }
   }, [connect])
 
-  return { botStatus }
+  return { botStatus, lastDiscovery, batchProgress }
 }
 
 /* Floating ambient orbs */
@@ -129,7 +152,7 @@ function TickerBar() {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard')
-  const { botStatus: wsBotStatus } = useWebSocket()
+  const { botStatus: wsBotStatus, lastDiscovery, batchProgress } = useWebSocket()
 
   return (
     <div style={{
@@ -232,7 +255,7 @@ export default function App() {
           margin: '0 auto',
           animation: 'fadeInUp 0.3s ease forwards',
         }}>
-          {activeTab === 'dashboard' && <Dashboard wsBotStatus={wsBotStatus} />}
+          {activeTab === 'dashboard' && <Dashboard wsBotStatus={wsBotStatus} wsDiscovery={lastDiscovery} wsBatchProgress={batchProgress} />}
           {activeTab === 'markets' && <Markets />}
           {activeTab === 'analysis' && <Analysis />}
           {activeTab === 'learning' && <Learning />}

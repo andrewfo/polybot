@@ -499,14 +499,20 @@ export default function Learning() {
   const [calibration, setCalibration] = useState<CalibrationResponse | null>(null)
   const [skipData, setSkipData] = useState<SkipAnalysis | null>(null)
   const [overrides, setOverrides] = useState<ParameterOverride[]>([])
+  const [history, setHistory] = useState<LearningReport[]>([])
   const [runLoading, setRunLoading] = useState(false)
   const [runResult, setRunResult] = useState<string | null>(null)
+  const [setOverrideParam, setSetOverrideParam] = useState('')
+  const [setOverrideValue, setSetOverrideValue] = useState('')
+  const [setOverrideReason, setSetOverrideReason] = useState('')
+  const [setOverrideLoading, setSetOverrideLoading] = useState(false)
 
   const refresh = useCallback(() => {
     api.fetchLearningReport().then(setReport).catch(() => {})
     api.fetchLearningCalibration().then(setCalibration).catch(() => {})
     api.fetchSkipAnalysis().then(setSkipData).catch(() => {})
     api.fetchOverrides().then(setOverrides).catch(() => {})
+    api.fetchLearningHistory(10).then(setHistory).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -526,6 +532,22 @@ export default function Learning() {
       setRunResult(`Error: ${e instanceof Error ? e.message : 'Unknown'}`)
     } finally {
       setRunLoading(false)
+    }
+  }
+
+  const handleSetOverride = async () => {
+    if (!setOverrideParam || !setOverrideValue) return
+    setSetOverrideLoading(true)
+    try {
+      await api.setOverride(setOverrideParam, parseFloat(setOverrideValue), setOverrideReason || 'manual override')
+      setSetOverrideParam('')
+      setSetOverrideValue('')
+      setSetOverrideReason('')
+      refresh()
+    } catch (e) {
+      console.error('Set override failed:', e)
+    } finally {
+      setSetOverrideLoading(false)
     }
   }
 
@@ -659,6 +681,77 @@ export default function Learning() {
         {/* Active Overrides */}
         <Card title={`Active Overrides (${overrides.length})`} accent={colors.warning} index={3}>
           <OverridesTable overrides={overrides} onRevert={handleRevert} />
+
+          {/* Manual override set form */}
+          <div style={{
+            marginTop: 12, paddingTop: 12,
+            borderTop: `1px solid ${colors.border}`,
+          }}>
+            <div style={{
+              fontSize: 9, color: colors.textDim, fontFamily: fonts.mono,
+              textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8,
+            }}>
+              Set Manual Override
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <select
+                value={setOverrideParam}
+                onChange={e => setSetOverrideParam(e.target.value)}
+                style={{
+                  background: colors.bgSecondary, color: colors.textPrimary,
+                  border: `1px solid ${colors.border}`, borderRadius: 4,
+                  padding: '6px 8px', fontSize: 11, fontFamily: fonts.mono,
+                  outline: 'none', minWidth: 160,
+                }}
+              >
+                <option value="">Select param...</option>
+                {['MIN_EDGE_THRESHOLD', 'KELLY_FRACTION', 'MIN_CONFIDENCE_BLEND',
+                  'MAX_SPREAD', 'MIN_MARKET_LIQUIDITY', 'MAX_POSITION_PCT',
+                  'MAX_DAILY_LOSS_PCT', 'MAX_DRAWDOWN_PCT'].map(p => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+              <input
+                type="number"
+                placeholder="Value"
+                value={setOverrideValue}
+                onChange={e => setSetOverrideValue(e.target.value)}
+                step="0.01"
+                style={{
+                  background: colors.bgSecondary, color: colors.textPrimary,
+                  border: `1px solid ${colors.border}`, borderRadius: 4,
+                  padding: '6px 8px', fontSize: 11, fontFamily: fonts.mono,
+                  outline: 'none', width: 80,
+                }}
+              />
+              <input
+                type="text"
+                placeholder="Reason"
+                value={setOverrideReason}
+                onChange={e => setSetOverrideReason(e.target.value)}
+                style={{
+                  background: colors.bgSecondary, color: colors.textPrimary,
+                  border: `1px solid ${colors.border}`, borderRadius: 4,
+                  padding: '6px 8px', fontSize: 11, fontFamily: fonts.body,
+                  outline: 'none', flex: 1, minWidth: 100,
+                }}
+              />
+              <button
+                disabled={setOverrideLoading || !setOverrideParam || !setOverrideValue}
+                onClick={handleSetOverride}
+                style={{
+                  padding: '6px 12px', borderRadius: 4, border: 'none',
+                  background: !setOverrideParam || !setOverrideValue ? colors.bgSecondary : colors.warningDim,
+                  color: !setOverrideParam || !setOverrideValue ? colors.textDim : colors.warning,
+                  cursor: setOverrideLoading ? 'wait' : 'pointer',
+                  fontSize: 10, fontWeight: 600, fontFamily: fonts.mono,
+                  letterSpacing: '0.04em',
+                }}
+              >
+                {setOverrideLoading ? '...' : 'SET'}
+              </button>
+            </div>
+          </div>
         </Card>
 
         {/* Skip Analysis */}
@@ -666,6 +759,65 @@ export default function Learning() {
           {skipData == null ? <Skeleton /> : <SkipAnalysisPanel data={skipData} />}
         </Card>
       </div>
+
+      {/* Learning History Trend */}
+      {history.length > 0 && (
+        <Card title={`Learning History (${history.length} reports)`} accent={colors.accent} index={5}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: fonts.mono }}>
+              <thead>
+                <tr>
+                  {['Timestamp', 'Decisions', 'Resolved', 'Recommendations', 'Data Sufficiency'].map(h => (
+                    <th key={h} style={{
+                      padding: '6px 10px', textAlign: h === 'Timestamp' ? 'left' : 'right',
+                      color: colors.textDim, fontWeight: 500, fontSize: 9,
+                      textTransform: 'uppercase', letterSpacing: '0.06em',
+                      borderBottom: `1px solid ${colors.border}`,
+                    }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((h, i) => {
+                  const rawSuff = h.data_sufficiency
+                  let suffLabel = 'unknown'
+                  if (typeof rawSuff === 'string') suffLabel = rawSuff
+                  else if (rawSuff && typeof rawSuff === 'object') {
+                    const vals = Object.values(rawSuff as Record<string, boolean>)
+                    if (vals.every(Boolean)) suffLabel = 'sufficient'
+                    else if (vals.some(Boolean)) suffLabel = 'partial'
+                    else suffLabel = 'insufficient'
+                  }
+                  const suffColor = suffLabel === 'sufficient' ? colors.success
+                    : suffLabel === 'partial' ? colors.warning : colors.textDim
+
+                  return (
+                    <tr key={i} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                      <td style={{ padding: '6px 10px', color: colors.textMuted, fontSize: 10 }}>
+                        {h.timestamp ? h.timestamp.replace('T', ' ').slice(0, 19) : '--'}
+                      </td>
+                      <td style={{ padding: '6px 10px', textAlign: 'right', color: colors.textSecondary }}>
+                        {h.total_decisions ?? '--'}
+                      </td>
+                      <td style={{ padding: '6px 10px', textAlign: 'right', color: colors.textSecondary }}>
+                        {h.resolved_decisions ?? '--'}
+                      </td>
+                      <td style={{ padding: '6px 10px', textAlign: 'right', color: (h.recommendations?.length ?? 0) > 0 ? colors.purple : colors.textDim }}>
+                        {h.recommendations?.length ?? 0}
+                      </td>
+                      <td style={{ padding: '6px 10px', textAlign: 'right', color: suffColor, fontWeight: 600, fontSize: 10 }}>
+                        {suffLabel.toUpperCase()}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
     </div>
   )
 }
