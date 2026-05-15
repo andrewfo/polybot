@@ -437,8 +437,9 @@ async def test_crypto_full_pipeline(mock_session_cls, mock_llm):
     chart_resp.status = 200
     chart_resp.json = AsyncMock(return_value=chart_data)
 
-    # Deribit IV response
-    deribit_data = {"result": {"mark_price": 72.5}}  # 72.5% IV
+    # Deribit DVOL response (get_volatility_index_data format)
+    now_ms = int(time.time() * 1000)
+    deribit_data = {"result": {"data": [[now_ms, 71.0, 73.0, 70.5, 72.5]], "continuation": None}}
     deribit_resp = MagicMock()
     deribit_resp.status = 200
     deribit_resp.json = AsyncMock(return_value=deribit_data)

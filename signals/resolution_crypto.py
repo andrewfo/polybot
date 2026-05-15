@@ -35,7 +35,7 @@ COIN_DATA_CACHE_TTL = 300  # 5 minutes
 
 COINGECKO_PRICE_URL = "https://api.coingecko.com/api/v3/simple/price"
 COINGECKO_CHART_URL = "https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
-DERIBIT_TICKER_URL = "https://www.deribit.com/api/v2/public/ticker"
+DERIBIT_DVOL_URL = "https://www.deribit.com/api/v2/public/get_volatility_index_data"
 
 # CoinGecko ID → Deribit currency code (Deribit only lists major coins)
 _COINGECKO_TO_DERIBIT: dict[str, str] = {
@@ -339,24 +339,32 @@ async def _fetch_coingecko_chart(
 async def _fetch_deribit_iv(
     session: aiohttp.ClientSession, coin_id: str
 ) -> float | None:
-    """Fetch implied volatility from the nearest Deribit ATM option.
+    """Fetch implied volatility from the Deribit DVOL index.
 
-    Uses the Deribit ``/public/ticker`` endpoint (no auth required) on the
-    nearest-expiry at-the-money option to get ``mark_iv`` (annualized IV as a
-    percentage, e.g. 65 for 65%).  Returns IV as a decimal (0.65) or ``None``
-    if Deribit doesn't list this coin or the request fails.
+    Uses the Deribit ``/public/get_volatility_index_data`` endpoint (no auth
+    required) with currency ``BTC``/``ETH``/``SOL`` to retrieve the most recent
+    DVOL value (annualized IV as a percentage, e.g. 65 for 65%).  Returns IV
+    as a decimal (0.65) or ``None`` if Deribit doesn't list this coin or the
+    request fails.
     """
     deribit_currency = _COINGECKO_TO_DERIBIT.get(coin_id)
     if not deribit_currency:
         return None
 
-    # Deribit DVOL index instrument.  Format: {CURRENCY}-DVOL
-    dvol_instrument = f"{deribit_currency}-DVOL"
-    params = {"instrument_name": dvol_instrument}
+    # get_volatility_index_data requires currency and time range.
+    # Fetch the last 1 hour of data and take the most recent point.
+    now_ms = int(time.time() * 1000)
+    one_hour_ago_ms = now_ms - 3_600_000
+    params = {
+        "currency": deribit_currency,
+        "start_timestamp": one_hour_ago_ms,
+        "end_timestamp": now_ms,
+        "resolution": "1",  # 1-minute resolution
+    }
 
     async def _attempt() -> float | None:
         async with session.get(
-            DERIBIT_TICKER_URL,
+            DERIBIT_DVOL_URL,
             params=params,
             headers={"User-Agent": USER_AGENT},
             timeout=aiohttp.ClientTimeout(total=10),
@@ -367,10 +375,16 @@ async def _fetch_deribit_iv(
                     message=f"HTTP {resp.status}",
                 )
             data = await resp.json()
+        # Response: {"result": {"data": [[timestamp, open, high, low, close], ...], "continuation": ...}}
         result = data.get("result", {})
-        mark_price = result.get("mark_price")
-        if mark_price and mark_price > 0:
-            return mark_price / 100.0
+        data_points = result.get("data", [])
+        if not data_points:
+            return None
+        # Take the most recent data point's close value (index 4)
+        latest = data_points[-1]
+        close_val = latest[4] if len(latest) > 4 else None
+        if close_val and close_val > 0:
+            return close_val / 100.0
         return None
 
     return await fetch_with_retry(_attempt, label=f"Deribit DVOL ({coin_id})")
