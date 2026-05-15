@@ -350,8 +350,8 @@ async def _fetch_deribit_iv(
     if not deribit_currency:
         return None
 
-    # Deribit DVOL index instrument.  Format: {CURRENCY}_DVOL
-    dvol_instrument = f"{deribit_currency}_DVOL"
+    # Deribit DVOL index instrument.  Format: {CURRENCY}-DVOL
+    dvol_instrument = f"{deribit_currency}-DVOL"
     params = {"instrument_name": dvol_instrument}
 
     async def _attempt() -> float | None:

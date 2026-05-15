@@ -85,7 +85,7 @@ def check_daily_loss(bankroll: float) -> tuple[bool, str]:
 def check_balance(bankroll: float) -> tuple[bool, str]:
     """Check if available cash exceeds the minimum bankroll reserve."""
     from config.settings import MIN_BANKROLL_RESERVE
-    balance = db.get_paper_balance()
+    balance = db.get_paper_balance(bankroll)
     available = balance.get("available_cash", bankroll)
     reserve = max(MIN_BANKROLL_RESERVE, bankroll * 0.05)
     if available <= reserve:
