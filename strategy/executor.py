@@ -82,6 +82,17 @@ def check_daily_loss(bankroll: float) -> tuple[bool, str]:
     return True, ""
 
 
+def check_balance(bankroll: float) -> tuple[bool, str]:
+    """Check if available cash exceeds the minimum bankroll reserve."""
+    from config.settings import MIN_BANKROLL_RESERVE
+    balance = db.get_paper_balance()
+    available = balance.get("available_cash", bankroll)
+    reserve = max(MIN_BANKROLL_RESERVE, bankroll * 0.05)
+    if available <= reserve:
+        return False, f"insufficient balance (${available:.2f} <= ${reserve:.2f} reserve)"
+    return True, ""
+
+
 def check_all_guardrails(bankroll: float) -> tuple[bool, str]:
     """Run all risk guardrails. Returns (ok, reason). May raise AutoStopError."""
     # These raise AutoStopError on critical failures
@@ -94,6 +105,10 @@ def check_all_guardrails(bankroll: float) -> tuple[bool, str]:
         return False, reason
 
     ok, reason = check_trade_rate()
+    if not ok:
+        return False, reason
+
+    ok, reason = check_balance(bankroll)
     if not ok:
         return False, reason
 

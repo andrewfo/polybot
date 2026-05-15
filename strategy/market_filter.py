@@ -13,6 +13,7 @@ from typing import Any
 
 import aiohttp
 
+from core import fetch_with_retry
 from config.settings import (
     MAX_DAYS_TO_RESOLUTION,
     MAX_MARKET_LIQUIDITY,
@@ -182,49 +183,56 @@ async def discover_markets(max_pages: int = 0) -> list[dict[str, Any]]:
                 f"&limit={GAMMA_FETCH_LIMIT}&offset={offset}"
                 f"&order=volume24hr&ascending=false"
             )
-            try:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+            async def _fetch_page(page_url: str = url) -> list[dict[str, Any]] | None:
+                async with session.get(page_url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                     if resp.status != 200:
-                        logger.error("Gamma API returned HTTP %d on page %d", resp.status, page)
-                        break
-                    page_markets = await resp.json()
-                    if not page_markets:
-                        break
-                    for pm in page_markets:
-                        cid = pm.get("conditionId", "")
-                        if cid and cid not in seen_ids:
-                            seen_ids.add(cid)
-                            all_markets.append(pm)
-                    offset += GAMMA_FETCH_LIMIT
-                    if len(page_markets) < GAMMA_FETCH_LIMIT:
-                        break  # Last page
-            except Exception as e:
-                logger.error("Gamma API fetch failed on page %d: %s", page, e)
+                        raise aiohttp.ClientResponseError(
+                            resp.request_info, resp.history, status=resp.status,
+                            message=f"HTTP {resp.status}",
+                        )
+                    return await resp.json()
+
+            page_markets = await fetch_with_retry(_fetch_page, label=f"Gamma API page {page}")
+            if not page_markets:
                 break
+            for pm in page_markets:
+                cid = pm.get("conditionId", "")
+                if cid and cid not in seen_ids:
+                    seen_ids.add(cid)
+                    all_markets.append(pm)
+            offset += GAMMA_FETCH_LIMIT
+            if len(page_markets) < GAMMA_FETCH_LIMIT:
+                break  # Last page
 
         # Secondary fetch: recently created markets (more likely mispriced)
         # New markets haven't had time for full price discovery
-        try:
-            url = (
-                f"{GAMMA_API_BASE}/markets"
-                f"?active=true&closed=false"
-                f"&limit={GAMMA_FETCH_LIMIT}"
-                f"&order=startDate&ascending=false"
-            )
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                if resp.status == 200:
-                    new_markets = await resp.json()
-                    new_count = 0
-                    for pm in (new_markets or []):
-                        cid = pm.get("conditionId", "")
-                        if cid and cid not in seen_ids:
-                            seen_ids.add(cid)
-                            all_markets.append(pm)
-                            new_count += 1
-                    if new_count:
-                        logger.info("Added %d recently-created markets from secondary fetch", new_count)
-        except Exception as e:
-            logger.warning("Secondary Gamma fetch (new markets) failed: %s", e)
+        new_url = (
+            f"{GAMMA_API_BASE}/markets"
+            f"?active=true&closed=false"
+            f"&limit={GAMMA_FETCH_LIMIT}"
+            f"&order=startDate&ascending=false"
+        )
+
+        async def _fetch_new() -> list[dict[str, Any]] | None:
+            async with session.get(new_url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status != 200:
+                    raise aiohttp.ClientResponseError(
+                        resp.request_info, resp.history, status=resp.status,
+                        message=f"HTTP {resp.status}",
+                    )
+                return await resp.json()
+
+        new_markets = await fetch_with_retry(_fetch_new, label="Gamma API (new markets)")
+        if new_markets:
+            new_count = 0
+            for pm in new_markets:
+                cid = pm.get("conditionId", "")
+                if cid and cid not in seen_ids:
+                    seen_ids.add(cid)
+                    all_markets.append(pm)
+                    new_count += 1
+            if new_count:
+                logger.info("Added %d recently-created markets from secondary fetch", new_count)
 
     logger.info("Discovered %d unique markets from Gamma API", len(all_markets))
 

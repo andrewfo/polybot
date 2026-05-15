@@ -169,6 +169,7 @@ class TestPaperExecutor:
         mock_db.get_recent_trade_count.return_value = 0
         mock_db.get_total_pnl.return_value = 0.0
         mock_db.get_daily_pnl.return_value = 0.0
+        mock_db.get_paper_balance.return_value = {"available_cash": 900.0}
 
         executor = PaperExecutor()
         decision = _make_decision()
@@ -260,6 +261,7 @@ class TestTradeExecutor:
         mock_db.get_recent_trade_count.return_value = 0
         mock_db.get_total_pnl.return_value = 0.0
         mock_db.get_daily_pnl.return_value = 0.0
+        mock_db.get_paper_balance.return_value = {"available_cash": 900.0}
 
         mock_client = AsyncMock()
         mock_client.place_limit_order.return_value = "order-abc"
@@ -283,6 +285,7 @@ class TestTradeExecutor:
         mock_db.get_recent_trade_count.return_value = 0
         mock_db.get_total_pnl.return_value = 0.0
         mock_db.get_daily_pnl.return_value = 0.0
+        mock_db.get_paper_balance.return_value = {"available_cash": 900.0}
 
         mock_client = AsyncMock()
         mock_client.place_limit_order.return_value = "order-1"
@@ -303,6 +306,7 @@ class TestTradeExecutor:
         mock_db.get_recent_trade_count.return_value = 0
         mock_db.get_total_pnl.return_value = 0.0
         mock_db.get_daily_pnl.return_value = 0.0
+        mock_db.get_paper_balance.return_value = {"available_cash": 900.0}
 
         mock_client = AsyncMock()
         mock_client.place_limit_order.return_value = "order-2"

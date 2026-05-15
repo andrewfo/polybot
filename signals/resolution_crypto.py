@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 import aiohttp
 
-from core import db
+from core import db, fetch_with_retry
 from core.llm import LLMClient
 from signals.base import SignalProvider, SignalResult
 
@@ -292,7 +292,8 @@ async def _fetch_coingecko_price(
         "vs_currencies": "usd",
         "include_24hr_change": "true",
     }
-    try:
+
+    async def _attempt() -> dict[str, Any] | None:
         async with session.get(
             COINGECKO_PRICE_URL,
             params=params,
@@ -300,13 +301,14 @@ async def _fetch_coingecko_price(
             timeout=aiohttp.ClientTimeout(total=15),
         ) as resp:
             if resp.status != 200:
-                logger.warning("CoinGecko price returned %d for %s", resp.status, coin_id)
-                return None
+                raise aiohttp.ClientResponseError(
+                    resp.request_info, resp.history, status=resp.status,
+                    message=f"HTTP {resp.status}",
+                )
             data = await resp.json()
         return data.get(coin_id)
-    except Exception as e:
-        logger.warning("Error fetching CoinGecko price for %s: %s", coin_id, e)
-        return None
+
+    return await fetch_with_retry(_attempt, label=f"CoinGecko price ({coin_id})")
 
 
 async def _fetch_coingecko_chart(
@@ -315,7 +317,8 @@ async def _fetch_coingecko_chart(
     """Fetch price history from CoinGecko market_chart endpoint."""
     url = COINGECKO_CHART_URL.format(coin_id=coin_id)
     params = {"vs_currency": "usd", "days": str(days)}
-    try:
+
+    async def _attempt() -> list[list[float]] | None:
         async with session.get(
             url,
             params=params,
@@ -323,13 +326,14 @@ async def _fetch_coingecko_chart(
             timeout=aiohttp.ClientTimeout(total=15),
         ) as resp:
             if resp.status != 200:
-                logger.warning("CoinGecko chart returned %d for %s", resp.status, coin_id)
-                return None
+                raise aiohttp.ClientResponseError(
+                    resp.request_info, resp.history, status=resp.status,
+                    message=f"HTTP {resp.status}",
+                )
             data = await resp.json()
         return data.get("prices", [])
-    except Exception as e:
-        logger.warning("Error fetching CoinGecko chart for %s: %s", coin_id, e)
-        return None
+
+    return await fetch_with_retry(_attempt, label=f"CoinGecko chart ({coin_id})")
 
 
 async def _fetch_deribit_iv(
@@ -350,7 +354,8 @@ async def _fetch_deribit_iv(
     # for overall implied vol.  Format: {CURRENCY}-DVOL
     dvol_instrument = f"{deribit_currency}VOL-USDC"
     params = {"instrument_name": dvol_instrument}
-    try:
+
+    async def _attempt() -> float | None:
         async with session.get(
             DERIBIT_TICKER_URL,
             params=params,
@@ -358,18 +363,18 @@ async def _fetch_deribit_iv(
             timeout=aiohttp.ClientTimeout(total=10),
         ) as resp:
             if resp.status != 200:
-                logger.debug("Deribit DVOL returned %d for %s", resp.status, coin_id)
-                return None
+                raise aiohttp.ClientResponseError(
+                    resp.request_info, resp.history, status=resp.status,
+                    message=f"HTTP {resp.status}",
+                )
             data = await resp.json()
         result = data.get("result", {})
         mark_price = result.get("mark_price")
         if mark_price and mark_price > 0:
-            # DVOL index value IS the annualized IV percentage
             return mark_price / 100.0
-    except Exception as e:
-        logger.debug("Deribit DVOL fetch failed for %s: %s", coin_id, e)
+        return None
 
-    return None
+    return await fetch_with_retry(_attempt, label=f"Deribit DVOL ({coin_id})")
 
 
 def _compute_volatility(prices: list[list[float]]) -> VolEstimate:

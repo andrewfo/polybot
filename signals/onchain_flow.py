@@ -22,7 +22,7 @@ from typing import Any
 
 import aiohttp
 
-from core import db
+from core import db, fetch_with_retry
 from signals.base import SignalProvider, SignalResult
 
 logger = logging.getLogger(__name__)
@@ -88,26 +88,24 @@ async def _fetch_cryptoquant_exchange_flow(
         url = f"{CRYPTOQUANT_BASE_URL}/eth/exchange-flows/netflow"
 
     params = {"window": window, "limit": str(limit)}
-    try:
+
+    async def _attempt() -> list[dict[str, Any]] | None:
         async with session.get(
             url,
             params=params,
             headers={"User-Agent": USER_AGENT},
             timeout=aiohttp.ClientTimeout(total=15),
         ) as resp:
-            if resp.status == 403:
-                logger.debug("CryptoQuant returned 403 for %s (may need API key)", asset)
-                return None
             if resp.status != 200:
-                logger.warning("CryptoQuant netflow returned %d for %s", resp.status, asset)
-                return None
+                raise aiohttp.ClientResponseError(
+                    resp.request_info, resp.history, status=resp.status,
+                    message=f"HTTP {resp.status}",
+                )
             data = await resp.json()
-        # CryptoQuant response: {"status": {...}, "result": {"data": [...]}}
         result = data.get("result", {})
         return result.get("data", [])
-    except Exception as e:
-        logger.warning("Error fetching CryptoQuant netflow for %s: %s", asset, e)
-        return None
+
+    return await fetch_with_retry(_attempt, label=f"CryptoQuant netflow ({asset})")
 
 
 async def _fetch_cryptoquant_whale_count(
@@ -118,7 +116,8 @@ async def _fetch_cryptoquant_whale_count(
     """Fetch whale transaction count (transfers > $1M) from CryptoQuant."""
     url = f"{CRYPTOQUANT_BASE_URL}/{asset}/network-data/transactions-count-over-1m"
     params = {"window": "day", "limit": str(limit)}
-    try:
+
+    async def _attempt() -> list[dict[str, Any]] | None:
         async with session.get(
             url,
             params=params,
@@ -126,14 +125,15 @@ async def _fetch_cryptoquant_whale_count(
             timeout=aiohttp.ClientTimeout(total=15),
         ) as resp:
             if resp.status != 200:
-                logger.debug("CryptoQuant whale count returned %d for %s", resp.status, asset)
-                return None
+                raise aiohttp.ClientResponseError(
+                    resp.request_info, resp.history, status=resp.status,
+                    message=f"HTTP {resp.status}",
+                )
             data = await resp.json()
         result = data.get("result", {})
         return result.get("data", [])
-    except Exception as e:
-        logger.debug("Error fetching CryptoQuant whale count for %s: %s", asset, e)
-        return None
+
+    return await fetch_with_retry(_attempt, label=f"CryptoQuant whale ({asset})")
 
 
 async def _fetch_blockchain_com_btc_flow(
@@ -144,18 +144,21 @@ async def _fetch_blockchain_com_btc_flow(
     Free endpoint, no auth required. Used as fallback when CryptoQuant
     is unavailable.
     """
-    try:
+
+    async def _attempt() -> dict[str, Any]:
         async with session.get(
             f"{BLOCKCHAIN_COM_BASE_URL}/stats",
             headers={"User-Agent": USER_AGENT},
             timeout=aiohttp.ClientTimeout(total=10),
         ) as resp:
             if resp.status != 200:
-                return None
+                raise aiohttp.ClientResponseError(
+                    resp.request_info, resp.history, status=resp.status,
+                    message=f"HTTP {resp.status}",
+                )
             return await resp.json()
-    except Exception as e:
-        logger.debug("Blockchain.com stats fetch failed: %s", e)
-        return None
+
+    return await fetch_with_retry(_attempt, label="Blockchain.com stats")
 
 
 def _compute_pressure_from_netflow(

@@ -13,7 +13,7 @@ from typing import Any, Optional
 import aiohttp
 
 from config import settings
-from core import db
+from core import db, fetch_with_retry
 from core.llm import LLMClient
 from signals.base import SignalProvider, SignalResult
 
@@ -52,18 +52,18 @@ async def _search_metaculus(
             _metaculus_skip_logged = True
         return []
 
-    matches: list[dict[str, Any]] = []
-    try:
-        params = {
-            "search": query,
-            "limit": str(max_results),
-            "status": "open",
-            "type": "binary",
-        }
-        headers = {
-            "User-Agent": USER_AGENT,
-            "Authorization": f"Token {token}",
-        }
+    params = {
+        "search": query,
+        "limit": str(max_results),
+        "status": "open",
+        "type": "binary",
+    }
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Authorization": f"Token {token}",
+    }
+
+    async def _attempt() -> list[dict[str, Any]]:
         async with session.get(
             METACULUS_API,
             params=params,
@@ -71,38 +71,44 @@ async def _search_metaculus(
             timeout=aiohttp.ClientTimeout(total=15),
         ) as resp:
             if resp.status == 403:
-                logger.warning("Metaculus API returned 403 — check METACULUS_API_TOKEN is valid")
-                return []
+                raise aiohttp.ClientResponseError(
+                    resp.request_info, resp.history, status=403,
+                    message="403 — check METACULUS_API_TOKEN",
+                )
             if resp.status != 200:
-                logger.warning("Metaculus API returned %d for query '%s'", resp.status, query)
-                return []
-            data = await resp.json()
+                raise aiohttp.ClientResponseError(
+                    resp.request_info, resp.history, status=resp.status,
+                    message=f"HTTP {resp.status}",
+                )
+            return await resp.json()
 
-        results = data.get("results", data) if isinstance(data, dict) else data
-        if not isinstance(results, list):
-            return []
+    data = await fetch_with_retry(_attempt, label=f"Metaculus search ({query[:40]})")
+    if data is None:
+        return []
 
-        for q in results[:max_results]:
-            community_prediction = q.get("community_prediction", {})
-            # Metaculus stores predictions in various formats
-            prob = None
-            if isinstance(community_prediction, dict):
-                prob = community_prediction.get("full", {}).get("q2")
-                if prob is None:
-                    prob = community_prediction.get("q2")
-            elif isinstance(community_prediction, (int, float)):
-                prob = float(community_prediction)
+    matches: list[dict[str, Any]] = []
+    results = data.get("results", data) if isinstance(data, dict) else data
+    if not isinstance(results, list):
+        return []
 
-            if prob is not None:
-                matches.append({
-                    "platform": "metaculus",
-                    "title": q.get("title", ""),
-                    "probability": float(prob),
-                    "forecasters": q.get("number_of_predictions", 0),
-                    "url": q.get("url", ""),
-                })
-    except Exception as e:
-        logger.warning("Error searching Metaculus: %s", e)
+    for q in results[:max_results]:
+        community_prediction = q.get("community_prediction", {})
+        prob = None
+        if isinstance(community_prediction, dict):
+            prob = community_prediction.get("full", {}).get("q2")
+            if prob is None:
+                prob = community_prediction.get("q2")
+        elif isinstance(community_prediction, (int, float)):
+            prob = float(community_prediction)
+
+        if prob is not None:
+            matches.append({
+                "platform": "metaculus",
+                "title": q.get("title", ""),
+                "probability": float(prob),
+                "forecasters": q.get("number_of_predictions", 0),
+                "url": q.get("url", ""),
+            })
     return matches
 
 
@@ -110,8 +116,7 @@ async def _search_kalshi(
     session: aiohttp.ClientSession, query: str, max_results: int = 5
 ) -> list[dict[str, Any]]:
     """Search Kalshi for markets matching the query."""
-    matches: list[dict[str, Any]] = []
-    try:
+    async def _attempt() -> dict[str, Any]:
         params = {"status": "open", "limit": str(max_results)}
         async with session.get(
             f"{KALSHI_API}/markets",
@@ -120,36 +125,39 @@ async def _search_kalshi(
             timeout=aiohttp.ClientTimeout(total=15),
         ) as resp:
             if resp.status != 200:
-                logger.warning("Kalshi API returned %d", resp.status)
-                return []
-            data = await resp.json()
+                raise aiohttp.ClientResponseError(
+                    resp.request_info, resp.history, status=resp.status,
+                    message=f"HTTP {resp.status}",
+                )
+            return await resp.json()
 
-        markets = data.get("markets", [])
-        query_lower = query.lower()
-        query_words = set(query_lower.split())
+    data = await fetch_with_retry(_attempt, label="Kalshi markets")
+    if data is None:
+        return []
 
-        for market in markets:
-            title = market.get("title", "")
-            title_lower = title.lower()
-            title_words = set(title_lower.split())
-            # Simple keyword overlap matching
-            overlap = len(query_words & title_words)
-            if overlap >= min(2, len(query_words)):
-                yes_price = market.get("yes_bid")
-                if yes_price is None:
-                    yes_price = market.get("last_price")
-                if yes_price is not None:
-                    # Kalshi prices are in cents (0-100)
-                    prob = float(yes_price) / 100.0 if yes_price > 1 else float(yes_price)
-                    matches.append({
-                        "platform": "kalshi",
-                        "title": title,
-                        "probability": max(0.0, min(1.0, prob)),
-                        "volume": market.get("volume", 0),
-                        "ticker": market.get("ticker", ""),
-                    })
-    except Exception as e:
-        logger.warning("Error searching Kalshi: %s", e)
+    matches: list[dict[str, Any]] = []
+    markets = data.get("markets", [])
+    query_lower = query.lower()
+    query_words = set(query_lower.split())
+
+    for market in markets:
+        title = market.get("title", "")
+        title_lower = title.lower()
+        title_words = set(title_lower.split())
+        overlap = len(query_words & title_words)
+        if overlap >= min(2, len(query_words)):
+            yes_price = market.get("yes_bid")
+            if yes_price is None:
+                yes_price = market.get("last_price")
+            if yes_price is not None:
+                prob = float(yes_price) / 100.0 if yes_price > 1 else float(yes_price)
+                matches.append({
+                    "platform": "kalshi",
+                    "title": title,
+                    "probability": max(0.0, min(1.0, prob)),
+                    "volume": market.get("volume", 0),
+                    "ticker": market.get("ticker", ""),
+                })
     return matches[:max_results]
 
 

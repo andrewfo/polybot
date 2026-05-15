@@ -224,6 +224,18 @@ def ensure_tables() -> None:
         }, pk="id", if_not_exists=True)
         logger.info("Created signal_calibration table")
 
+    if "signal_multiplier_history" not in db.table_names():
+        db["signal_multiplier_history"].create({
+            "id": int,
+            "timestamp": str,
+            "source": str,
+            "brier_score": float,
+            "sample_count": int,
+            "multiplier": float,
+            "is_default": int,
+        }, pk="id", if_not_exists=True)
+        logger.info("Created signal_multiplier_history table")
+
 
 # ---------------------------------------------------------------------------
 # Trade helpers
@@ -565,6 +577,30 @@ def clear_pipeline_cache() -> None:
     if "market_cache" in db.table_names():
         db["market_cache"].delete_where()
         logger.info("Cleared market_cache table")
+
+
+def snapshot_multipliers(
+    multipliers: dict[str, "Any"],
+) -> None:
+    """Persist a snapshot of calibration multipliers for historical analysis.
+
+    ``multipliers`` is source -> ProviderCalibration (from calibration.py).
+    """
+    from datetime import datetime, timezone
+    db = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    rows = []
+    for source, cal in multipliers.items():
+        rows.append({
+            "timestamp": now,
+            "source": source,
+            "brier_score": cal.brier_score,
+            "sample_count": cal.sample_count,
+            "multiplier": cal.multiplier,
+            "is_default": int(cal.is_default),
+        })
+    if rows:
+        db["signal_multiplier_history"].insert_all(rows)
 
 
 # ---------------------------------------------------------------------------

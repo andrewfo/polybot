@@ -227,6 +227,12 @@ def get_dynamic_multipliers() -> dict[str, ProviderCalibration]:
                 is_default=True,
             )
 
+    # Persist snapshot for historical analysis
+    try:
+        db.snapshot_multipliers(result)
+    except Exception as e:
+        logger.warning("Failed to snapshot multipliers: %s", e)
+
     return result
 
 
