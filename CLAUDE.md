@@ -43,7 +43,7 @@ Built section by section from `POLYMARKET_BOT_PLAN (1).md`. Build in order, run 
 
 **Sections 0-8: COMPLETE** — Core infra, LLM, wallet, DB, market filtering, signal engine (4 providers + aggregator), Kelly criterion, order execution, web dashboard, continuous learning engine, monitoring & notifications, health checks.
 
-**Next up: Section 9** — Pipeline integration (main loop finalization, verify all workers match build plan)
+**Section 9: IN PROGRESS** — Pipeline integration. Done: headless main loop, cross-file consistency audit (12 fixes), Learning tab frontend (uncommitted). Remaining: end-to-end pipeline run verification, commit frontend sync.
 Then: Section 10 (paper executor polish) → 11 (docs)
 
 Available skills: `/build-section N`, `/verify-section N`, `/status`, `/test-module <name>`, `/audit-llm`, `/check-health`, `/run-pipeline`, `/add-signal <name>`, `/improve-signal <name>`, `/tune-prompts`.

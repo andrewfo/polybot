@@ -57,90 +57,23 @@ Core project structure, dependencies, config/settings.py (env-overridable), .env
 
 ---
 
-## Section 7: Monitoring & Notifications
+## Section 7: Monitoring & Notifications — COMPLETE
 
-### Context
-The bot uses a web dashboard (FastAPI + React) for all monitoring. Notifications go to Python `logging` (writes to `data/bot.log`) and are visible in the web dashboard's Logs tab. No Telegram, no external notification services.
-
-The web dashboard already exists (`web/server.py` + `frontend/`). This section adds the notification formatting layer and P&L tracking.
-
-### Tasks
-1. **`monitoring/notifications.py`** — Web-integrated notification system:
-   ```python
-   class Notifier:
-       """Formats and logs notifications. Web dashboard reads from log buffer."""
-
-       async def send(self, message: str, level: str = "info"):
-           """level: 'info', 'warning', 'alert', 'critical'
-           Logs via Python logging. Web dashboard polls log buffer via GET /api/logs."""
-
-       async def send_trade(self, trade_decision: TradeDecision):
-           """Format and log trade execution: market, side, size, price, edge, reasoning."""
-
-       async def send_position_closed(self, position: dict, pnl: float):
-           """Format and log position closure with P&L dollars and percent."""
-
-       async def send_health_alert(self, issue: str):
-           """Format and log health check failure with severity."""
-   ```
-
-   - All notifications use Python `logging` module
-   - `web/server.py` already has a log buffer that the Logs tab polls — notifications feed into this automatically
-   - Works standalone for testing (just logs, no web dependency)
-   - No Telegram. No `python-telegram-bot`. No `scripts/setup_telegram.py`.
-
-2. **`monitoring/pnl.py`** — P&L tracking:
-   - `snapshot_bankroll()` — called each pipeline cycle:
-     - Calculate: available cash + sum of position values at current market prices
-     - Store in `bankroll` table (skip if last snapshot < 1 hour ago)
-   - `get_daily_pnl()` → realized + unrealized P&L since midnight UTC
-   - `get_weekly_pnl()` → last 7 days
-   - `get_total_pnl()` → all-time
-   - `get_metrics()` → dict with: win rate, avg win/loss size, profit factor, max drawdown, total LLM costs, net P&L after costs, ROI
-   - `get_cost_breakdown()` → LLM costs by model tier, per day/month
-   - All P&L data accessible via existing web API endpoints
-
-### Acceptance Criteria
-- Notifications appear in web dashboard Logs tab via log buffer
-- All notifications written to `data/bot.log` via Python logging
-- Works without web dashboard running (for testing)
-- All notification types properly formatted (trade, position close, health alert)
-- P&L snapshots are accurate and stored on each pipeline cycle
-- Cost breakdown correctly separates cheap vs frontier vs sonar spending
-- No external notification dependencies
+`monitoring/notifications.py` — Notifier class with `send()`, `send_trade()`, `send_position_closed()`, `send_health_alert()`. All notifications via Python logging → web dashboard Logs tab. No Telegram, no external services.
+`monitoring/pnl.py` — Bankroll snapshots (hourly), daily/weekly/total P&L, win rate, profit factor, max drawdown, cost breakdown by model tier.
 
 ---
 
-## Section 8: Health Checks
+## Section 8: Health Checks — COMPLETE
 
-### Context
-Health checks run while the bot is active. Results display on the web dashboard's Dashboard tab (health panel already exists). Critical failures auto-stop the bot via `AutoStopError`.
-
-### Tasks
-1. **`monitoring/health.py`** — Health check system:
-   - `run_health_checks()` — called by position monitor worker (every 30 min):
-     - **Gamma API**: Can we reach `gamma-api.polymarket.com`? (simple market fetch)
-     - **Wallet gas**: MATIC balance > 0.05? (warn at 0.1, critical at 0.05)
-     - **Wallet funds**: USDC balance reasonable? (detect large unexpected changes)
-     - **Stale orders**: Any orders PENDING > 30 minutes?
-     - **OpenRouter**: Can we reach the API? (`/models` endpoint)
-     - **CoinGecko**: Can we reach the API? (`/api/v3/ping`)
-     - **Cost runaway**: Daily LLM cost < $20? (hard cap)
-   - Each check returns: `{check_name, status: "ok"|"warning"|"critical", message}`
-   - Results served via existing `GET /api/health` endpoint
-   - On "warning" → log via Notifier
-   - On "critical" → log via Notifier + raise `AutoStopError`
-
-### Acceptance Criteria
-- All health checks run without errors
-- Warning and critical thresholds trigger appropriate responses
-- Critical failures auto-stop the bot via AutoStopError
-- Health results display on web dashboard Dashboard tab
-- LLM cost hard cap prevents runaway spending
+`monitoring/health.py` — `run_health_checks()` called by position monitor worker. Checks: Gamma API, wallet gas, wallet funds, stale orders, OpenRouter, CoinGecko, cost runaway ($20/day hard cap). Returns `{check_name, status, message}`. Critical failures auto-stop bot via `AutoStopError`. Results displayed on Dashboard tab.
+`monitoring/learning.py` — Continuous learning engine with auto-apply recommendations, impact tracking, time-decay weighting, regime awareness. Learning tab in frontend.
 
 ---
 
-## Section 9: Pipeline Integration (Main Loop)
+## Section 9: Pipeline Integration (Main Loop) — IN PROGRESS
+
+**Status:** Workers fully implemented in `web/server.py` (discovery, aggregation, position monitor). Headless `main.py` loop done. Cross-file consistency audit complete (12 fixes). Learning tab frontend built (uncommitted). Remaining: commit frontend sync, end-to-end pipeline run verification.
 
 ### Context
 `main.py` is the entry point. With `--web` flag it launches the FastAPI server. The `BotEngine` class in `web/server.py` manages bot lifecycle. This section wires the full trading pipeline into BotEngine's 3 worker loops.

@@ -7,8 +7,15 @@ export interface ServiceHealth {
   error: string | null
 }
 
+export interface HealthCheck {
+  check_name: string
+  status: string
+  message: string
+}
+
 export interface HealthResponse {
   services: ServiceHealth[]
+  health_checks: HealthCheck[]
 }
 
 export interface WalletResponse {
@@ -176,6 +183,76 @@ export interface CyclesResponse {
   activity_feed: ActivityEvent[]
 }
 
+// Learning engine types
+
+export interface LearningRecommendation {
+  parameter: string
+  current_value: number
+  recommended_value: number
+  confidence: number
+  sample_count: number
+  reason: string
+  auto_applied: boolean
+}
+
+export interface LearningReport {
+  status?: string
+  message?: string
+  timestamp?: string
+  data_sufficiency?: string
+  total_decisions?: number
+  resolved_decisions?: number
+  recommendations?: LearningRecommendation[]
+  frontier_bias?: {
+    mean_bias: number
+    abs_mean_error: number
+    sample_count: number
+  }
+  skip_summary?: {
+    total_skipped: number
+    resolved_count: number
+    missed_opportunities: number
+  }
+}
+
+export interface CalibrationBucket {
+  bucket: string
+  count: number
+  avg_estimated: number
+  avg_actual: number
+  bias: number
+}
+
+export interface CalibrationResponse {
+  mean_bias: number
+  abs_mean_error: number
+  sample_count: number
+  calibration_curve: CalibrationBucket[]
+  bias_by_confidence: Record<string, { count: number; mean_bias: number }>
+  bias_by_price: Record<string, { count: number; mean_bias: number }>
+}
+
+export interface SkipAnalysis {
+  total_skipped: number
+  resolved_count: number
+  missed_opportunities: number
+  avg_missed_edge: number
+  top_missed_reasons: Record<string, number>
+  recommendation: string
+}
+
+export interface ParameterOverride {
+  parameter: string
+  original_value: number
+  current_value: number
+  applied_at: string
+  source_report_ts: string
+  confidence: number
+  sample_count: number
+  reason: string
+  active: number
+}
+
 const BASE = ''
 
 async function fetchJSON<T>(url: string): Promise<T> {
@@ -223,4 +300,16 @@ export const api = {
       { question },
     ),
   fetchCycles: () => fetchJSON<CyclesResponse>('/api/bot/cycles'),
+
+  // Learning engine
+  fetchLearningReport: () => fetchJSON<LearningReport>('/api/learning/report'),
+  fetchLearningHistory: (limit = 20) => fetchJSON<LearningReport[]>(`/api/learning/history?limit=${limit}`),
+  runLearningCycle: () => postJSON<{ status: string; recommendations: number; report: LearningReport }>('/api/learning/run'),
+  fetchLearningRecommendations: () => fetchJSON<LearningRecommendation[]>('/api/learning/recommendations'),
+  fetchLearningCalibration: () => fetchJSON<CalibrationResponse>('/api/learning/calibration'),
+  fetchSkipAnalysis: () => fetchJSON<SkipAnalysis>('/api/learning/skip-analysis'),
+  fetchOverrides: () => fetchJSON<ParameterOverride[]>('/api/learning/overrides'),
+  revertOverride: (parameter: string) => postJSON<{ status: string }>(`/api/learning/overrides/${parameter}/revert`),
+  setOverride: (parameter: string, value: number, reason: string) =>
+    postJSON<{ status: string; value: number }>(`/api/learning/overrides/${parameter}/set`, { value, reason }),
 }

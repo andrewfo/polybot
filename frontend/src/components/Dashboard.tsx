@@ -703,7 +703,7 @@ export default function Dashboard({ wsBotStatus }: DashboardProps) {
 
         {/* Right column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {/* Connections */}
+          {/* Connections + Health Checks */}
           <Card title="Connections" index={7}>
             {health ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -731,6 +731,52 @@ export default function Dashboard({ wsBotStatus }: DashboardProps) {
                     </span>
                   </div>
                 ))}
+                {/* Bot Health Checks */}
+                {health.health_checks && health.health_checks.length > 0 && (
+                  <>
+                    <div style={{
+                      fontSize: 9, color: colors.textDim, fontFamily: fonts.mono,
+                      letterSpacing: '0.08em', textTransform: 'uppercase',
+                      marginTop: 6, paddingTop: 6,
+                      borderTop: `1px solid ${colors.border}`,
+                    }}>
+                      Bot Health Checks
+                    </div>
+                    {health.health_checks.map((hc, hi) => {
+                      const statusColor = hc.status === 'ok' ? colors.success
+                        : hc.status === 'warning' ? colors.warning : colors.danger
+                      const statusBg = hc.status === 'ok' ? 'rgba(0,255,136,0.03)'
+                        : hc.status === 'warning' ? 'rgba(255,170,0,0.05)' : 'rgba(255,51,102,0.05)'
+                      const statusBorder = hc.status === 'ok' ? 'rgba(0,255,136,0.08)'
+                        : hc.status === 'warning' ? 'rgba(255,170,0,0.1)' : 'rgba(255,51,102,0.1)'
+                      return (
+                        <div key={hc.check_name} style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          padding: '5px 10px', borderRadius: 6,
+                          background: statusBg,
+                          border: `1px solid ${statusBorder}`,
+                          ...animDelay(hi + health.services.length + 8),
+                        }}>
+                          <span style={{
+                            display: 'flex', alignItems: 'center', gap: 8, fontSize: 11,
+                            fontFamily: fonts.body,
+                          }}>
+                            <StatusDot ok={hc.status === 'ok'} />
+                            {hc.check_name}
+                          </span>
+                          <span style={{
+                            fontSize: 9, fontFamily: fonts.mono,
+                            color: statusColor, fontWeight: 600,
+                            letterSpacing: '0.04em',
+                            textTransform: 'uppercase',
+                          }}>
+                            {hc.status}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </>
+                )}
               </div>
             ) : (
               <Skeleton />

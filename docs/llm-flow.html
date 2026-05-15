@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Polybot — LLM Data Flow</title>
+<style>
+  :root {
+    --bg: #0a1628;
+    --bg2: #0d1f3c;
+    --grey: #8899aa;
+    --grey2: #667788;
+    --white: #e0e8f0;
+    --accent: #4488cc;
+    --frontier: #e8445a;
+    --sonar: #9b59b6;
+    --cheap: #27ae60;
+    --arrow: #4488cc;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: var(--bg);
+    color: var(--white);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    padding: 40px 20px;
+    min-height: 100vh;
+  }
+  h1 {
+    text-align: center;
+    font-size: 28px;
+    margin-bottom: 8px;
+    color: var(--white);
+  }
+  .subtitle {
+    text-align: center;
+    color: var(--grey);
+    font-size: 14px;
+    margin-bottom: 40px;
+  }
+  .legend {
+    display: flex;
+    justify-content: center;
+    gap: 30px;
+    margin-bottom: 40px;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--grey);
+  }
+  .legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+  }
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  /* Pipeline Overview */
+  .pipeline {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    margin-bottom: 60px;
+    flex-wrap: wrap;
+  }
+  .pipeline-step {
+    background: var(--bg2);
+    border: 1px solid #1a3055;
+    border-radius: 12px;
+    padding: 16px 20px;
+    text-align: center;
+    min-width: 150px;
+    position: relative;
+  }
+  .pipeline-step h3 {
+    font-size: 13px;
+    color: var(--accent);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .pipeline-step p {
+    font-size: 11px;
+    color: var(--grey);
+  }
+  .pipeline-step .tier-badge {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    font-size: 9px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .tier-cheap { background: var(--cheap); color: #fff; }
+  .tier-sonar { background: var(--sonar); color: #fff; }
+  .tier-frontier { background: var(--frontier); color: #fff; }
+  .tier-none { background: var(--grey2); color: #fff; }
+  .arrow {
+    color: var(--arrow);
+    font-size: 24px;
+    margin: 0 6px;
+    flex-shrink: 0;
+  }
+
+  /* Detail Cards */
+  .cards {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 30px;
+  }
+  .card {
+    background: var(--bg2);
+    border-radius: 16px;
+    border: 1px solid #1a3055;
+    overflow: hidden;
+  }
+  .card-header {
+    padding: 20px 24px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    border-bottom: 1px solid #1a3055;
+  }
+  .card-header .num {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 16px;
+    color: #fff;
+    flex-shrink: 0;
+  }
+  .card-header .info h2 {
+    font-size: 18px;
+    margin-bottom: 2px;
+  }
+  .card-header .info .meta {
+    font-size: 12px;
+    color: var(--grey);
+  }
+  .card-body {
+    padding: 24px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  @media (max-width: 768px) {
+    .card-body { grid-template-columns: 1fr; }
+  }
+  .card-section h4 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+  .card-section pre {
+    background: #06101f;
+    border: 1px solid #1a3055;
+    border-radius: 8px;
+    padding: 14px;
+    font-size: 12px;
+    line-height: 1.6;
+    overflow-x: auto;
+    color: var(--grey);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .card-section pre .var {
+    color: #f0c040;
+    font-weight: 600;
+  }
+  .card-section pre .kw {
+    color: var(--accent);
+  }
+  .card-section pre .str {
+    color: #66cc99;
+  }
+  .card-section pre .comment {
+    color: #556677;
+    font-style: italic;
+  }
+  .card-section ul {
+    list-style: none;
+    padding: 0;
+  }
+  .card-section ul li {
+    font-size: 13px;
+    padding: 6px 0;
+    color: var(--grey);
+    border-bottom: 1px solid #0f1a2e;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .card-section ul li:last-child { border-bottom: none; }
+  .card-section ul li .label {
+    color: var(--white);
+    font-weight: 600;
+    min-width: 120px;
+    flex-shrink: 0;
+  }
+  .full-width {
+    grid-column: 1 / -1;
+  }
+  .output-box {
+    background: #06101f;
+    border: 1px solid #1a3055;
+    border-radius: 8px;
+    padding: 14px;
+    font-family: monospace;
+    font-size: 12px;
+    color: #66cc99;
+    line-height: 1.6;
+  }
+
+  /* Flow diagram */
+  .flow-section {
+    margin-bottom: 50px;
+  }
+  .flow-section h2 {
+    text-align: center;
+    font-size: 20px;
+    margin-bottom: 24px;
+    color: var(--white);
+  }
+
+  .data-flow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    margin: 30px 0;
+  }
+  .flow-node {
+    background: var(--bg2);
+    border: 2px solid #1a3055;
+    border-radius: 12px;
+    padding: 14px 24px;
+    text-align: center;
+    max-width: 700px;
+    width: 100%;
+  }
+  .flow-node.highlight {
+    border-color: var(--frontier);
+    box-shadow: 0 0 20px rgba(232, 68, 90, 0.15);
+  }
+  .flow-node h3 { font-size: 14px; margin-bottom: 4px; }
+  .flow-node p { font-size: 12px; color: var(--grey); }
+  .flow-arrow {
+    font-size: 20px;
+    color: var(--arrow);
+    padding: 4px;
+  }
+
+  .signals-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  .signal-box {
+    background: var(--bg2);
+    border: 1px solid #1a3055;
+    border-radius: 10px;
+    padding: 14px;
+    text-align: center;
+  }
+  .signal-box h4 {
+    font-size: 12px;
+    margin-bottom: 4px;
+    color: var(--white);
+  }
+  .signal-box p {
+    font-size: 11px;
+    color: var(--grey);
+  }
+  .signal-box .badge {
+    display: inline-block;
+    font-size: 9px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-top: 6px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .divider {
+    border: 0;
+    border-top: 1px solid #1a3055;
+    margin: 50px 0;
+  }
+
+  .note {
+    text-align: center;
+    font-size: 12px;
+    color: var(--grey2);
+    margin-top: 8px;
+  }
+
+  /* Collapsible prompt */
+  details {
+    margin-top: 8px;
+  }
+  details summary {
+    cursor: pointer;
+    color: var(--accent);
+    font-size: 12px;
+    padding: 4px 0;
+  }
+  details summary:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Polybot LLM Data Flow</h1>
+<p class="subtitle">What gets fed to each model, when, and why</p>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:var(--cheap)"></div> Cheap (Gemini Flash Lite)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--sonar)"></div> Sonar (Perplexity)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--frontier)"></div> Frontier (Claude Opus)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--grey2)"></div> No LLM</div>
+</div>
+
+<!-- ===== PIPELINE OVERVIEW ===== -->
+<div class="flow-section">
+  <h2>Pipeline Overview</h2>
+  <div class="pipeline">
+    <div class="pipeline-step">
+      <span class="tier-badge tier-cheap">CHEAP</span>
+      <h3>1. Discover</h3>
+      <p>Gamma API → categorize<br>markets (keyword first)</p>
+    </div>
+    <div class="arrow">→</div>
+    <div class="pipeline-step">
+      <span class="tier-badge tier-cheap">CHEAP</span>
+      <h3>2. Extract</h3>
+      <p>Resolution params<br>(coin, target, type)</p>
+    </div>
+    <div class="arrow">→</div>
+    <div class="pipeline-step">
+      <span class="tier-badge tier-none">NO LLM</span>
+      <h3>3. Signals</h3>
+      <p>CoinGecko, On-chain<br>Cross-platform, Calibration</p>
+    </div>
+    <div class="arrow">→</div>
+    <div class="pipeline-step">
+      <span class="tier-badge tier-sonar">SONAR</span>
+      <h3>4. Web Search</h3>
+      <p>Perplexity grounded<br>news + evidence</p>
+    </div>
+    <div class="arrow">→</div>
+    <div class="pipeline-step">
+      <span class="tier-badge tier-frontier">FRONTIER</span>
+      <h3>5. Aggregate</h3>
+      <p>Superforecaster<br>final probability</p>
+    </div>
+    <div class="arrow">→</div>
+    <div class="pipeline-step">
+      <span class="tier-badge tier-none">NO LLM</span>
+      <h3>6. Execute</h3>
+      <p>Kelly sizing →<br>CLOB order</p>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ===== FRONTIER CALL (THE BIG ONE) ===== -->
+<div class="flow-section">
+  <h2>What the Frontier Model Sees</h2>
+  <p class="note" style="margin-bottom:20px">This is the most important LLM call — it makes the actual trade decision</p>
+
+  <div class="data-flow">
+    <!-- System prompt -->
+    <div class="flow-node">
+      <h3 style="color:var(--frontier)">SYSTEM PROMPT (dynamic per market)</h3>
+      <p>Built by <code>temporal.py::build_frontier_system_prompt()</code></p>
+      <details>
+        <summary>View full system prompt template</summary>
+        <pre style="text-align:left;margin-top:8px;background:#06101f;padding:12px;border-radius:8px;font-size:11px;color:var(--grey)">The current date is <span class="var">{today}</span>. The current year is <span class="var">{year}</span>.
+Do NOT assume the year is 2024 or 2025 — it is <span class="var">{year}</span>.
+
+The market resolves on <span class="var">{end_date}</span>. That is <span class="var">{days}</span> days (<span class="var">{hours}</span> hours) from now.
+Urgency tier: <span class="var">{urgency}</span>.
+
+CALIBRATION: <span class="var">{urgency-specific guidance}</span>
+  <span class="comment">// imminent (&lt;5d): "Probabilities should be extreme..."</span>
+  <span class="comment">// short_term (5-14d): "Moderate uncertainty is appropriate..."</span>
+  <span class="comment">// medium (14-30d): "More uncertainty is appropriate..."</span>
+  <span class="comment">// long (30d+): "High uncertainty is expected..."</span></pre>
+      </details>
+    </div>
+
+    <div class="flow-arrow">▼</div>
+
+    <!-- Signals that feed in -->
+    <div style="width:100%;max-width:900px">
+      <p class="note" style="margin-bottom:12px">Signal data assembled into a single prompt block:</p>
+      <div class="signals-grid">
+        <div class="signal-box">
+          <h4>CoinGecko / Resolution</h4>
+          <p>Barrier + terminal probability, current price, price history, volatility</p>
+          <span class="badge" style="background:var(--grey2);color:#fff">No LLM</span>
+        </div>
+        <div class="signal-box">
+          <h4>On-Chain Flow</h4>
+          <p>Exchange inflows/outflows, whale transactions, net flow pressure</p>
+          <span class="badge" style="background:var(--grey2);color:#fff">No LLM</span>
+        </div>
+        <div class="signal-box">
+          <h4>Web Search</h4>
+          <p>Recent news, evidence, source count (confidence × 0.7)</p>
+          <span class="badge" style="background:var(--sonar);color:#fff">Sonar</span>
+        </div>
+        <div class="signal-box">
+          <h4>Cross-Platform</h4>
+          <p>Metaculus, Kalshi, Gamma consensus prices</p>
+          <span class="badge" style="background:var(--grey2);color:#fff">No LLM</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-arrow">▼</div>
+
+    <!-- User prompt -->
+    <div class="flow-node highlight">
+      <h3 style="color:var(--frontier)">USER PROMPT — what the model actually reads</h3>
+      <pre style="text-align:left;margin-top:12px;background:#06101f;padding:16px;border-radius:8px;font-size:11px;color:var(--grey);line-height:1.7">You are a superforecaster analyzing a prediction market.
+
+<span class="var">{date_context_line}</span>  <span class="comment">// "Today is 2026-05-14. Market resolves 2026-06-30, 47 days."</span>
+
+Market question: "<span class="var">{question}</span>"  <span class="comment">// "Will BTC reach $120,000 by June 30?"</span>
+Market category: <span class="var">{category}</span>  <span class="comment">// "crypto"</span>
+Current market price: <span class="var">{market_price}</span>  <span class="comment">// 0.35</span>
+Market resolution date: <span class="var">{end_date}</span>
+
+Signal analysis from multiple sources:
+<span class="var">- Source: resolution_crypto (DIRECT RESOLUTION SOURCE)
+  Estimate: 0.42
+  Confidence: 0.85
+  Reasoning: "BTC at $104,200. Terminal model: 38%, Barrier model: 46%..."
+  Data points analyzed: 30
+  [Raw evidence block: current price, target, volatility, models]
+
+- Source: web_search
+  Estimate: 0.40
+  Confidence: 0.55  (already discounted 0.7×)
+  Reasoning: "Recent ETF inflows bullish but macro headwinds..."
+  Data points analyzed: 5
+  [key_evidence: "BlackRock adds $2B...", "Fed signals pause..."]
+
+- Source: prediction_markets
+  Estimate: 0.37
+  Confidence: 0.60
+  Reasoning: "Kalshi: 0.33, Metaculus: 0.40, consensus 0.37"
+
+- Source: onchain_flow
+  Estimate: 0.44
+  Confidence: 0.50
+  Reasoning: "Net exchange outflow -12,400 BTC, whale accumulation..."</span>
+
+Preliminary weighted estimate: <span class="var">{0.41}</span>  <span class="comment">// pre-computed from signal weights</span>
+Signal agreement: <span class="var">{mixed}</span>
+
+Instructions:
+1. Critically evaluate each signal source...
+2. Signals marked "DIRECT RESOLUTION SOURCE" → weight heavily
+3. Check resolution criteria vs. data source mismatch
+3b. Evaluate barrier vs terminal model applicability
+4. Consider base rates
+5. Consider what the market knows that signals don't
+6. Final probability estimate
+7. Confidence rating (0-1)
+8. Reasoning in 2-3 sentences
+
+Respond as JSON only:
+<span class="str">{
+  "final_probability": 0.XX,
+  "confidence": 0.XX,
+  "reasoning": "...",
+  "signals_agreement": "agree"|"mixed"|"disagree",
+  "market_efficiency_assessment": "underpriced"|"overpriced"|"fair"
+}</span></pre>
+    </div>
+
+    <div class="flow-arrow">▼</div>
+
+    <div class="flow-node">
+      <h3>Output → Kelly Criterion → Trade Decision</h3>
+      <p>If |final_prob - market_price| > edge threshold → size with Kelly → execute</p>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ===== ALL 6 LLM CALLS ===== -->
+<h2 style="text-align:center;margin-bottom:24px">All LLM Calls — Detailed</h2>
+
+<div class="cards">
+
+  <!-- Call 1: Market Categorization -->
+  <div class="card">
+    <div class="card-header">
+      <div class="num" style="background:var(--cheap)">1</div>
+      <div class="info">
+        <h2>Market Categorization</h2>
+        <div class="meta">strategy/market_filter.py:451 · Cheap tier · Task: classify</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="card-section">
+        <h4>Input Data</h4>
+        <ul>
+          <li><span class="label">question</span> Market question from Gamma API</li>
+          <li><span class="label">Fallback only</span> Keywords tried first: "bitcoin", "btc", "eth", "crypto", etc.</li>
+        </ul>
+      </div>
+      <div class="card-section">
+        <h4>Prompt (if keywords fail)</h4>
+        <pre>Classify this prediction market question
+into exactly one category.
+Question: "<span class="var">{question}</span>"
+Categories: crypto, politics, sports,
+           science, economics, other
+Respond with only the category name.</pre>
+      </div>
+      <div class="card-section">
+        <h4>Expected Output</h4>
+        <div class="output-box">crypto</div>
+      </div>
+      <div class="card-section">
+        <h4>Batch Variant (20 at a time)</h4>
+        <pre>Classify each question into one category.
+Categories: crypto, other
+
+1. Will BTC reach $100k?
+2. Will ETH hit $5000?
+...
+
+Respond with ONLY numbered categories:
+1. crypto
+2. crypto</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Call 2: Resolution Params -->
+  <div class="card">
+    <div class="card-header">
+      <div class="num" style="background:var(--cheap)">2</div>
+      <div class="info">
+        <h2>Resolution Parameter Extraction</h2>
+        <div class="meta">strategy/market_filter.py:621 · Cheap tier · Task: extract · Crypto only</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="card-section">
+        <h4>Input Data</h4>
+        <ul>
+          <li><span class="label">question</span> Market question text</li>
+          <li><span class="label">category</span> "crypto" (only runs for crypto)</li>
+        </ul>
+      </div>
+      <div class="card-section">
+        <h4>Prompt</h4>
+        <pre>Market question: "<span class="var">{question}</span>"
+Category: <span class="var">{category}</span>
+
+Extract the key resolution parameters.
+Identify: coin/token, target price/metric,
+direction (above/below), target date.
+
+Also identify:
+- Resolution methodology (exchange,
+  TWAP, snapshot time)
+- Resolution type:
+  <span class="str">"barrier"</span> = touches target ANY time
+  <span class="str">"terminal"</span> = price AT deadline
+
+Most crypto markets are "barrier" type.</pre>
+      </div>
+      <div class="card-section full-width">
+        <h4>Expected Output</h4>
+        <div class="output-box">{
+  "indicator_type": "price",
+  "metric_name": "BTC/USD",
+  "target_value": 120000,
+  "target_direction": "above",
+  "target_date": "2026-06-30",
+  "coin_id": "bitcoin",
+  "resolution_source": "Binance spot",
+  "resolution_type": "barrier"
+}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Call 3: Coin ID -->
+  <div class="card">
+    <div class="card-header">
+      <div class="num" style="background:var(--cheap)">3</div>
+      <div class="info">
+        <h2>CoinGecko ID Resolution</h2>
+        <div class="meta">signals/resolution_crypto.py:667 · Cheap tier · Task: extract · Whitelist + cache first</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="card-section">
+        <h4>Input Data</h4>
+        <ul>
+          <li><span class="label">coin_name</span> Extracted coin name or symbol</li>
+          <li><span class="label">Fallback only</span> Whitelist checked first (BTC→bitcoin, ETH→ethereum, etc.), then cache</li>
+        </ul>
+      </div>
+      <div class="card-section">
+        <h4>Prompt (if whitelist + cache miss)</h4>
+        <pre>What is the CoinGecko API coin ID for
+the cryptocurrency mentioned in this text?
+Text: "<span class="var">{coin_name}</span>"
+Common examples: bitcoin, ethereum,
+solana, cardano, dogecoin, ripple (xrp)...
+
+Respond as JSON:
+<span class="str">{"coin_id": "the_coingecko_id"}</span></pre>
+      </div>
+      <div class="card-section">
+        <h4>Expected Output</h4>
+        <div class="output-box">{"coin_id": "bitcoin"}</div>
+      </div>
+      <div class="card-section">
+        <h4>Notes</h4>
+        <ul>
+          <li><span class="label">Rarely called</span> Most coins hit the whitelist</li>
+          <li><span class="label">Result cached</span> Won't call again for same coin</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Call 4: Web Search -->
+  <div class="card">
+    <div class="card-header">
+      <div class="num" style="background:var(--sonar)">4</div>
+      <div class="info">
+        <h2>Web Search Signal</h2>
+        <div class="meta">signals/web_search.py:118 · Sonar tier · Search-grounded · Falls back to cheap</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="card-section">
+        <h4>Input Data</h4>
+        <ul>
+          <li><span class="label">question</span> Market question</li>
+          <li><span class="label">category</span> Market category</li>
+          <li><span class="label">end_date</span> Resolution date</li>
+          <li><span class="label">date_line</span> "Today is 2026-05-14. Resolves in 47 days."</li>
+        </ul>
+      </div>
+      <div class="card-section">
+        <h4>Prompt</h4>
+        <pre>You are a prediction market analyst.
+Search the web for the latest information
+about this prediction market question.
+
+<span class="var">{date_line}</span>
+Market question: "<span class="var">{question}</span>"
+Category: <span class="var">{category}</span>
+Resolution date: <span class="var">{end_date}</span>
+
+Search for recent & relevant info. Then:
+1. Summarize key evidence (cite sources)
+2. Estimate probability of YES (0.0-1.0)
+3. Rate confidence (0.0-1.0)
+
+<span class="kw">IMPORTANT: Do NOT use prediction market
+prices as evidence. We need an INDEPENDENT
+estimate from fundamental data.</span></pre>
+      </div>
+      <div class="card-section full-width">
+        <h4>Expected Output</h4>
+        <div class="output-box">{
+  "probability": 0.42,
+  "confidence": 0.65,        <span style="color:var(--grey)">// ← gets multiplied by 0.7 → 0.455</span>
+  "reasoning": "BTC ETF inflows up 23% this week...",
+  "sources_found": 4,
+  "key_evidence": [
+    "BlackRock IBIT saw $2.1B inflows last week (Bloomberg)",
+    "Fed signals potential rate pause in June (Reuters)",
+    "BTC hash rate hits all-time high (Glassnode)"
+  ]
+}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Call 5: Frontier Aggregation -->
+  <div class="card">
+    <div class="card-header">
+      <div class="num" style="background:var(--frontier)">5</div>
+      <div class="info">
+        <h2>Frontier Aggregation — THE Trade Decision</h2>
+        <div class="meta">signals/aggregator.py:519 · Frontier tier · Task: estimate_probability · NO FALLBACK</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="card-section full-width">
+        <h4>Input Data (assembled from all signals)</h4>
+        <ul>
+          <li><span class="label">System prompt</span> Date context + urgency tier + calibration guidance (from temporal.py)</li>
+          <li><span class="label">question</span> Market question</li>
+          <li><span class="label">category</span> Market category</li>
+          <li><span class="label">market_price</span> Current implied probability from Polymarket</li>
+          <li><span class="label">end_date</span> Resolution date</li>
+          <li><span class="label">signals_block</span> All 4 signal sources formatted with estimates, confidence, reasoning, and raw evidence</li>
+          <li><span class="label">preliminary_prob</span> Pre-computed weighted average from signal weights</li>
+          <li><span class="label">signal_agreement</span> Pre-computed agreement level (agree/mixed/disagree)</li>
+        </ul>
+      </div>
+      <div class="card-section full-width">
+        <h4>Key Instructions in Prompt</h4>
+        <ul>
+          <li><span class="label">Resolution sources</span> "DIRECT RESOLUTION SOURCE" signals weighted more heavily than news</li>
+          <li><span class="label">Source mismatch</span> Check if resolution criteria uses different exchange/methodology than signal data</li>
+          <li><span class="label">Barrier vs Terminal</span> Evaluate which model type applies, override if wrong</li>
+          <li><span class="label">Anti-anchoring</span> "Do not anchor to market price — form your own estimate from evidence"</li>
+          <li><span class="label">On failure</span> ALERT AND SKIP — never falls back to cheap model</li>
+        </ul>
+      </div>
+      <div class="card-section full-width">
+        <h4>Expected Output</h4>
+        <div class="output-box">{
+  "final_probability": 0.41,
+  "confidence": 0.72,
+  "reasoning": "CoinGecko barrier model at 46% aligns with on-chain accumulation signals.
+                Web search confirms bullish ETF flows but macro uncertainty caps upside.",
+  "signals_agreement": "mixed",
+  "market_efficiency_assessment": "underpriced"
+}</div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- cards -->
+
+<hr class="divider">
+
+<!-- Cost summary -->
+<div style="text-align:center;margin:30px 0">
+  <h2 style="margin-bottom:16px">Cost Hierarchy</h2>
+  <div style="display:flex;justify-content:center;gap:20px;flex-wrap:wrap">
+    <div style="background:var(--bg2);border:1px solid #1a3055;border-radius:12px;padding:20px;min-width:200px">
+      <div style="font-size:24px;color:var(--cheap);font-weight:700">3×</div>
+      <div style="font-size:13px;color:var(--grey);margin-top:4px">Cheap calls per market</div>
+      <div style="font-size:11px;color:var(--grey2);margin-top:2px">Categorize + Extract + Coin ID</div>
+      <div style="font-size:11px;color:var(--grey2)">Most skipped (keyword/cache hit)</div>
+    </div>
+    <div style="background:var(--bg2);border:1px solid #1a3055;border-radius:12px;padding:20px;min-width:200px">
+      <div style="font-size:24px;color:var(--sonar);font-weight:700">1×</div>
+      <div style="font-size:13px;color:var(--grey);margin-top:4px">Sonar call per market</div>
+      <div style="font-size:11px;color:var(--grey2);margin-top:2px">Web search grounded signal</div>
+      <div style="font-size:11px;color:var(--grey2)">Confidence discounted 0.7×</div>
+    </div>
+    <div style="background:var(--bg2);border:1px solid #1a3055;border-radius:12px;padding:20px;min-width:200px">
+      <div style="font-size:24px;color:var(--frontier);font-weight:700">1×</div>
+      <div style="font-size:13px;color:var(--grey);margin-top:4px">Frontier call per market</div>
+      <div style="font-size:11px;color:var(--grey2);margin-top:2px">Final probability + trade decision</div>
+      <div style="font-size:11px;color:var(--grey2)">No fallback — fail = skip market</div>
+    </div>
+  </div>
+</div>
+
+<p class="note" style="margin-top:40px;padding-bottom:30px">All LLM calls logged to <code>llm_costs</code> table · All use <code>call_json()</code> with 3 retries · Generated from codebase on 2026-05-14</p>
+
+</div><!-- container -->
+</body>
+</html>

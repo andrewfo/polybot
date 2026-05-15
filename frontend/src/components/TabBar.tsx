@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { colors, fonts } from '../theme'
 
-type Tab = 'dashboard' | 'markets' | 'analysis' | 'logs'
+type Tab = 'dashboard' | 'markets' | 'analysis' | 'learning' | 'logs'
 
 const tabs: { id: Tab; label: string; icon: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: '\u25A3' },
   { id: 'markets', label: 'Markets', icon: '\u2637' },
   { id: 'analysis', label: 'Analysis', icon: '\u2A2F' },
+  { id: 'learning', label: 'Learning', icon: '\u2318' },
   { id: 'logs', label: 'Logs', icon: '\u2261' },
 ]
 
