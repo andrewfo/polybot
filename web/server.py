@@ -139,9 +139,13 @@ class BotEngine:
     async def stop(self) -> None:
         self.running = False
         self.phase = "idle"
+        current = asyncio.current_task()
         for task in self._tasks:
-            task.cancel()
-        await asyncio.gather(*self._tasks, return_exceptions=True)
+            if task is not current:
+                task.cancel()
+        # Gather all tasks except the caller (which is still running)
+        others = [t for t in self._tasks if t is not current]
+        await asyncio.gather(*others, return_exceptions=True)
         self._tasks.clear()
         # Close LLM session to avoid unclosed connector warnings
         if self._llm is not None:

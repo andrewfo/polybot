@@ -213,14 +213,16 @@ async def run_health_checks() -> list[HealthCheckResult]:
     notifier = Notifier()
 
     # Run network checks concurrently, sync checks inline
-    network_results = await asyncio.gather(
+    from config.settings import PAPER_TRADING
+    checks = [
         _check_gamma_api(),
         _check_openrouter(),
         _check_coingecko(),
-        _check_wallet_gas(),
-        _check_wallet_funds(),
-        return_exceptions=True,
-    )
+    ]
+    if not PAPER_TRADING:
+        checks.append(_check_wallet_gas())
+        checks.append(_check_wallet_funds())
+    network_results = await asyncio.gather(*checks, return_exceptions=True)
 
     results: list[HealthCheckResult] = []
     for r in network_results:

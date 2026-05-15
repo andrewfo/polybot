@@ -299,21 +299,22 @@ class TestRunHealthChecks:
 
     @pytest.mark.asyncio
     async def test_all_ok_returns_results(self):
-        """When all checks pass, returns results without raising."""
+        """When all checks pass, returns results without raising.
+
+        In paper mode (default), wallet checks are skipped → 5 results.
+        """
         ok_result = HealthCheckResult("test", "ok", "all good")
 
         with (
             patch("monitoring.health._check_gamma_api", return_value=ok_result),
             patch("monitoring.health._check_openrouter", return_value=ok_result),
             patch("monitoring.health._check_coingecko", return_value=ok_result),
-            patch("monitoring.health._check_wallet_gas", return_value=ok_result),
-            patch("monitoring.health._check_wallet_funds", return_value=ok_result),
             patch("monitoring.health._check_stale_orders", return_value=ok_result),
             patch("monitoring.health._check_cost_runaway", return_value=ok_result),
         ):
             results = await run_health_checks()
 
-        assert len(results) == 7
+        assert len(results) == 5
         assert all(r.status == "ok" for r in results)
 
     @pytest.mark.asyncio
