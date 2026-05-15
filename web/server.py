@@ -790,27 +790,8 @@ class BotEngine:
 
                 # Snapshot bankroll if > 1 hour since last
                 try:
-                    from core.db import get_db, snapshot_bankroll
-                    db = get_db()
-                    last_snap = list(db.execute(
-                        "SELECT timestamp FROM bankroll ORDER BY timestamp DESC LIMIT 1"
-                    ).fetchall())
-                    should_snap = True
-                    if last_snap:
-                        last_ts = datetime.fromisoformat(last_snap[0][0])
-                        age_seconds = (datetime.now(timezone.utc) - last_ts).total_seconds()
-                        should_snap = age_seconds >= 3600
-                    if should_snap:
-                        if PAPER_TRADING:
-                            from core.db import get_paper_balance
-                            bal = get_paper_balance(TEST_BANKROLL)
-                            snapshot_bankroll(
-                                total_value=bal["total_value"],
-                                available_cash=bal["available_cash"],
-                                unrealized_pnl=bal["unrealized_pnl"],
-                                realized_pnl_today=0.0,
-                                realized_pnl_total=bal["realized_pnl"],
-                            )
+                    from monitoring.pnl import snapshot_bankroll
+                    await snapshot_bankroll()
                 except Exception:
                     logger.debug("Bankroll snapshot failed (non-fatal)")
 
