@@ -1,7 +1,7 @@
 """On-chain flow signal provider.
 
-Queries CryptoQuant's free-tier API for exchange net flow and whale
-transaction data. Computes a directional pressure score from -1.0
+Queries CryptoQuant's API (requires CRYPTOQUANT_API_KEY) for exchange
+net flow and whale transaction data. Computes a directional pressure score from -1.0
 (strong sell pressure) to +1.0 (strong buy pressure) based on z-scored
 7-day net flow relative to the 30-day rolling average. Converts that
 pressure into a probability adjustment relative to the math model's
@@ -22,6 +22,7 @@ from typing import Any
 
 import aiohttp
 
+from config import settings
 from core import db, fetch_with_retry
 from signals.base import SignalProvider, SignalResult
 
@@ -32,9 +33,13 @@ _flow_cache: dict[str, tuple[dict[str, Any], float]] = {}
 CACHE_TTL_SECONDS = 900  # 15 minutes
 
 CRYPTOQUANT_BASE_URL = "https://api.cryptoquant.com/v1"
-BLOCKCHAIN_COM_BASE_URL = "https://api.blockchain.info"
+DEFILLAMA_STABLECOINS_URL = "https://stablecoins.llama.fi/stablecoins?includePrices=true"
+DEFILLAMA_TVL_URL = "https://api.llama.fi/v2/historicalChainTvl/Ethereum"
 
 USER_AGENT = "polymarket-bot/1.0 (signal research)"
+
+# Log once per process if CryptoQuant is skipped
+_cryptoquant_skip_logged = False
 
 # CoinGecko ID -> CryptoQuant asset symbol mapping
 # CryptoQuant free tier covers BTC and ETH; pro tier adds more.
@@ -78,24 +83,44 @@ async def _fetch_cryptoquant_exchange_flow(
     window: str = "day",
     limit: int = 30,
 ) -> list[dict[str, Any]] | None:
-    """Fetch exchange net flow data from CryptoQuant free API.
+    """Fetch exchange net flow data from CryptoQuant API.
 
-    Returns list of daily flow records with 'netflow' (positive = inflow
-    to exchanges = sell pressure, negative = outflow = accumulation).
+    Requires CRYPTOQUANT_API_KEY. Returns list of daily flow records with
+    'netflow' (positive = inflow to exchanges = sell pressure, negative =
+    outflow = accumulation). Returns None if key is not configured.
     """
+    global _cryptoquant_skip_logged
+
+    api_key = settings.CRYPTOQUANT_API_KEY
+    if not api_key:
+        if not _cryptoquant_skip_logged:
+            logger.info("CryptoQuant API key not configured — skipping on-chain flow. "
+                        "Set CRYPTOQUANT_API_KEY env var to enable.")
+            _cryptoquant_skip_logged = True
+        return None
+
     url = f"{CRYPTOQUANT_BASE_URL}/btc/exchange-flows/netflow"
     if asset == "eth":
         url = f"{CRYPTOQUANT_BASE_URL}/eth/exchange-flows/netflow"
 
     params = {"window": window, "limit": str(limit)}
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Authorization": f"Bearer {api_key}",
+    }
 
     async def _attempt() -> list[dict[str, Any]] | None:
         async with session.get(
             url,
             params=params,
-            headers={"User-Agent": USER_AGENT},
+            headers=headers,
             timeout=aiohttp.ClientTimeout(total=15),
         ) as resp:
+            if resp.status == 401 or resp.status == 403:
+                raise aiohttp.ClientResponseError(
+                    resp.request_info, resp.history, status=resp.status,
+                    message=f"HTTP {resp.status} — check CRYPTOQUANT_API_KEY",
+                )
             if resp.status != 200:
                 raise aiohttp.ClientResponseError(
                     resp.request_info, resp.history, status=resp.status,
@@ -113,17 +138,33 @@ async def _fetch_cryptoquant_whale_count(
     asset: str,
     limit: int = 7,
 ) -> list[dict[str, Any]] | None:
-    """Fetch whale transaction count (transfers > $1M) from CryptoQuant."""
+    """Fetch whale transaction count (transfers > $1M) from CryptoQuant.
+
+    Requires CRYPTOQUANT_API_KEY. Returns None if not configured.
+    """
+    api_key = settings.CRYPTOQUANT_API_KEY
+    if not api_key:
+        return None
+
     url = f"{CRYPTOQUANT_BASE_URL}/{asset}/network-data/transactions-count-over-1m"
     params = {"window": "day", "limit": str(limit)}
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Authorization": f"Bearer {api_key}",
+    }
 
     async def _attempt() -> list[dict[str, Any]] | None:
         async with session.get(
             url,
             params=params,
-            headers={"User-Agent": USER_AGENT},
+            headers=headers,
             timeout=aiohttp.ClientTimeout(total=15),
         ) as resp:
+            if resp.status == 401 or resp.status == 403:
+                raise aiohttp.ClientResponseError(
+                    resp.request_info, resp.history, status=resp.status,
+                    message=f"HTTP {resp.status} — check CRYPTOQUANT_API_KEY",
+                )
             if resp.status != 200:
                 raise aiohttp.ClientResponseError(
                     resp.request_info, resp.history, status=resp.status,
@@ -136,20 +177,21 @@ async def _fetch_cryptoquant_whale_count(
     return await fetch_with_retry(_attempt, label=f"CryptoQuant whale ({asset})")
 
 
-async def _fetch_blockchain_com_btc_flow(
+async def _fetch_defillama_stablecoin_flow(
     session: aiohttp.ClientSession,
 ) -> dict[str, Any] | None:
-    """Fallback: fetch BTC mempool and exchange stats from Blockchain.com.
+    """Fallback: compute capital flow signal from DeFi Llama stablecoin data.
 
-    Free endpoint, no auth required. Used as fallback when CryptoQuant
-    is unavailable.
+    Free API, no auth required. Compares current stablecoin supply to
+    previous week/month to detect capital inflows (bullish) or outflows
+    (bearish) across the crypto market.
     """
 
     async def _attempt() -> dict[str, Any]:
         async with session.get(
-            f"{BLOCKCHAIN_COM_BASE_URL}/stats",
+            DEFILLAMA_STABLECOINS_URL,
             headers={"User-Agent": USER_AGENT},
-            timeout=aiohttp.ClientTimeout(total=10),
+            timeout=aiohttp.ClientTimeout(total=15),
         ) as resp:
             if resp.status != 200:
                 raise aiohttp.ClientResponseError(
@@ -158,7 +200,44 @@ async def _fetch_blockchain_com_btc_flow(
                 )
             return await resp.json()
 
-    return await fetch_with_retry(_attempt, label="Blockchain.com stats")
+    data = await fetch_with_retry(_attempt, label="DeFi Llama stablecoins")
+    if data is None:
+        return None
+
+    assets = data.get("peggedAssets", [])
+    if not assets:
+        return None
+
+    # Aggregate top stablecoins (USDT, USDC, DAI, BUSD, etc.)
+    total_now = 0.0
+    total_prev_week = 0.0
+    total_prev_month = 0.0
+    counted = 0
+
+    for asset in assets[:10]:  # Top 10 by market cap (list is pre-sorted)
+        circ = asset.get("circulating", {}).get("peggedUSD", 0)
+        prev_week = asset.get("circulatingPrevWeek", {}).get("peggedUSD", 0)
+        prev_month = asset.get("circulatingPrevMonth", {}).get("peggedUSD", 0)
+
+        if circ and prev_week:
+            total_now += circ
+            total_prev_week += prev_week
+            total_prev_month += prev_month if prev_month else prev_week
+            counted += 1
+
+    if counted == 0 or total_prev_week == 0:
+        return None
+
+    # Compute weekly and monthly change rates
+    weekly_change_pct = (total_now - total_prev_week) / total_prev_week
+    monthly_change_pct = (total_now - total_prev_month) / total_prev_month if total_prev_month > 0 else 0.0
+
+    return {
+        "total_stablecoin_supply": total_now,
+        "weekly_change_pct": weekly_change_pct,
+        "monthly_change_pct": monthly_change_pct,
+        "stablecoins_tracked": counted,
+    }
 
 
 def _compute_pressure_from_netflow(
@@ -255,7 +334,7 @@ async def _fetch_flow_data(
 ) -> tuple[float, dict[str, Any]]:
     """Fetch and compute flow pressure for an asset.
 
-    Tries CryptoQuant first, falls back to Blockchain.com for BTC.
+    Tries CryptoQuant first, falls back to DeFi Llama stablecoin flows.
     Returns (pressure_score, raw_data_dict).
     """
     # Check cache
@@ -283,26 +362,38 @@ async def _fetch_flow_data(
             _flow_cache[asset] = (metrics, now)
             return pressure, metrics
 
-        # Fallback: Blockchain.com (BTC only)
-        if asset == "btc":
-            bc_stats = await _fetch_blockchain_com_btc_flow(session)
-            if bc_stats:
-                # Use mempool size and hash rate as rough proxy signals
-                # Not as good as exchange flow but provides some signal
-                n_tx = bc_stats.get("n_tx", 0)
-                mempool_size = bc_stats.get("mempool_size", 0)
-                metrics = {
-                    "data_source": "blockchain_com_fallback",
-                    "asset": asset,
-                    "mempool_tx_count": n_tx,
-                    "mempool_size": mempool_size,
-                    "pressure_score": 0.0,  # Can't reliably compute pressure from mempool alone
-                    "note": "Fallback data source — limited directional signal",
-                    "whale_tx_count": None,
-                    "whale_data_available": False,
-                }
-                _flow_cache[asset] = (metrics, now)
-                return 0.0, metrics
+        # Fallback: DeFi Llama stablecoin flows (works for any asset)
+        # Stablecoin supply growth = capital entering crypto = bullish pressure
+        # Stablecoin supply shrinking = capital leaving crypto = bearish pressure
+        llama_data = await _fetch_defillama_stablecoin_flow(session)
+        if llama_data:
+            weekly_chg = llama_data["weekly_change_pct"]
+            monthly_chg = llama_data["monthly_change_pct"]
+
+            # Convert stablecoin flow into pressure score:
+            # +2% weekly growth → strong bullish (+0.5)
+            # -2% weekly shrink → strong bearish (-0.5)
+            # Monthly trend provides additional context
+            weekly_pressure = max(-1.0, min(1.0, weekly_chg / 0.02))
+            monthly_pressure = max(-1.0, min(1.0, monthly_chg / 0.05))
+            # Weight weekly 70%, monthly 30%
+            pressure = weekly_pressure * 0.7 + monthly_pressure * 0.3
+            pressure = max(-1.0, min(1.0, pressure))
+
+            metrics = {
+                "data_source": "defillama_stablecoins",
+                "asset": asset,
+                "pressure_score": pressure,
+                "total_stablecoin_supply": llama_data["total_stablecoin_supply"],
+                "weekly_change_pct": round(weekly_chg * 100, 3),
+                "monthly_change_pct": round(monthly_chg * 100, 3),
+                "stablecoins_tracked": llama_data["stablecoins_tracked"],
+                "note": "Stablecoin supply flow — market-wide capital signal",
+                "whale_tx_count": None,
+                "whale_data_available": False,
+            }
+            _flow_cache[asset] = (metrics, now)
+            return pressure, metrics
 
     # No data available
     metrics = {
@@ -425,8 +516,10 @@ class OnchainFlowProvider(SignalProvider):
 
         # Reduce confidence if using fallback data source
         data_source = raw_metrics.get("data_source", "none")
-        if data_source == "blockchain_com_fallback":
-            base_confidence = max(base_confidence * 0.4, 0.15)
+        if data_source == "defillama_stablecoins":
+            # DeFi Llama provides real capital flow data, but it's market-wide
+            # (not asset-specific), so moderate confidence discount
+            base_confidence = max(base_confidence * 0.6, 0.25)
         elif data_source == "none":
             base_confidence = 0.0
 

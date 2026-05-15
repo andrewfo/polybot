@@ -107,7 +107,7 @@ class TestMatchAndComputeConsensus:
     def test_matching_markets(self) -> None:
         provider = self._make_provider()
         matches = [
-            {"platform": "metaculus", "title": "Will Bitcoin reach $100k?", "probability": 0.60},
+            {"platform": "manifold", "title": "Will Bitcoin reach $100k?", "probability": 0.60},
             {"platform": "kalshi", "title": "Bitcoin price above $100k", "probability": 0.55},
             {"platform": "polymarket", "title": "Lakers NBA championship", "probability": 0.30},
         ]
@@ -125,7 +125,7 @@ class TestMatchAndComputeConsensus:
     def test_no_matches(self) -> None:
         provider = self._make_provider()
         matches = [
-            {"platform": "metaculus", "title": "Will it rain tomorrow?", "probability": 0.70},
+            {"platform": "manifold", "title": "Will it rain tomorrow?", "probability": 0.70},
         ]
         result = provider._match_and_compute_consensus(
             "Will Bitcoin hit $100k?", matches
@@ -143,7 +143,7 @@ class TestMatchAndComputeConsensus:
         provider = self._make_provider()
         # Two matches with different similarities should weight differently
         matches = [
-            {"platform": "metaculus", "title": "Will Bitcoin hit $100k?", "probability": 0.80},
+            {"platform": "manifold", "title": "Will Bitcoin hit $100k?", "probability": 0.80},
             {"platform": "kalshi", "title": "Bitcoin price", "probability": 0.40},
         ]
         result = provider._match_and_compute_consensus(

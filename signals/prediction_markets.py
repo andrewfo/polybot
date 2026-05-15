@@ -1,8 +1,8 @@
 """Cross-platform prediction market consensus signal provider.
 
-Fetches probabilities from Metaculus, Kalshi, and PredictIt for markets
-that overlap with the Polymarket question. Uses cheap LLM to match
-questions across platforms. No API keys required for any platform.
+Fetches probabilities from Manifold Markets, Kalshi, and Polymarket Gamma
+for markets that overlap with the Polymarket question. Uses deterministic
+string similarity matching (no LLM). All three sources are public (no auth).
 """
 
 import logging
@@ -12,7 +12,6 @@ from typing import Any, Optional
 
 import aiohttp
 
-from config import settings
 from core import db, fetch_with_retry
 from core.llm import LLMClient
 from signals.base import SignalProvider, SignalResult
@@ -26,55 +25,34 @@ CACHE_TTL_SECONDS = 1800  # 30 minutes
 USER_AGENT = "polymarket-bot/1.0 (signal research)"
 
 # API endpoints
-METACULUS_API = "https://www.metaculus.com/api2/questions/"
-KALSHI_API = "https://api.elections.kalshi.com/trade-api/v2"
+MANIFOLD_API = "https://api.manifold.markets/v0"
+KALSHI_API = "https://external-api.kalshi.com/trade-api/v2"
 POLYMARKET_GAMMA_API = "https://gamma-api.polymarket.com/markets"
 
-# Log once per process if Metaculus is skipped
-_metaculus_skip_logged = False
 
-
-async def _search_metaculus(
+async def _search_manifold(
     session: aiohttp.ClientSession, query: str, max_results: int = 5
 ) -> list[dict[str, Any]]:
-    """Search Metaculus for questions matching the query.
+    """Search Manifold Markets for binary markets matching the query.
 
-    Requires METACULUS_API_TOKEN in settings. If not configured, silently
-    skips (logs once per process to avoid spam).
+    Free API, no auth required. 500 requests/min rate limit.
+    Has server-side text search via /v0/search-markets.
     """
-    global _metaculus_skip_logged
-
-    token = settings.METACULUS_API_TOKEN
-    if not token:
-        if not _metaculus_skip_logged:
-            logger.info("Metaculus API token not configured — skipping Metaculus. "
-                        "Set METACULUS_API_TOKEN env var to enable.")
-            _metaculus_skip_logged = True
-        return []
-
     params = {
-        "search": query,
+        "term": query,
+        "filter": "open",
+        "contractType": "BINARY",
+        "sort": "most-popular",
         "limit": str(max_results),
-        "status": "open",
-        "type": "binary",
-    }
-    headers = {
-        "User-Agent": USER_AGENT,
-        "Authorization": f"Token {token}",
     }
 
     async def _attempt() -> list[dict[str, Any]]:
         async with session.get(
-            METACULUS_API,
+            f"{MANIFOLD_API}/search-markets",
             params=params,
-            headers=headers,
+            headers={"User-Agent": USER_AGENT},
             timeout=aiohttp.ClientTimeout(total=15),
         ) as resp:
-            if resp.status == 403:
-                raise aiohttp.ClientResponseError(
-                    resp.request_info, resp.history, status=403,
-                    message="403 — check METACULUS_API_TOKEN",
-                )
             if resp.status != 200:
                 raise aiohttp.ClientResponseError(
                     resp.request_info, resp.history, status=resp.status,
@@ -82,42 +60,46 @@ async def _search_metaculus(
                 )
             return await resp.json()
 
-    data = await fetch_with_retry(_attempt, label=f"Metaculus search ({query[:40]})")
+    data = await fetch_with_retry(_attempt, label=f"Manifold search ({query[:40]})")
     if data is None:
         return []
 
-    matches: list[dict[str, Any]] = []
-    results = data.get("results", data) if isinstance(data, dict) else data
-    if not isinstance(results, list):
+    if not isinstance(data, list):
         return []
 
-    for q in results[:max_results]:
-        community_prediction = q.get("community_prediction", {})
-        prob = None
-        if isinstance(community_prediction, dict):
-            prob = community_prediction.get("full", {}).get("q2")
-            if prob is None:
-                prob = community_prediction.get("q2")
-        elif isinstance(community_prediction, (int, float)):
-            prob = float(community_prediction)
-
-        if prob is not None:
-            matches.append({
-                "platform": "metaculus",
-                "title": q.get("title", ""),
-                "probability": float(prob),
-                "forecasters": q.get("number_of_predictions", 0),
-                "url": q.get("url", ""),
-            })
+    matches: list[dict[str, Any]] = []
+    for market in data[:max_results]:
+        prob = market.get("probability")
+        if prob is None:
+            continue
+        question = market.get("question", "")
+        if not question:
+            continue
+        matches.append({
+            "platform": "manifold",
+            "title": question,
+            "probability": max(0.0, min(1.0, float(prob))),
+            "volume": float(market.get("volume", 0) or 0),
+            "url": market.get("url", ""),
+            "uniqueBettorCount": market.get("uniqueBettorCount", 0),
+        })
     return matches
 
 
 async def _search_kalshi(
     session: aiohttp.ClientSession, query: str, max_results: int = 5
 ) -> list[dict[str, Any]]:
-    """Search Kalshi for markets matching the query."""
+    """Search Kalshi for markets matching the query.
+
+    Kalshi's API has no server-side text search, so we fetch a larger batch
+    of open markets and filter client-side by word overlap. No auth required
+    for the public GET /markets endpoint.
+    """
+    # Fetch more markets to increase odds of finding a match
+    fetch_limit = 200
+
     async def _attempt() -> dict[str, Any]:
-        params = {"status": "open", "limit": str(max_results)}
+        params = {"status": "open", "limit": str(fetch_limit)}
         async with session.get(
             f"{KALSHI_API}/markets",
             params=params,
@@ -146,16 +128,21 @@ async def _search_kalshi(
         title_words = set(title_lower.split())
         overlap = len(query_words & title_words)
         if overlap >= min(2, len(query_words)):
-            yes_price = market.get("yes_bid")
+            # Kalshi API v2 uses cents-based dollar fields
+            yes_price = market.get("yes_bid_dollars")
             if yes_price is None:
-                yes_price = market.get("last_price")
+                yes_price = market.get("last_price_dollars")
+            # Fallback to legacy field names
+            if yes_price is None:
+                yes_price = market.get("yes_bid") or market.get("last_price")
             if yes_price is not None:
-                prob = float(yes_price) / 100.0 if yes_price > 1 else float(yes_price)
+                prob = float(yes_price) / 100.0 if float(yes_price) > 1 else float(yes_price)
+                volume = market.get("volume_24h_fp") or market.get("volume", 0)
                 matches.append({
                     "platform": "kalshi",
                     "title": title,
                     "probability": max(0.0, min(1.0, prob)),
-                    "volume": market.get("volume", 0),
+                    "volume": volume,
                     "ticker": market.get("ticker", ""),
                 })
     return matches[:max_results]
@@ -278,7 +265,7 @@ class PredictionMarketsSignalProvider(SignalProvider):
 
     Pipeline:
     1. Extract search keywords from market question (deterministic)
-    2. Search Metaculus, Kalshi, Polymarket Gamma in parallel
+    2. Search Manifold, Kalshi, Polymarket Gamma in parallel
     3. Match results by string similarity (deterministic)
     4. Aggregate matching probabilities into consensus estimate
     """
@@ -362,20 +349,20 @@ class PredictionMarketsSignalProvider(SignalProvider):
         search_query = _extract_search_keywords(market_question)
 
         # Step 2: Search all platforms in parallel
-        self._emit(market_question, "searching", "Metaculus + Kalshi + Polymarket Gamma")
+        self._emit(market_question, "searching", "Manifold + Kalshi + Polymarket Gamma")
         async with aiohttp.ClientSession() as session:
-            metaculus_task = _search_metaculus(session, search_query)
+            manifold_task = _search_manifold(session, search_query)
             kalshi_task = _search_kalshi(session, search_query)
             polymarket_task = _search_polymarket_gamma(session, search_query)
 
-            metaculus_results, kalshi_results, predictit_results = await asyncio.gather(
-                metaculus_task, kalshi_task, polymarket_task,
+            manifold_results, kalshi_results, gamma_results = await asyncio.gather(
+                manifold_task, kalshi_task, polymarket_task,
                 return_exceptions=True,
             )
 
         # Collect all results, handling exceptions
         all_matches: list[dict[str, Any]] = []
-        for results in [metaculus_results, kalshi_results, predictit_results]:
+        for results in [manifold_results, kalshi_results, gamma_results]:
             if isinstance(results, Exception):
                 logger.warning("Platform search error: %s", results)
                 continue
@@ -386,7 +373,7 @@ class PredictionMarketsSignalProvider(SignalProvider):
                 source="prediction_markets",
                 probability=None,
                 confidence=0.0,
-                reasoning="No matching markets found on Metaculus, Kalshi, or Polymarket Gamma",
+                reasoning="No matching markets found on Manifold, Kalshi, or Polymarket Gamma",
                 model_used="none",
                 data_points=0,
                 raw_data={"search_query": search_query},
@@ -462,7 +449,7 @@ class PredictionMarketsSignalProvider(SignalProvider):
             raw_data={
                 "matched_markets": matched_markets,
                 "all_candidates": len(matches),
-                "platforms_searched": ["metaculus", "kalshi", "polymarket_gamma"],
+                "platforms_searched": ["manifold", "kalshi", "polymarket_gamma"],
             },
         )
 

@@ -54,6 +54,10 @@ MIN_FRONTIER_CONFIDENCE = float(os.getenv("MIN_FRONTIER_CONFIDENCE", "0.35"))
 # Get one at https://www.metaculus.com/aib/  (free tier available)
 METACULUS_API_TOKEN = os.getenv("METACULUS_API_TOKEN", "")
 
+# CryptoQuant API key (required for on-chain exchange flow data)
+# Free tier at https://cryptoquant.com/ — covers BTC/ETH exchange flows
+CRYPTOQUANT_API_KEY = os.getenv("CRYPTOQUANT_API_KEY", "")
+
 # Perplexity Sonar model via OpenRouter (search-grounded LLM)
 SONAR_MODEL = os.getenv("SONAR_MODEL", "perplexity/sonar")
 SONAR_RATE_LIMIT = int(os.getenv("SONAR_RATE_LIMIT", "20"))

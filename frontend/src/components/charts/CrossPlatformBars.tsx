@@ -14,7 +14,7 @@ interface MatchedMarket {
 }
 
 const platformColors: Record<string, string> = {
-  metaculus: '#8b5cf6',
+  manifold: '#8b5cf6',
   kalshi: '#ffaa00',
   polymarket: '#00e5ff',
 }

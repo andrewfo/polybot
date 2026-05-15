@@ -30,8 +30,8 @@ signals/resolution_crypto.py  → CoinGecko barrier/terminal probability (NO LLM
 signals/aggregator.py         → Weighted signal merge → frontier model final call
 signals/temporal.py           → Date context, urgency tiers for frontier prompt
 signals/web_search.py         → Perplexity Sonar search-grounded signal
-signals/prediction_markets.py → Cross-platform consensus (Metaculus/Kalshi/Gamma)
-signals/onchain_flow.py       → CryptoQuant exchange flow + whale tx signal (NO LLM)
+signals/prediction_markets.py → Cross-platform consensus (Manifold/Kalshi/Gamma)
+signals/onchain_flow.py       → CryptoQuant exchange flow + DeFi Llama fallback (NO LLM)
 signals/calibration.py        → Brier-score calibration, dynamic source multipliers
 monitoring/learning.py        → Continuous learning engine, auto-apply recommendations
 web/server.py                 → FastAPI backend, BotEngine, REST endpoints

@@ -128,7 +128,7 @@ class WebSearchSignalProvider(SignalProvider):
             f'2. Estimate the probability of YES (0.0 to 1.0)\n'
             f'3. Rate your confidence (0.0 to 1.0)\n'
             f'\n'
-            f'IMPORTANT: Do NOT use prediction market prices (Polymarket, Kalshi, Metaculus, '
+            f'IMPORTANT: Do NOT use prediction market prices (Polymarket, Kalshi, Manifold, '
             f'PredictIt, etc.) as evidence. We need an INDEPENDENT estimate based on '
             f'fundamental data — news, prices, announcements, on-chain data, etc. '
             f'Citing a prediction market price as evidence provides zero informational value.\n'
