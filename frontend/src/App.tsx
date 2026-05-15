@@ -6,9 +6,10 @@ import Dashboard from './components/Dashboard'
 import Markets from './components/Markets'
 import Analysis from './components/Analysis'
 import Learning from './components/Learning'
+import Database from './components/Database'
 import Logs from './components/Logs'
 
-type Tab = 'dashboard' | 'markets' | 'analysis' | 'learning' | 'logs'
+type Tab = 'dashboard' | 'markets' | 'analysis' | 'learning' | 'database' | 'logs'
 
 function useWebSocket() {
   const [botStatus, setBotStatus] = useState<BotStatus | null>(null)
@@ -235,6 +236,7 @@ export default function App() {
           {activeTab === 'markets' && <Markets />}
           {activeTab === 'analysis' && <Analysis />}
           {activeTab === 'learning' && <Learning />}
+          {activeTab === 'database' && <Database />}
           {activeTab === 'logs' && <Logs />}
         </main>
       </div>

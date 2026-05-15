@@ -10,8 +10,9 @@ build/
 .venv/
 venv/
 
-# Database
+# Database & logs
 data/bot.db
+data/bot.log
 
 # IDE
 .vscode/

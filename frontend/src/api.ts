@@ -253,6 +253,27 @@ export interface ParameterOverride {
   active: number
 }
 
+// Database explorer types
+
+export interface DbColumn {
+  name: string
+  type: string
+}
+
+export interface DbTableInfo {
+  name: string
+  row_count: number
+  columns: DbColumn[]
+}
+
+export interface DbTableRows {
+  table: string
+  total: number
+  offset: number
+  limit: number
+  rows: Record<string, unknown>[]
+}
+
 const BASE = ''
 
 async function fetchJSON<T>(url: string): Promise<T> {
@@ -312,4 +333,9 @@ export const api = {
   revertOverride: (parameter: string) => postJSON<{ status: string }>(`/api/learning/overrides/${parameter}/revert`),
   setOverride: (parameter: string, value: number, reason: string) =>
     postJSON<{ status: string; value: number }>(`/api/learning/overrides/${parameter}/set`, { value, reason }),
+
+  // Database explorer
+  fetchDbTables: () => fetchJSON<DbTableInfo[]>('/api/db/tables'),
+  fetchDbTableRows: (table: string, limit = 50, offset = 0, orderBy = 'rowid', desc = true) =>
+    fetchJSON<DbTableRows>(`/api/db/tables/${table}?limit=${limit}&offset=${offset}&order_by=${orderBy}&desc=${desc}`),
 }

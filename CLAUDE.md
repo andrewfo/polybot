@@ -35,16 +35,15 @@ signals/onchain_flow.py       → CryptoQuant exchange flow + whale tx signal (N
 signals/calibration.py        → Brier-score calibration, dynamic source multipliers
 monitoring/learning.py        → Continuous learning engine, auto-apply recommendations
 web/server.py                 → FastAPI backend, BotEngine, REST endpoints
-frontend/                     → React (Vite) dashboard: Dashboard, Markets, Analysis, Logs
+frontend/                     → React (Vite) dashboard: Dashboard, Markets, Analysis, Learning, Database, Logs
 ```
 
 ## Build Sequence & Progress
 Built section by section from `POLYMARKET_BOT_PLAN (1).md`. Build in order, run tests after each section.
 
-**Sections 0-8: COMPLETE** — Core infra, LLM, wallet, DB, market filtering, signal engine (4 providers + aggregator), Kelly criterion, order execution, web dashboard, continuous learning engine, monitoring & notifications, health checks.
+**Sections 0-9: COMPLETE** — Core infra, LLM, wallet, DB, market filtering, signal engine (4 providers + aggregator), Kelly criterion, order execution, web dashboard (6 tabs: Dashboard, Markets, Analysis, Learning, Database, Logs), continuous learning engine, monitoring & notifications, health checks, pipeline integration (headless main loop, 3 workers, database explorer).
 
-**Section 9: IN PROGRESS** — Pipeline integration. Done: headless main loop, cross-file consistency audit (12 fixes), Learning tab frontend (uncommitted). Remaining: end-to-end pipeline run verification, commit frontend sync.
-Then: Section 10 (paper executor polish) → 11 (docs)
+**Next:** Section 10 (paper trading validation & dep cleanup) → 11 (docs & polish)
 
 Available skills: `/build-section N`, `/verify-section N`, `/status`, `/test-module <name>`, `/audit-llm`, `/check-health`, `/run-pipeline`, `/add-signal <name>`, `/improve-signal <name>`, `/tune-prompts`.
 

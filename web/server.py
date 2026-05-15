@@ -1576,6 +1576,55 @@ def create_app() -> FastAPI:
         return {"question": question, "signals": results}
 
     # -----------------------------------------------------------------------
+    # Database explorer endpoints
+    # -----------------------------------------------------------------------
+
+    @app.get("/api/db/tables")
+    async def db_tables():
+        """List all database tables with row counts."""
+        try:
+            from core.db import get_db
+            db = get_db()
+            tables = []
+            for name in db.table_names():
+                count = db.execute(f"SELECT COUNT(*) FROM [{name}]").fetchone()[0]
+                columns = [{"name": col.name, "type": col.type} for col in db[name].columns]
+                tables.append({"name": name, "row_count": count, "columns": columns})
+            return tables
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": str(e)[:200]})
+
+    @app.get("/api/db/tables/{table_name}")
+    async def db_table_rows(
+        table_name: str,
+        limit: int = Query(50, ge=1, le=500),
+        offset: int = Query(0, ge=0),
+        order_by: str = Query("rowid"),
+        desc: bool = Query(True),
+    ):
+        """Fetch rows from a specific table with pagination."""
+        try:
+            from core.db import get_db
+            db = get_db()
+            if table_name not in db.table_names():
+                return JSONResponse(status_code=404, content={"error": f"Table '{table_name}' not found"})
+            direction = "DESC" if desc else "ASC"
+            # Validate order_by is a real column or rowid
+            valid_cols = {col.name for col in db[table_name].columns} | {"rowid"}
+            if order_by not in valid_cols:
+                order_by = "rowid"
+            total = db.execute(f"SELECT COUNT(*) FROM [{table_name}]").fetchone()[0]
+            rows = db.execute(
+                f"SELECT * FROM [{table_name}] ORDER BY [{order_by}] {direction} LIMIT ? OFFSET ?",
+                [limit, offset],
+            ).fetchall()
+            columns = [col.name for col in db[table_name].columns]
+            data = [{columns[i]: row[i] for i in range(len(columns))} for row in rows]
+            return {"table": table_name, "total": total, "offset": offset, "limit": limit, "rows": data}
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": str(e)[:200]})
+
+    # -----------------------------------------------------------------------
     # WebSocket
     # -----------------------------------------------------------------------
 
