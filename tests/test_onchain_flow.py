@@ -94,7 +94,7 @@ class TestComputePressureFromNetflow:
         assert -1.0 <= pressure <= 1.0
 
     def test_alternative_key_format(self):
-        # CryptoQuant sometimes uses "value" instead of "netflow"
+        # Some APIs use "value" instead of "netflow"
         records = [{"value": v} for v in [100.0] * 30]
         pressure, metrics = _compute_pressure_from_netflow(records)
         assert pressure == pytest.approx(0.0)
@@ -148,7 +148,7 @@ async def test_non_crypto_category_skipped():
 
 @pytest.mark.asyncio
 async def test_unsupported_coin_returns_zero():
-    """Coins without CryptoQuant coverage return confidence=0."""
+    """Coins without Glassnode coverage return confidence=0."""
     clear_flow_cache()
     provider = OnchainFlowProvider()
     result = await provider.get_signal(
@@ -186,7 +186,7 @@ async def test_coin_detected_from_question():
     )
     assert result.source == "onchain_flow"
     # Should have resolved the coin (may or may not have data)
-    # If CryptoQuant is down, confidence will be 0 but it shouldn't error
+    # If Glassnode is down, confidence will be 0 but it shouldn't error
 
 
 def test_aggregator_includes_onchain_flow():
@@ -212,7 +212,7 @@ def test_aggregator_format_raw_evidence():
             "pressure_score": 0.45,
             "z_score": -1.35,
             "net_flow_direction": "outflow (accumulation)",
-            "data_source": "cryptoquant",
+            "data_source": "glassnode",
             "asset": "btc",
             "mean_7d_netflow": -5000.0,
             "mean_30d_netflow": 2000.0,

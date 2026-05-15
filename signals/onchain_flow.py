@@ -1,6 +1,6 @@
 """On-chain flow signal provider.
 
-Queries CryptoQuant's API (requires CRYPTOQUANT_API_KEY) for exchange
+Queries Glassnode's API (requires GLASSNODE_API_KEY) for exchange
 net flow and whale transaction data. Computes a directional pressure score from -1.0
 (strong sell pressure) to +1.0 (strong buy pressure) based on z-scored
 7-day net flow relative to the 30-day rolling average. Converts that
@@ -32,20 +32,20 @@ logger = logging.getLogger(__name__)
 _flow_cache: dict[str, tuple[dict[str, Any], float]] = {}
 CACHE_TTL_SECONDS = 900  # 15 minutes
 
-CRYPTOQUANT_BASE_URL = "https://api.cryptoquant.com/v1"
+GLASSNODE_BASE_URL = "https://api.glassnode.com/v1/metrics"
 DEFILLAMA_STABLECOINS_URL = "https://stablecoins.llama.fi/stablecoins?includePrices=true"
 DEFILLAMA_TVL_URL = "https://api.llama.fi/v2/historicalChainTvl/Ethereum"
 
 USER_AGENT = "polymarket-bot/1.0 (signal research)"
 
-# Log once per process if CryptoQuant is skipped
-_cryptoquant_skip_logged = False
+# Log once per process if Glassnode is skipped
+_glassnode_skip_logged = False
 
-# CoinGecko ID -> CryptoQuant asset symbol mapping
-# CryptoQuant free tier covers BTC and ETH; pro tier adds more.
-_COINGECKO_TO_CRYPTOQUANT: dict[str, str] = {
-    "bitcoin": "btc",
-    "ethereum": "eth",
+# CoinGecko ID -> Glassnode asset symbol mapping
+# Glassnode free tier covers BTC and ETH.
+_COINGECKO_TO_GLASSNODE: dict[str, str] = {
+    "bitcoin": "BTC",
+    "ethereum": "ETH",
 }
 
 # Confidence tiers by data availability
@@ -77,37 +77,31 @@ def _pressure_to_adjustment(pressure: float) -> float:
     return clamped * MAX_ADJUSTMENT
 
 
-async def _fetch_cryptoquant_exchange_flow(
+async def _fetch_glassnode_exchange_flow(
     session: aiohttp.ClientSession,
     asset: str,
-    window: str = "day",
     limit: int = 30,
 ) -> list[dict[str, Any]] | None:
-    """Fetch exchange net flow data from CryptoQuant API.
+    """Fetch exchange net flow data from Glassnode API.
 
-    Requires CRYPTOQUANT_API_KEY. Returns list of daily flow records with
+    Requires GLASSNODE_API_KEY. Returns list of daily flow records with
     'netflow' (positive = inflow to exchanges = sell pressure, negative =
     outflow = accumulation). Returns None if key is not configured.
     """
-    global _cryptoquant_skip_logged
+    global _glassnode_skip_logged
 
-    api_key = settings.CRYPTOQUANT_API_KEY
+    api_key = settings.GLASSNODE_API_KEY
     if not api_key:
-        if not _cryptoquant_skip_logged:
-            logger.info("CryptoQuant API key not configured — skipping on-chain flow. "
-                        "Set CRYPTOQUANT_API_KEY env var to enable.")
-            _cryptoquant_skip_logged = True
+        if not _glassnode_skip_logged:
+            logger.info("Glassnode API key not configured — skipping on-chain flow. "
+                        "Set GLASSNODE_API_KEY env var to enable.")
+            _glassnode_skip_logged = True
         return None
 
-    url = f"{CRYPTOQUANT_BASE_URL}/btc/exchange-flows/netflow"
-    if asset == "eth":
-        url = f"{CRYPTOQUANT_BASE_URL}/eth/exchange-flows/netflow"
-
-    params = {"window": window, "limit": str(limit)}
-    headers = {
-        "User-Agent": USER_AGENT,
-        "Authorization": f"Bearer {api_key}",
-    }
+    since = int(time.time()) - (limit * 86400)
+    url = f"{GLASSNODE_BASE_URL}/transactions/transfers_volume_exchanges_net"
+    params = {"a": asset, "i": "24h", "s": str(since), "api_key": api_key}
+    headers = {"User-Agent": USER_AGENT}
 
     async def _attempt() -> list[dict[str, Any]] | None:
         async with session.get(
@@ -119,7 +113,7 @@ async def _fetch_cryptoquant_exchange_flow(
             if resp.status == 401 or resp.status == 403:
                 raise aiohttp.ClientResponseError(
                     resp.request_info, resp.history, status=resp.status,
-                    message=f"HTTP {resp.status} — check CRYPTOQUANT_API_KEY",
+                    message=f"HTTP {resp.status} — check GLASSNODE_API_KEY",
                 )
             if resp.status != 200:
                 raise aiohttp.ClientResponseError(
@@ -127,31 +121,29 @@ async def _fetch_cryptoquant_exchange_flow(
                     message=f"HTTP {resp.status}",
                 )
             data = await resp.json()
-        result = data.get("result", {})
-        return result.get("data", [])
+        # Glassnode returns [{t: timestamp, v: value}, ...]
+        return [{"netflow": entry.get("v", 0)} for entry in data if entry.get("v") is not None]
 
-    return await fetch_with_retry(_attempt, label=f"CryptoQuant netflow ({asset})")
+    return await fetch_with_retry(_attempt, label=f"Glassnode netflow ({asset})")
 
 
-async def _fetch_cryptoquant_whale_count(
+async def _fetch_glassnode_whale_count(
     session: aiohttp.ClientSession,
     asset: str,
     limit: int = 7,
 ) -> list[dict[str, Any]] | None:
-    """Fetch whale transaction count (transfers > $1M) from CryptoQuant.
+    """Fetch whale transaction count (transfers > 100 BTC / equivalent) from Glassnode.
 
-    Requires CRYPTOQUANT_API_KEY. Returns None if not configured.
+    Requires GLASSNODE_API_KEY. Returns None if not configured.
     """
-    api_key = settings.CRYPTOQUANT_API_KEY
+    api_key = settings.GLASSNODE_API_KEY
     if not api_key:
         return None
 
-    url = f"{CRYPTOQUANT_BASE_URL}/{asset}/network-data/transactions-count-over-1m"
-    params = {"window": "day", "limit": str(limit)}
-    headers = {
-        "User-Agent": USER_AGENT,
-        "Authorization": f"Bearer {api_key}",
-    }
+    since = int(time.time()) - (limit * 86400)
+    url = f"{GLASSNODE_BASE_URL}/transactions/transfers_count_large"
+    params = {"a": asset, "i": "24h", "s": str(since), "api_key": api_key}
+    headers = {"User-Agent": USER_AGENT}
 
     async def _attempt() -> list[dict[str, Any]] | None:
         async with session.get(
@@ -163,7 +155,7 @@ async def _fetch_cryptoquant_whale_count(
             if resp.status == 401 or resp.status == 403:
                 raise aiohttp.ClientResponseError(
                     resp.request_info, resp.history, status=resp.status,
-                    message=f"HTTP {resp.status} — check CRYPTOQUANT_API_KEY",
+                    message=f"HTTP {resp.status} — check GLASSNODE_API_KEY",
                 )
             if resp.status != 200:
                 raise aiohttp.ClientResponseError(
@@ -171,10 +163,10 @@ async def _fetch_cryptoquant_whale_count(
                     message=f"HTTP {resp.status}",
                 )
             data = await resp.json()
-        result = data.get("result", {})
-        return result.get("data", [])
+        # Glassnode returns [{t: timestamp, v: value}, ...]
+        return [{"value": entry.get("v", 0)} for entry in data if entry.get("v") is not None]
 
-    return await fetch_with_retry(_attempt, label=f"CryptoQuant whale ({asset})")
+    return await fetch_with_retry(_attempt, label=f"Glassnode whale ({asset})")
 
 
 async def _fetch_defillama_stablecoin_flow(
@@ -254,7 +246,7 @@ def _compute_pressure_from_netflow(
     if not flow_data or len(flow_data) < 7:
         return 0.0, {"error": "insufficient_data", "records": len(flow_data) if flow_data else 0}
 
-    # Extract netflow values (handle various CryptoQuant response formats)
+    # Extract netflow values (handle various response formats)
     values: list[float] = []
     for record in flow_data:
         nf = record.get("netflow") or record.get("value") or record.get("net_flow")
@@ -334,7 +326,7 @@ async def _fetch_flow_data(
 ) -> tuple[float, dict[str, Any]]:
     """Fetch and compute flow pressure for an asset.
 
-    Tries CryptoQuant first, falls back to DeFi Llama stablecoin flows.
+    Tries Glassnode first, falls back to DeFi Llama stablecoin flows.
     Returns (pressure_score, raw_data_dict).
     """
     # Check cache
@@ -347,15 +339,15 @@ async def _fetch_flow_data(
             return cached_data.get("pressure_score", 0.0), cached_data
 
     async with aiohttp.ClientSession() as session:
-        # Try CryptoQuant
-        flow_records = await _fetch_cryptoquant_exchange_flow(session, asset)
-        whale_data = await _fetch_cryptoquant_whale_count(session, asset)
+        # Try Glassnode
+        flow_records = await _fetch_glassnode_exchange_flow(session, asset)
+        whale_data = await _fetch_glassnode_whale_count(session, asset)
 
         if flow_records and len(flow_records) >= 7:
             pressure, metrics = _compute_pressure_from_netflow(flow_records)
             whale_metrics = _compute_whale_metric(whale_data)
             metrics.update(whale_metrics)
-            metrics["data_source"] = "cryptoquant"
+            metrics["data_source"] = "glassnode"
             metrics["asset"] = asset
             metrics["pressure_score"] = pressure
 
@@ -412,7 +404,7 @@ class OnchainFlowProvider(SignalProvider):
 
     Pipeline:
     1. If category != crypto -> return confidence=0 immediately
-    2. Resolve CryptoQuant asset symbol from resolution_keywords
+    2. Resolve Glassnode asset symbol from resolution_keywords
     3. Fetch exchange net flow (30d) and whale transaction counts (7d)
     4. Z-score 7-day net flow against 30-day rolling average
     5. Convert to directional pressure score [-1, +1]
@@ -461,7 +453,7 @@ class OnchainFlowProvider(SignalProvider):
 
         resolution_keywords = kwargs.get("resolution_keywords", {})
 
-        # Resolve CryptoQuant asset symbol
+        # Resolve Glassnode asset symbol
         coin_id = resolution_keywords.get("coin_id", "")
         if not coin_id:
             # Try extracting from market question via the ticker whitelist
@@ -482,9 +474,9 @@ class OnchainFlowProvider(SignalProvider):
                 data_points=0,
             )
 
-        # Map CoinGecko ID to CryptoQuant asset
-        cq_asset = _COINGECKO_TO_CRYPTOQUANT.get(coin_id)
-        if not cq_asset:
+        # Map CoinGecko ID to Glassnode asset
+        gn_asset = _COINGECKO_TO_GLASSNODE.get(coin_id)
+        if not gn_asset:
             return SignalResult(
                 source="onchain_flow",
                 probability=None,
@@ -495,12 +487,12 @@ class OnchainFlowProvider(SignalProvider):
                 raw_data={"coin_id": coin_id, "coverage": "none"},
             )
 
-        self._emit(market_question, "onchain", f"fetching {cq_asset} exchange flow data")
+        self._emit(market_question, "onchain", f"fetching {gn_asset} exchange flow data")
 
         try:
-            pressure, raw_metrics = await _fetch_flow_data(cq_asset)
+            pressure, raw_metrics = await _fetch_flow_data(gn_asset)
         except Exception as e:
-            logger.error("On-chain flow fetch failed for %s: %s", cq_asset, e)
+            logger.error("On-chain flow fetch failed for %s: %s", gn_asset, e)
             return SignalResult(
                 source="onchain_flow",
                 probability=None,
@@ -512,7 +504,7 @@ class OnchainFlowProvider(SignalProvider):
             )
 
         # Determine base confidence from asset tier
-        base_confidence = _CONFIDENCE_TIERS.get(cq_asset, _DEFAULT_CONFIDENCE)
+        base_confidence = _CONFIDENCE_TIERS.get(gn_asset.lower(), _DEFAULT_CONFIDENCE)
 
         # Reduce confidence if using fallback data source
         data_source = raw_metrics.get("data_source", "none")
@@ -529,7 +521,7 @@ class OnchainFlowProvider(SignalProvider):
                 source="onchain_flow",
                 probability=None,
                 confidence=0.0,
-                reasoning=f"Insufficient on-chain data for {cq_asset}: {raw_metrics.get('error', 'no data')}",
+                reasoning=f"Insufficient on-chain data for {gn_asset}: {raw_metrics.get('error', 'no data')}",
                 model_used="none",
                 data_points=0,
                 raw_data=raw_metrics,
@@ -572,7 +564,7 @@ class OnchainFlowProvider(SignalProvider):
             f"On-chain flow ({data_source}): pressure={pressure:+.2f} "
             f"[z={z:+.2f}, {flow_dir}]. "
             f"Adjustment: {adjustment:+.3f} → P={probability:.3f}.{whale_info} "
-            f"Based on {data_points} days of exchange flow data for {cq_asset.upper()}."
+            f"Based on {data_points} days of exchange flow data for {gn_asset}."
         )
 
         self._emit(market_question, "done", f"pressure={pressure:+.2f}")
