@@ -114,7 +114,7 @@ def _is_crypto_keyword_match(question: str) -> bool:
     return False
 
 
-async def discover_markets(max_pages: int = 0) -> list[dict[str, Any]]:
+async def discover_markets(max_pages: int = 0, force_refresh: bool = False) -> list[dict[str, Any]]:
     """Fetch active markets from Gamma API, caching in SQLite market_cache table.
 
     Uses the Gamma API which returns rich metadata (liquidity, volume, spread,
@@ -124,9 +124,16 @@ async def discover_markets(max_pages: int = 0) -> list[dict[str, Any]]:
 
     Args:
         max_pages: Maximum pages to fetch. 0 = use GAMMA_MAX_PAGES default.
+        force_refresh: If True, skip cache and fetch fresh markets from Gamma.
     """
-    # Check if we have a recent enough cache
+    # Check if we have a recent enough cache (skip if force_refresh)
     database = db.get_db()
+    if force_refresh:
+        logger.info("Force-refreshing market cache (bypassing cache age check)")
+        try:
+            database.execute("DELETE FROM market_cache")
+        except Exception:
+            pass
     try:
         rows = list(database.execute(
             "SELECT fetched_at FROM market_cache ORDER BY fetched_at DESC LIMIT 1"

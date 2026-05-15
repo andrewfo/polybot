@@ -230,6 +230,49 @@ class BotEngine:
                     "discovered": len(raw),
                     "filtered": len(ranked),
                 })
+
+                # If 0 ranked markets, force-refresh cache and rediscover fresh markets
+                if len(ranked) == 0 and self.running:
+                    logger.warning("Discovery found 0 ranked markets — force-refreshing cache and retrying")
+                    self._push_activity(
+                        "discovery",
+                        "0 ranked markets — rediscovering with fresh data",
+                        "Clearing market cache to fetch new markets from Gamma",
+                    )
+                    await self._cancellable_sleep(30)  # Brief pause before retry
+                    if self.running:
+                        self.phase = "filtering"
+                        await self._broadcast({"type": "bot_status", "running": True, "phase": "filtering"})
+                        raw = await discover_markets(force_refresh=True)
+                        filtered = await filter_markets(raw)
+                        await batch_categorize_markets(filtered, self._llm)
+                        crypto = [m for m in filtered if m.get("_category") == "crypto"]
+                        for m in crypto:
+                            cid = m.get("conditionId", m.get("condition_id", ""))
+                            params = await extract_resolution_params(
+                                m["question"], "crypto", self._llm, condition_id=cid
+                            )
+                            if params:
+                                m["_resolution_params"] = params
+                        crypto = filter_computable_markets(crypto)
+                        crypto = await pre_screen_crypto_edge(crypto)
+                        ranked = rank_candidates(crypto)
+                        self.filtered_market_cache = ranked
+                        self._last_discovery_found = len(raw)
+                        self._last_discovery_ranked = len(ranked)
+                        self._session_markets_discovered += len(raw)
+                        logger.info("Rediscovery complete: %d raw → %d ranked", len(raw), len(ranked))
+                        self._push_activity(
+                            "discovery",
+                            f"Rediscovery: {len(ranked)} crypto markets ranked",
+                            f"From {len(raw)} fresh raw markets after cache bust",
+                        )
+                        self.phase = "waiting"
+                        await self._broadcast({
+                            "type": "discovery_complete",
+                            "discovered": len(raw),
+                            "filtered": len(ranked),
+                        })
             except asyncio.CancelledError:
                 return
             except Exception:
