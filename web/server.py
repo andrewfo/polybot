@@ -89,6 +89,14 @@ class BotEngine:
         # Pipeline activity feed (most recent events)
         self._activity_feed: collections.deque[dict[str, Any]] = collections.deque(maxlen=50)
 
+        # Health check results (updated by position monitor loop)
+        self._last_health_results: list[Any] = []
+
+        # Consecutive failure counters per worker (auto-stop at 3)
+        self._discovery_failures: int = 0
+        self._aggregation_failures: int = 0
+        self._position_failures: int = 0
+
     # ------------------------------------------------------------------
     # Start / Stop
     # ------------------------------------------------------------------
@@ -206,6 +214,7 @@ class BotEngine:
                 self._last_discovery_found = len(raw)
                 self._last_discovery_ranked = len(ranked)
                 self._session_markets_discovered += len(raw)
+                self._discovery_failures = 0  # Reset on success
                 self._push_activity(
                     "discovery",
                     f"Discovery complete: {len(ranked)} crypto markets ranked",
@@ -221,8 +230,14 @@ class BotEngine:
                 return
             except Exception:
                 logger.exception("Discovery loop error")
+                self._discovery_failures += 1
                 self.phase = "waiting"
-                self._push_activity("error", "Discovery loop error", "Check logs for details")
+                self._push_activity("error", "Discovery loop error", f"Consecutive failures: {self._discovery_failures}")
+                if self._discovery_failures >= 3:
+                    logger.critical("Discovery worker: 3 consecutive failures — auto-stopping bot")
+                    self._push_activity("error", "Auto-stop: discovery worker failed 3 times", "")
+                    await self.stop()
+                    return
 
             await self._cancellable_sleep(DISCOVERY_INTERVAL_MINUTES * 60)
 
@@ -350,6 +365,7 @@ class BotEngine:
                     elif entry.get("status") == "skipped":
                         self._session_markets_skipped += 1
 
+                self._aggregation_failures = 0  # Reset on success
                 self._push_activity(
                     "aggregation",
                     f"Aggregation cycle {self.cycle_count} complete",
@@ -376,7 +392,14 @@ class BotEngine:
                 return
             except Exception:
                 logger.exception("Aggregation loop error")
+                self._aggregation_failures += 1
                 self.phase = "waiting"
+                self._push_activity("error", "Aggregation loop error", f"Consecutive failures: {self._aggregation_failures}")
+                if self._aggregation_failures >= 3:
+                    logger.critical("Aggregation worker: 3 consecutive failures — auto-stopping bot")
+                    self._push_activity("error", "Auto-stop: aggregation worker failed 3 times", "")
+                    await self.stop()
+                    return
 
             await self._cancellable_sleep(AGGREGATION_INTERVAL_MINUTES * 60)
 
@@ -750,7 +773,49 @@ class BotEngine:
                 await self._broadcast({"type": "bot_status", "running": True, "phase": "monitoring"})
                 await self._executor.monitor_orders()
                 await self._executor.manage_positions()
+
+                # Run health checks
+                try:
+                    from monitoring.health import run_health_checks
+                    self._last_health_results = await run_health_checks()
+                    self._push_activity("health", "Health checks passed", f"{len(self._last_health_results)} checks ok")
+                except Exception as health_err:
+                    from strategy.executor import AutoStopError
+                    if isinstance(health_err, AutoStopError):
+                        logger.critical("Health check triggered auto-stop: %s", health_err)
+                        self._push_activity("error", "Auto-stop triggered", str(health_err))
+                        await self.stop()
+                        return
+                    logger.exception("Health check error (non-fatal)")
+
+                # Snapshot bankroll if > 1 hour since last
+                try:
+                    from core.db import get_db, snapshot_bankroll
+                    db = get_db()
+                    last_snap = list(db.execute(
+                        "SELECT timestamp FROM bankroll ORDER BY timestamp DESC LIMIT 1"
+                    ).fetchall())
+                    should_snap = True
+                    if last_snap:
+                        last_ts = datetime.fromisoformat(last_snap[0][0])
+                        age_seconds = (datetime.now(timezone.utc) - last_ts).total_seconds()
+                        should_snap = age_seconds >= 3600
+                    if should_snap:
+                        if PAPER_TRADING:
+                            from core.db import get_paper_balance
+                            bal = get_paper_balance(TEST_BANKROLL)
+                            snapshot_bankroll(
+                                total_value=bal["total_value"],
+                                available_cash=bal["available_cash"],
+                                unrealized_pnl=bal["unrealized_pnl"],
+                                realized_pnl_today=0.0,
+                                realized_pnl_total=bal["realized_pnl"],
+                            )
+                except Exception:
+                    logger.debug("Bankroll snapshot failed (non-fatal)")
+
                 self._position_last_run = time.time()
+                self._position_failures = 0  # Reset on success
                 self._push_activity("monitor", "Position check complete", "Orders monitored, positions managed")
                 self.phase = "waiting"
                 await self._broadcast({"type": "bot_status", "running": True, "phase": "waiting"})
@@ -758,7 +823,14 @@ class BotEngine:
                 return
             except Exception:
                 logger.exception("Position monitor error")
+                self._position_failures += 1
                 self.phase = "waiting"
+                self._push_activity("error", "Position monitor error", f"Consecutive failures: {self._position_failures}")
+                if self._position_failures >= 3:
+                    logger.critical("Position monitor: 3 consecutive failures — auto-stopping bot")
+                    self._push_activity("error", "Auto-stop: position monitor failed 3 times", "")
+                    await self.stop()
+                    return
 
             await self._cancellable_sleep(POSITION_CHECK_INTERVAL_MINUTES * 60)
 
@@ -942,7 +1014,16 @@ def create_app() -> FastAPI:
             except Exception as e:
                 services.append({"name": "OpenRouter", "healthy": False, "latency_ms": None, "error": str(e)[:80]})
 
-        return {"services": services}
+        # Include bot health check results if available
+        health_checks: list[dict[str, str]] = []
+        for hc in engine._last_health_results:
+            health_checks.append({
+                "check_name": hc.check_name,
+                "status": hc.status,
+                "message": hc.message,
+            })
+
+        return {"services": services, "health_checks": health_checks}
 
     @app.get("/api/wallet")
     async def wallet():

@@ -5,18 +5,44 @@ import logging
 import os
 import sys
 
+os.makedirs("data", exist_ok=True)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("data/bot.log"),
+    ],
 )
 logger = logging.getLogger(__name__)
 
 
 async def main() -> None:
-    """Main orchestrator loop. Implemented in a later section."""
-    logger.info("Polymarket trading bot starting...")
-    # Full implementation in Section 8+
-    raise NotImplementedError("Main loop not yet implemented — build sections 1-8 first.")
+    """Main orchestrator loop — runs the bot without the web dashboard."""
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    logger.info("Polymarket trading bot starting (headless mode)...")
+
+    from web.server import BotEngine, WSManager
+
+    # Dummy WS manager (no WebSocket connections in headless mode)
+    ws = WSManager()
+    engine = BotEngine(ws)
+    await engine.start()
+
+    # Keep running until interrupted
+    try:
+        while engine.running:
+            await asyncio.sleep(5)
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        pass
+    finally:
+        if engine.running:
+            await engine.stop()
+        logger.info("Bot shut down.")
 
 
 if __name__ == "__main__":

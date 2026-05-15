@@ -46,7 +46,7 @@ Built section by section from `POLYMARKET_BOT_PLAN (1).md`. Build in order, run 
 **Next up: Section 7** — Monitoring & notifications (pnl.py, health.py, notifications.py)
 Then: Section 8 (health checks) → 9 (pipeline integration / main loop) → 10 (paper executor polish) → 11 (docs)
 
-Available skills: `/build-section N`, `/verify-section N`, `/status`, `/test-module <name>`, `/audit-llm`, `/check-health`, `/run-pipeline`, `/add-signal <name>`.
+Available skills: `/build-section N`, `/verify-section N`, `/status`, `/test-module <name>`, `/audit-llm`, `/check-health`, `/run-pipeline`, `/add-signal <name>`, `/improve-signal <name>`, `/tune-prompts`.
 
 ## Critical Rules — Do Not Violate
 
