@@ -1323,10 +1323,21 @@ def create_app() -> FastAPI:
         return entry
 
     @app.get("/api/trades")
-    async def trades():
+    async def trades(limit: int = 200):
         try:
-            from core.db import get_open_trades
-            return get_open_trades()
+            from core.db import get_all_trades
+            return get_all_trades(limit=min(limit, 500))
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": str(e)[:200]})
+
+    @app.get("/api/trades/{trade_id}")
+    async def trade_detail(trade_id: str):
+        try:
+            from core.db import get_trade_with_context
+            result = get_trade_with_context(trade_id)
+            if result is None:
+                return JSONResponse(status_code=404, content={"error": "Trade not found"})
+            return result
         except Exception as e:
             return JSONResponse(status_code=500, content={"error": str(e)[:200]})
 

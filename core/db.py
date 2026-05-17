@@ -16,11 +16,22 @@ logger = logging.getLogger(__name__)
 
 DB_PATH = Path(__file__).parent.parent / "data" / "bot.db"
 
+_shared_db: sqlite_utils.Database | None = None
+
 
 def get_db() -> sqlite_utils.Database:
-    """Return a Database instance, creating the data directory if needed."""
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    return sqlite_utils.Database(str(DB_PATH))
+    """Return a shared Database instance with WAL mode and busy timeout.
+
+    Using a single connection avoids 'database is locked' errors when
+    multiple async coroutines write concurrently.
+    """
+    global _shared_db
+    if _shared_db is None:
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _shared_db = sqlite_utils.Database(str(DB_PATH))
+        _shared_db.execute("PRAGMA journal_mode=WAL")
+        _shared_db.execute("PRAGMA busy_timeout=5000")
+    return _shared_db
 
 
 def ensure_tables() -> None:
@@ -298,6 +309,56 @@ def get_open_trades() -> list[dict[str, Any]]:
     """Return all trades with status PENDING."""
     db = get_db()
     return list(db["trades"].rows_where("status = ?", ["PENDING"]))
+
+
+def get_all_trades(limit: int = 200) -> list[dict[str, Any]]:
+    """Return all trades ordered by timestamp descending."""
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM trades ORDER BY timestamp DESC LIMIT ?",
+        [limit],
+    ).fetchall()
+    columns = [col.name for col in db["trades"].columns]
+    return [{columns[i]: row[i] for i in range(len(columns))} for row in rows]
+
+
+def get_trade_with_context(trade_id: str) -> dict[str, Any] | None:
+    """Return a single trade with linked frontier decision and signals."""
+    db = get_db()
+    try:
+        trade = dict(db["trades"].get(trade_id))
+    except Exception:
+        return None
+
+    market_id = trade.get("market_id", "")
+    result: dict[str, Any] = {"trade": trade, "frontier_decision": None, "signals": []}
+
+    # Find the closest frontier decision for this market (by timestamp)
+    try:
+        fd_rows = db.execute(
+            "SELECT * FROM frontier_decisions WHERE market_id = ? "
+            "ORDER BY ABS(julianday(timestamp) - julianday(?)) LIMIT 1",
+            [market_id, trade.get("timestamp", "")],
+        ).fetchall()
+        if fd_rows:
+            fd_cols = [col.name for col in db["frontier_decisions"].columns]
+            result["frontier_decision"] = {fd_cols[i]: fd_rows[0][i] for i in range(len(fd_cols))}
+    except Exception:
+        pass
+
+    # Get signals for this market
+    try:
+        sig_rows = db.execute(
+            "SELECT * FROM signals WHERE market_id = ? ORDER BY timestamp DESC LIMIT 20",
+            [market_id],
+        ).fetchall()
+        if sig_rows:
+            sig_cols = [col.name for col in db["signals"].columns]
+            result["signals"] = [{sig_cols[i]: row[i] for i in range(len(sig_cols))} for row in sig_rows]
+    except Exception:
+        pass
+
+    return result
 
 
 def get_recent_trade_count(hours: int = 1) -> int:

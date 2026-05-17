@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { colors, cardStyle, glowShadow, fonts, animDelay } from '../theme'
 import {
   api, HealthResponse, WalletResponse, CostResponse, BotStatus,
-  Position, PnlResponse, PaperBalance, CyclesResponse, ActivityEvent, Trade,
+  Position, PnlResponse, PaperBalance, CyclesResponse, ActivityEvent, Trade, TradeDetail,
 } from '../api'
 import CostBreakdown from './charts/CostBreakdown'
 import PnlChart from './charts/PnlChart'
@@ -270,6 +270,8 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
   const [cycles, setCycles] = useState<CyclesResponse | null>(null)
   const [trades, setTrades] = useState<Trade[]>([])
   const [actionLoading, setActionLoading] = useState(false)
+  const [selectedTrade, setSelectedTrade] = useState<TradeDetail | null>(null)
+  const [tradeModalLoading, setTradeModalLoading] = useState(false)
 
   // Live countdown state — ticks every second
   const [liveCountdowns, setLiveCountdowns] = useState<{
@@ -363,6 +365,18 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
       await api.fetchBotStatus().then(setBotStatus)
     } catch (e) { console.error('Failed to pause/resume bot:', e) }
     finally { setActionLoading(false) }
+  }
+
+  const handleTradeClick = async (tradeId: string) => {
+    setTradeModalLoading(true)
+    try {
+      const detail = await api.fetchTradeDetail(tradeId)
+      setSelectedTrade(detail)
+    } catch (e) {
+      console.error('Failed to fetch trade detail:', e)
+    } finally {
+      setTradeModalLoading(false)
+    }
   }
 
   const totalPnl = pnlData?.total_pnl ?? 0
@@ -995,7 +1009,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
             <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 3px', fontSize: 12 }}>
               <thead>
                 <tr>
-                  {['Time', 'Market', 'Side', 'Price', 'Size', 'Status', 'P&L'].map(h => (
+                  {['Time', 'Market', 'Side', 'Price', 'Fill', 'Size', 'Status', 'P&L'].map(h => (
                     <th key={h} style={{
                       padding: '8px 12px', textAlign: h === 'Market' || h === 'Time' ? 'left' : 'right',
                       color: colors.textDim, fontWeight: 500, fontSize: 10,
@@ -1008,60 +1022,94 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                 </tr>
               </thead>
               <tbody>
-                {trades.slice(0, 20).map((t, ti) => (
-                  <tr key={t.id || ti} style={{
-                    background: colors.bgCard,
-                    borderRadius: 6,
-                  }}>
-                    <td style={{
-                      padding: '8px 12px', fontSize: 10, fontFamily: fonts.mono,
-                      color: colors.textDim, whiteSpace: 'nowrap', borderRadius: '6px 0 0 6px',
-                    }}>
-                      {t.timestamp ? t.timestamp.replace('T', ' ').slice(0, 19) : '--'}
-                    </td>
-                    <td style={{
-                      padding: '8px 12px', maxWidth: 250, overflow: 'hidden',
-                      textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12,
-                    }}>
-                      {t.market_question || t.market_id}
-                      {t.paper === 1 && (
-                        <> <PillBadge text="PAPER" bg={colors.warningDim} fg={colors.warning} /></>
-                      )}
-                    </td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                      <PillBadge
-                        text={t.side === 'BUY_YES' ? 'YES' : t.side === 'BUY_NO' ? 'NO' : t.side}
-                        bg={t.side === 'BUY_NO' ? colors.dangerDim : colors.successDim}
-                        fg={t.side === 'BUY_NO' ? colors.danger : colors.success}
-                      />
-                    </td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
-                      ${t.price.toFixed(3)}
-                    </td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
-                      ${t.size.toFixed(2)}
-                    </td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                      <PillBadge
-                        text={t.status.toUpperCase()}
-                        bg={t.status === 'filled' ? colors.successDim : t.status === 'pending' ? colors.warningDim : colors.accentDim}
-                        fg={t.status === 'filled' ? colors.success : t.status === 'pending' ? colors.warning : colors.textMuted}
-                      />
-                    </td>
-                    <td style={{
-                      padding: '8px 12px', textAlign: 'right', fontFamily: fonts.mono,
-                      fontSize: 11, borderRadius: '0 6px 6px 0',
-                      color: colors.textDim,
-                    }}>
-                      --
-                    </td>
-                  </tr>
-                ))}
+                {trades.map((t, ti) => {
+                  const tradePnl = t.pnl
+                  const hasPnl = tradePnl != null && tradePnl !== 0
+                  return (
+                    <tr
+                      key={t.id || ti}
+                      onClick={() => handleTradeClick(t.id)}
+                      style={{
+                        background: colors.bgCard,
+                        borderRadius: 6,
+                        cursor: 'pointer',
+                        transition: 'background 0.2s',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = colors.bgCardHover }}
+                      onMouseLeave={e => { e.currentTarget.style.background = colors.bgCard }}
+                    >
+                      <td style={{
+                        padding: '8px 12px', fontSize: 10, fontFamily: fonts.mono,
+                        color: colors.textDim, whiteSpace: 'nowrap', borderRadius: '6px 0 0 6px',
+                      }}>
+                        {t.timestamp ? t.timestamp.replace('T', ' ').slice(0, 19) : '--'}
+                      </td>
+                      <td style={{
+                        padding: '8px 12px', maxWidth: 250, overflow: 'hidden',
+                        textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12,
+                      }}>
+                        {t.market_question || t.market_id}
+                        {t.paper === 1 && (
+                          <> <PillBadge text="PAPER" bg={colors.warningDim} fg={colors.warning} /></>
+                        )}
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                        <PillBadge
+                          text={t.side === 'BUY_YES' ? 'YES' : t.side === 'BUY_NO' ? 'NO' : t.side}
+                          bg={t.side === 'BUY_NO' ? colors.dangerDim : colors.successDim}
+                          fg={t.side === 'BUY_NO' ? colors.danger : colors.success}
+                        />
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
+                        ${t.price.toFixed(3)}
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
+                        {t.fill_price != null ? `$${t.fill_price.toFixed(3)}` : '--'}
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
+                        ${t.size.toFixed(2)}
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                        <PillBadge
+                          text={t.status.toUpperCase()}
+                          bg={t.status === 'FILLED' || t.status === 'filled' ? colors.successDim : t.status === 'PENDING' || t.status === 'pending' ? colors.warningDim : colors.accentDim}
+                          fg={t.status === 'FILLED' || t.status === 'filled' ? colors.success : t.status === 'PENDING' || t.status === 'pending' ? colors.warning : colors.textMuted}
+                        />
+                      </td>
+                      <td style={{
+                        padding: '8px 12px', textAlign: 'right', fontFamily: fonts.mono,
+                        fontSize: 11, borderRadius: '0 6px 6px 0',
+                      }}>
+                        {hasPnl ? (
+                          <span style={{
+                            padding: '2px 6px', borderRadius: 4,
+                            background: tradePnl >= 0 ? colors.successDim : colors.dangerDim,
+                            color: tradePnl >= 0 ? colors.success : colors.danger,
+                            fontWeight: 600,
+                          }}>
+                            {tradePnl >= 0 ? '+' : ''}${tradePnl.toFixed(2)}
+                          </span>
+                        ) : (
+                          <span style={{ color: colors.textDim }}>--</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
         )}
       </Card>
+
+      {/* Trade Detail Modal */}
+      {(selectedTrade || tradeModalLoading) && (
+        <TradeDetailModal
+          detail={selectedTrade}
+          loading={tradeModalLoading}
+          onClose={() => setSelectedTrade(null)}
+        />
+      )}
     </div>
   )
 }
@@ -1169,6 +1217,296 @@ function ActivityFeed({ events }: { events: ActivityEvent[] }) {
           </div>
         )
       })}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Trade Detail Modal
+// ---------------------------------------------------------------------------
+
+function TradeDetailModal({ detail, loading, onClose }: {
+  detail: TradeDetail | null; loading: boolean; onClose: () => void
+}) {
+  const trade = detail?.trade
+  const fd = detail?.frontier_decision
+  const signals = detail?.signals ?? []
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(3, 5, 9, 0.85)',
+        backdropFilter: 'blur(8px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        animation: 'fadeInUp 0.2s ease forwards',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: colors.gradientCard,
+          border: `1px solid ${colors.borderLight}`,
+          borderRadius: 14,
+          padding: 28,
+          width: '90%',
+          maxWidth: 720,
+          maxHeight: '85vh',
+          overflowY: 'auto',
+          position: 'relative',
+          boxShadow: glowShadow(colors.accent, 0.06),
+          scrollbarWidth: 'thin',
+          scrollbarColor: `${colors.border} transparent`,
+        }}
+      >
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          style={{
+            position: 'absolute', top: 14, right: 14,
+            background: 'rgba(255,255,255,0.05)', border: `1px solid ${colors.border}`,
+            borderRadius: 6, width: 28, height: 28,
+            color: colors.textMuted, cursor: 'pointer', fontSize: 14,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontFamily: fonts.mono,
+          }}
+        >
+          x
+        </button>
+
+        {loading || !trade ? (
+          <div style={{
+            padding: 40, textAlign: 'center', color: colors.textDim,
+            fontFamily: fonts.mono, fontSize: 12,
+          }}>
+            Loading trade details...
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            {/* Header */}
+            <div>
+              <div style={{
+                fontSize: 9, color: colors.textDim, fontFamily: fonts.mono,
+                textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6,
+              }}>
+                Trade Detail
+              </div>
+              <div style={{
+                fontSize: 16, color: colors.textPrimary, fontFamily: fonts.body,
+                fontWeight: 600, lineHeight: 1.3,
+              }}>
+                {trade.market_question || trade.market_id}
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                <PillBadge
+                  text={trade.side === 'BUY_YES' ? 'YES' : trade.side === 'BUY_NO' ? 'NO' : trade.side}
+                  bg={trade.side === 'BUY_NO' ? colors.dangerDim : colors.successDim}
+                  fg={trade.side === 'BUY_NO' ? colors.danger : colors.success}
+                />
+                <PillBadge
+                  text={trade.status.toUpperCase()}
+                  bg={trade.status === 'FILLED' || trade.status === 'filled' ? colors.successDim : colors.warningDim}
+                  fg={trade.status === 'FILLED' || trade.status === 'filled' ? colors.success : colors.warning}
+                />
+                {trade.paper === 1 && <PillBadge text="PAPER" bg={colors.warningDim} fg={colors.warning} />}
+              </div>
+            </div>
+
+            {/* Trade Info Grid */}
+            <div style={{
+              display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12,
+              background: 'rgba(0,229,255,0.02)', borderRadius: 8,
+              padding: 14, border: `1px solid ${colors.border}`,
+            }}>
+              <ModalStat label="Limit Price" value={`$${trade.price.toFixed(4)}`} />
+              <ModalStat label="Fill Price" value={trade.fill_price != null ? `$${trade.fill_price.toFixed(4)}` : '--'} />
+              <ModalStat label="Size (tokens)" value={trade.size.toFixed(2)} />
+              <ModalStat
+                label="P&L"
+                value={trade.pnl != null ? `${trade.pnl >= 0 ? '+' : ''}$${trade.pnl.toFixed(2)}` : '--'}
+                color={trade.pnl != null ? (trade.pnl >= 0 ? colors.success : colors.danger) : undefined}
+              />
+              <ModalStat label="Placed At" value={trade.placed_at ? trade.placed_at.replace('T', ' ').slice(0, 19) : '--'} />
+              <ModalStat label="Timestamp" value={trade.timestamp ? trade.timestamp.replace('T', ' ').slice(0, 19) : '--'} />
+              <ModalStat label="Order ID" value={trade.order_id ? trade.order_id.slice(0, 16) : '--'} />
+              <ModalStat label="Trade ID" value={trade.id.slice(0, 16)} />
+            </div>
+
+            {/* Frontier Decision — Why This Trade Was Placed */}
+            {fd && (
+              <div>
+                <div style={{
+                  fontSize: 10, color: colors.textMuted, fontFamily: fonts.mono,
+                  textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10,
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  <span style={{
+                    width: 4, height: 4, borderRadius: 1,
+                    background: colors.purple, boxShadow: `0 0 6px ${colors.purple}`,
+                  }} />
+                  Why This Trade Was Placed
+                </div>
+                <div style={{
+                  display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12,
+                  background: 'rgba(139,92,246,0.03)', borderRadius: 8,
+                  padding: 14, border: `1px solid rgba(139,92,246,0.1)`,
+                }}>
+                  <ModalStat label="Estimated Prob" value={`${(fd.estimated_prob * 100).toFixed(1)}%`} color={colors.accent} />
+                  <ModalStat label="Market Price" value={`${(fd.market_price * 100).toFixed(1)}%`} />
+                  <ModalStat label="Edge" value={`${(fd.edge * 100).toFixed(1)}%`} color={fd.edge > 0 ? colors.success : colors.danger} />
+                  <ModalStat label="Confidence" value={`${(fd.confidence * 100).toFixed(0)}%`} />
+                  <ModalStat label="Kelly Fraction" value={`${(fd.kelly_fraction * 100).toFixed(2)}%`} />
+                  <ModalStat label="Bet Size" value={`$${fd.bet_size_usd.toFixed(2)}`} color={colors.warning} />
+                  <ModalStat label="Effective Prob" value={`${(fd.effective_prob * 100).toFixed(1)}%`} />
+                  <ModalStat label="Decision" value={fd.should_trade ? 'TRADE' : 'SKIP'} color={fd.should_trade ? colors.success : colors.danger} />
+                </div>
+
+                {/* Edge visual bar */}
+                <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 9, color: colors.textDim, fontFamily: fonts.mono, minWidth: 64, textTransform: 'uppercase' }}>
+                    Edge
+                  </span>
+                  <div style={{
+                    flex: 1, height: 6, background: 'rgba(255,255,255,0.04)',
+                    borderRadius: 3, overflow: 'hidden', position: 'relative',
+                  }}>
+                    {/* Center line (0 edge) */}
+                    <div style={{
+                      position: 'absolute', left: '50%', top: 0, bottom: 0,
+                      width: 1, background: colors.border,
+                    }} />
+                    <div style={{
+                      position: 'absolute',
+                      left: fd.edge >= 0 ? '50%' : `${50 + fd.edge * 500}%`,
+                      width: `${Math.abs(fd.edge) * 500}%`,
+                      maxWidth: '50%',
+                      height: '100%', borderRadius: 3,
+                      background: fd.edge > 0 ? colors.gradientSuccess : colors.gradientDanger,
+                      boxShadow: `0 0 8px ${fd.edge > 0 ? colors.success : colors.danger}40`,
+                    }} />
+                  </div>
+                  <span style={{
+                    fontSize: 11, fontFamily: fonts.mono, fontWeight: 600,
+                    color: fd.edge > 0 ? colors.success : colors.danger, minWidth: 50, textAlign: 'right',
+                  }}>
+                    {fd.edge > 0 ? '+' : ''}{(fd.edge * 100).toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Signals */}
+            {signals.length > 0 && (
+              <div>
+                <div style={{
+                  fontSize: 10, color: colors.textMuted, fontFamily: fonts.mono,
+                  textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10,
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  <span style={{
+                    width: 4, height: 4, borderRadius: 1,
+                    background: colors.accent, boxShadow: `0 0 6px ${colors.accent}`,
+                  }} />
+                  Signal Breakdown ({signals.length} signals)
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {signals.map((sig, si) => (
+                    <div key={sig.id || si} style={{
+                      padding: '10px 14px', borderRadius: 8,
+                      background: 'rgba(0,229,255,0.02)',
+                      border: `1px solid ${colors.border}`,
+                    }}>
+                      <div style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        marginBottom: 6,
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{
+                            fontSize: 11, fontWeight: 600, color: colors.textPrimary,
+                            fontFamily: fonts.mono,
+                          }}>
+                            {sig.signal_source}
+                          </span>
+                          <span style={{
+                            fontSize: 9, color: colors.textDim, fontFamily: fonts.mono,
+                          }}>
+                            {sig.model_used}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                          <span style={{
+                            fontSize: 12, fontWeight: 600, fontFamily: fonts.mono,
+                            color: colors.accent,
+                          }}>
+                            {(sig.probability * 100).toFixed(1)}%
+                          </span>
+                          <span style={{
+                            fontSize: 10, fontFamily: fonts.mono, color: colors.textMuted,
+                          }}>
+                            conf: {(sig.confidence * 100).toFixed(0)}%
+                          </span>
+                        </div>
+                      </div>
+                      {/* Probability bar */}
+                      <div style={{
+                        width: '100%', height: 3, background: 'rgba(255,255,255,0.04)',
+                        borderRadius: 2, overflow: 'hidden', marginBottom: 6,
+                      }}>
+                        <div style={{
+                          height: '100%', width: `${sig.probability * 100}%`,
+                          background: colors.gradientAccent, borderRadius: 2,
+                        }} />
+                      </div>
+                      {sig.reasoning && (
+                        <div style={{
+                          fontSize: 10, color: colors.textMuted, fontFamily: fonts.body,
+                          lineHeight: 1.4, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                        }}>
+                          {sig.reasoning.length > 300 ? sig.reasoning.slice(0, 300) + '...' : sig.reasoning}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Raw IDs */}
+            <div style={{
+              fontSize: 9, color: colors.textDim, fontFamily: fonts.mono,
+              display: 'flex', flexDirection: 'column', gap: 3,
+              padding: '10px 12px', borderRadius: 6,
+              background: 'rgba(0,0,0,0.2)', border: `1px solid ${colors.border}`,
+            }}>
+              <span>Market ID: {trade.market_id}</span>
+              <span>Token ID: {trade.token_id}</span>
+              <span>Trade ID: {trade.id}</span>
+              {trade.order_id && <span>Order ID: {trade.order_id}</span>}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ModalStat({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div>
+      <div style={{
+        fontSize: 9, color: colors.textDim, fontFamily: fonts.mono,
+        letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 3,
+      }}>
+        {label}
+      </div>
+      <div style={{
+        fontSize: 13, fontWeight: 600, fontFamily: fonts.mono,
+        color: color || colors.textPrimary, letterSpacing: '-0.02em',
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      }}>
+        {value}
+      </div>
     </div>
   )
 }

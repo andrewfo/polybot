@@ -108,7 +108,43 @@ export interface Trade {
   paper: number
   timestamp: string
   order_id?: string
+  placed_at?: string
   market_question?: string
+  fill_price?: number | null
+  pnl?: number | null
+}
+
+export interface FrontierDecision {
+  id: number
+  market_id: string
+  estimated_prob: number
+  effective_prob: number
+  market_price: number
+  edge: number
+  kelly_fraction: number
+  bet_size_usd: number
+  confidence: number
+  should_trade: number
+  skip_reason: string
+  timestamp: string
+}
+
+export interface Signal {
+  id: number
+  market_id: string
+  signal_source: string
+  probability: number
+  confidence: number
+  reasoning: string
+  model_used: string
+  timestamp: string
+  raw_data?: string
+}
+
+export interface TradeDetail {
+  trade: Trade
+  frontier_decision: FrontierDecision | null
+  signals: Signal[]
 }
 
 export interface LogEntry {
@@ -317,6 +353,7 @@ export const api = {
   fetchAnalysisDetail: (conditionId: string) =>
     fetchJSON<AnalysisDetail>(`/api/analysis/${conditionId}`),
   fetchTrades: () => fetchJSON<Trade[]>('/api/trades'),
+  fetchTradeDetail: (tradeId: string) => fetchJSON<TradeDetail>(`/api/trades/${tradeId}`),
   fetchLogs: (level = 'ALL', limit = 100) =>
     fetchJSON<LogEntry[]>(`/api/logs?level=${level}&limit=${limit}`),
   startBot: () => postJSON<{ status: string }>('/api/bot/start'),
