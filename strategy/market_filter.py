@@ -28,8 +28,8 @@ from core.llm import LLMClient
 
 # Gamma API returns richer market data (liquidity, volume, spread, etc.)
 GAMMA_API_BASE = "https://gamma-api.polymarket.com"
-GAMMA_FETCH_LIMIT = 200  # per page
-GAMMA_MAX_PAGES = 5      # up to 1000 markets total
+GAMMA_FETCH_LIMIT = 100  # per page (Gamma API caps at 100)
+GAMMA_MAX_PAGES = 10     # up to 1000 markets total
 
 logger = logging.getLogger(__name__)
 
@@ -70,11 +70,11 @@ VALID_CATEGORIES = frozenset({"crypto", "other"})
 CRYPTO_KEYWORDS = frozenset({
     # Major coins
     "bitcoin", "btc", "ethereum", "eth", "solana", "sol", "cardano", "ada",
-    "ripple", "xrp", "dogecoin", "doge", "polkadot", "dot", "avalanche", "avax",
-    "chainlink", "link", "polygon", "matic", "litecoin", "ltc", "uniswap", "uni",
-    "cosmos", "atom", "near", "aptos", "apt", "arbitrum", "arb", "optimism",
-    "sui", "sei", "celestia", "tia", "jupiter", "jup", "bonk", "pepe",
-    "shiba", "shib", "toncoin", "ton", "tron", "trx", "stellar", "xlm",
+    "ripple", "xrp", "dogecoin", "doge", "polkadot", "avax",
+    "chainlink", "polygon", "matic", "litecoin", "ltc", "uniswap",
+    "aptos", "apt", "arbitrum", "arb", "optimism",
+    "celestia", "tia", "bonk", "pepe",
+    "shiba", "shib", "toncoin", "tron", "trx", "stellar", "xlm",
     "hedera", "hbar", "filecoin", "fil", "render", "rndr", "injective", "inj",
     "stacks", "stx", "kaspa", "kas", "mantle", "mnt", "beam", "wormhole",
     # Generic crypto terms
@@ -87,7 +87,7 @@ CRYPTO_KEYWORDS = frozenset({
 # Multi-word patterns checked as substrings (lowercased)
 CRYPTO_BIGRAMS = [
     "bitcoin etf", "ethereum etf", "crypto etf", "spot etf",
-    "btc price", "eth price", "crypto market", "market cap",
+    "btc price", "eth price", "crypto market", "crypto market cap",
     "hash rate", "gas fee", "smart contract", "layer 2",
     "proof of stake", "proof of work",
 ]

@@ -22,10 +22,10 @@ TEST_BANKROLL = float(os.getenv("TEST_BANKROLL", "1000"))            # Placehold
 # --- Market Filtering ---
 MIN_MARKET_LIQUIDITY = float(os.getenv("MIN_MARKET_LIQUIDITY", "500"))
 MAX_MARKET_LIQUIDITY = float(os.getenv("MAX_MARKET_LIQUIDITY", "500000"))
-MIN_HOURS_TO_RESOLUTION = int(os.getenv("MIN_HOURS_TO_RESOLUTION", "72"))
-MAX_DAYS_TO_RESOLUTION = int(os.getenv("MAX_DAYS_TO_RESOLUTION", "30"))
+MIN_HOURS_TO_RESOLUTION = int(os.getenv("MIN_HOURS_TO_RESOLUTION", "24"))
+MAX_DAYS_TO_RESOLUTION = int(os.getenv("MAX_DAYS_TO_RESOLUTION", "45"))
 MAX_SPREAD = float(os.getenv("MAX_SPREAD", "0.05"))
-MIN_24H_VOLUME = float(os.getenv("MIN_24H_VOLUME", "500"))
+MIN_24H_VOLUME = float(os.getenv("MIN_24H_VOLUME", "100"))
 MARKET_CACHE_REFRESH_SECONDS = int(os.getenv("MARKET_CACHE_REFRESH_SECONDS", "1800"))  # 30 minutes
 
 # --- Operational ---
