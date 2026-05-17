@@ -738,33 +738,44 @@ def validate_resolution_params(market: dict[str, Any]) -> tuple[bool, str]:
     return True, "ok"
 
 
-def filter_computable_markets(
+def classify_market_types(
     markets: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Remove crypto markets that our math models cannot handle.
+    """Classify crypto markets as price_target or event.
 
-    This is the critical gate: only markets with a valid coin_id,
-    numeric target_value, and above/below direction pass through.
-    Markets about crypto events, regulations, adoption, etc. are dropped.
+    Price-target markets have a valid coin_id, numeric target_value,
+    and above/below direction — our math models can compute probability.
+
+    Event markets (ETF approvals, regulations, protocol upgrades, etc.)
+    lack these params but can be analyzed via LLM signals.
+
+    Both types are returned with ``_market_type`` tag attached.
     """
-    valid = []
-    rejected = 0
+    price_target_count = 0
+    event_count = 0
     for m in markets:
         ok, reason = validate_resolution_params(m)
         if ok:
-            valid.append(m)
+            m["_market_type"] = "price_target"
+            price_target_count += 1
         else:
-            rejected += 1
+            m["_market_type"] = "event"
+            m["_computability_reason"] = reason
+            event_count += 1
             logger.debug(
-                "Rejected '%s': %s",
+                "Event market '%s': %s",
                 m.get("question", "")[:80], reason,
             )
 
     logger.info(
-        "Computability filter: %d → %d markets (%d rejected as non-computable)",
-        len(markets), len(valid), rejected,
+        "classify_market_types: %d price_target, %d event (of %d total)",
+        price_target_count, event_count, len(markets),
     )
-    return valid
+    return markets
+
+
+# Backward-compat alias
+filter_computable_markets = classify_market_types
 
 
 async def pre_screen_crypto_edge(
@@ -814,8 +825,11 @@ async def pre_screen_crypto_edge(
             resolution_type = params.get("resolution_type", "barrier")
 
             if not coin_id or target_value is None:
-                # Crypto market without clean price target — our math can't model this
-                # Don't give baseline edge; these will be filtered out
+                # Event-based market — assign baseline edge for ranking.
+                # These markets rely on LLM signals, not math models.
+                from config.settings import EVENT_MARKET_BASELINE_EDGE
+                m["_model_edge"] = EVENT_MARKET_BASELINE_EDGE
+                m["_model_prob"] = None
                 continue
 
             try:
@@ -940,7 +954,19 @@ def rank_candidates(filtered_markets: list[dict[str, Any]]) -> list[dict[str, An
         prices = _get_outcome_prices(market)
         market_price = prices[0] if prices else 0.50
         kelly_leverage = min(3.0, 1.0 / max(0.05, market_price * (1.0 - market_price)))
-        adjusted_edge = model_edge * kelly_leverage
+
+        if market.get("_market_type") == "event":
+            # Event markets: no math model edge, so use baseline + market characteristics
+            adjusted_edge = model_edge  # baseline from pre_screen (EVENT_MARKET_BASELINE_EDGE)
+            # Boost for tradeable price range (not too certain)
+            if 0.20 <= market_price <= 0.80:
+                score += 3
+            volume = _get_volume_24h(market)
+            if volume > 1000:
+                score += 2
+        else:
+            adjusted_edge = model_edge * kelly_leverage
+
         market["_adjusted_edge"] = round(adjusted_edge, 4)
 
         # Liquidity scoring — mid-liquidity markets are more likely mispriced

@@ -64,6 +64,12 @@ MAX_DIVERGENCE_LOW_CONFIDENCE = float(os.getenv("MAX_DIVERGENCE_LOW_CONFIDENCE",
 MAX_DIVERGENCE_ANY_CONFIDENCE = float(os.getenv("MAX_DIVERGENCE_ANY_CONFIDENCE", "0.50"))   # max divergence regardless of confidence
 DIVERGENCE_CONFIDENCE_THRESHOLD = float(os.getenv("DIVERGENCE_CONFIDENCE_THRESHOLD", "0.7"))
 
+# --- Event Market Thresholds ---
+# Event markets (crypto events, not price targets) use LLM signals instead of math models
+MIN_FRONTIER_CONFIDENCE_EVENT = float(os.getenv("MIN_FRONTIER_CONFIDENCE_EVENT", "0.25"))
+MAX_DIVERGENCE_LOW_CONFIDENCE_EVENT = float(os.getenv("MAX_DIVERGENCE_LOW_CONFIDENCE_EVENT", "0.45"))
+EVENT_MARKET_BASELINE_EDGE = float(os.getenv("EVENT_MARKET_BASELINE_EDGE", "0.05"))
+
 # --- Order Book Depth Analysis ---
 MAX_ACCEPTABLE_SLIPPAGE = float(os.getenv("MAX_ACCEPTABLE_SLIPPAGE", "0.03"))  # 3% max slippage
 MIN_DEPTH_USD = float(os.getenv("MIN_DEPTH_USD", "200"))  # Skip if total book depth < $50

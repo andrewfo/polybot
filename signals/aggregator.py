@@ -17,9 +17,12 @@ from typing import Any, Optional
 
 from config.settings import (
     DIVERGENCE_CONFIDENCE_THRESHOLD,
+    EVENT_MARKET_BASELINE_EDGE,
     MAX_DIVERGENCE_ANY_CONFIDENCE,
     MAX_DIVERGENCE_LOW_CONFIDENCE,
+    MAX_DIVERGENCE_LOW_CONFIDENCE_EVENT,
     MIN_FRONTIER_CONFIDENCE,
+    MIN_FRONTIER_CONFIDENCE_EVENT,
     ONCHAIN_FLOW_SIGNAL_WEIGHT,
     PREDICTION_MARKETS_SIGNAL_WEIGHT,
     RESOLUTION_SIGNAL_WEIGHT,
@@ -46,6 +49,14 @@ DEFAULT_SIGNAL_WEIGHT_MULTIPLIERS: dict[str, float] = {
     "prediction_markets": PREDICTION_MARKETS_SIGNAL_WEIGHT,
     "web_search": WEB_SEARCH_SIGNAL_WEIGHT,
     "onchain_flow": ONCHAIN_FLOW_SIGNAL_WEIGHT,
+}
+
+# Event markets rely on LLM signals — math model is not available
+EVENT_SIGNAL_WEIGHT_MULTIPLIERS: dict[str, float] = {
+    "resolution_crypto": 0.0,
+    "prediction_markets": 2.0,
+    "web_search": 2.0,
+    "onchain_flow": 1.0,
 }
 
 
@@ -313,6 +324,7 @@ def _build_frontier_prompt(
     signals: list[SignalResult],
     preliminary_prob: float,
     date_context_line: str = "",
+    market_type: str = "price_target",
 ) -> str:
     """Build the frontier model user prompt from the plan spec.
 
@@ -341,6 +353,36 @@ def _build_frontier_prompt(
 
     date_line = f"\n{date_context_line}\n" if date_context_line else ""
 
+    if market_type == "event":
+        instructions = (
+            f'Instructions:\n'
+            f'1. Critically evaluate each signal source. Are any likely biased or unreliable?\n'
+            f'2. This is an EVENT-BASED market (not a price-target). There is no mathematical model. '
+            f'Your estimate should be based on web search evidence, cross-platform market consensus, '
+            f'and your own reasoning about the likelihood of this event occurring.\n'
+            f'3. Weight recent, specific evidence more heavily than general sentiment. '
+            f'Look for concrete indicators: regulatory filings, official announcements, deadlines, '
+            f'expert statements, and historical precedent for similar events.\n'
+            f'4. Consider base rates for this type of event.\n'
+            f'5. Consider what information the market might have that our signals don\'t.\n'
+            f'6. Provide your final probability estimate.\n'
+            f'7. Rate your overall confidence (0-1) in this estimate.\n'
+            f'8. Explain your reasoning in 2-3 sentences.'
+        )
+    else:
+        instructions = (
+            f'Instructions:\n'
+            f'1. Critically evaluate each signal source. Are any likely biased or unreliable?\n'
+            f'2. Signals marked as "DIRECT RESOLUTION SOURCE" come from the actual data providers (FRED, CoinGecko) whose data would be used to resolve this market. Weight these more heavily than news or sentiment signals.\n'
+            f'3. IMPORTANT: Check whether the market\'s resolution criteria specifies a particular data source, exchange, timestamp methodology, or TWAP that might differ from the signal data provided. If the resolution source differs from our data source (e.g., market resolves on Binance spot price but our data is from CoinGecko aggregated price), adjust your confidence downward accordingly.\n'
+            f'3b. For crypto markets showing both Terminal and Barrier model probabilities: evaluate which resolution type actually applies. "Will price reach X by date Y" is barrier (touch anytime). "Will price be above X on date Y" is terminal (price at expiry). If the selected model seems wrong for the market question, use the other model\'s probability instead.\n'
+            f'4. Consider base rates for this type of event.\n'
+            f'5. Consider what information the market might have that our signals don\'t.\n'
+            f'6. Provide your final probability estimate.\n'
+            f'7. Rate your overall confidence (0-1) in this estimate.\n'
+            f'8. Explain your reasoning in 2-3 sentences.'
+        )
+
     return (
         f'You are a superforecaster analyzing a prediction market. Your job is to estimate the true probability of an event as accurately as possible.\n'
         f'{date_line}'
@@ -356,16 +398,7 @@ def _build_frontier_prompt(
         f'Preliminary weighted estimate: {preliminary_prob}\n'
         f'Signal agreement (pre-computed): {_compute_signals_agreement(signals)}\n'
         f'\n'
-        f'Instructions:\n'
-        f'1. Critically evaluate each signal source. Are any likely biased or unreliable?\n'
-        f'2. Signals marked as "DIRECT RESOLUTION SOURCE" come from the actual data providers (FRED, CoinGecko) whose data would be used to resolve this market. Weight these more heavily than news or sentiment signals.\n'
-        f'3. IMPORTANT: Check whether the market\'s resolution criteria specifies a particular data source, exchange, timestamp methodology, or TWAP that might differ from the signal data provided. If the resolution source differs from our data source (e.g., market resolves on Binance spot price but our data is from CoinGecko aggregated price), adjust your confidence downward accordingly.\n'
-        f'3b. For crypto markets showing both Terminal and Barrier model probabilities: evaluate which resolution type actually applies. "Will price reach X by date Y" is barrier (touch anytime). "Will price be above X on date Y" is terminal (price at expiry). If the selected model seems wrong for the market question, use the other model\'s probability instead.\n'
-        f'4. Consider base rates for this type of event.\n'
-        f'5. Consider what information the market might have that our signals don\'t.\n'
-        f'6. Provide your final probability estimate.\n'
-        f'7. Rate your overall confidence (0-1) in this estimate.\n'
-        f'8. Explain your reasoning in 2-3 sentences.\n'
+        f'{instructions}\n'
         f'\n'
         f'IMPORTANT: Be calibrated. Do not anchor to the market price — form your own estimate from the evidence. If your data-driven estimate disagrees with the market, trust the data. Markets can be wrong, especially in mid-to-low liquidity crypto markets.\n'
         f'\n'
@@ -439,7 +472,11 @@ class SignalAggregator:
 
         # Refresh dynamic weight multipliers from calibration data
         global SIGNAL_WEIGHT_MULTIPLIERS
-        SIGNAL_WEIGHT_MULTIPLIERS = _get_signal_weight_multipliers()
+        market_type = kwargs.get("market_type", "price_target")
+        if market_type == "event":
+            SIGNAL_WEIGHT_MULTIPLIERS = EVENT_SIGNAL_WEIGHT_MULTIPLIERS
+        else:
+            SIGNAL_WEIGHT_MULTIPLIERS = _get_signal_weight_multipliers()
 
         # Step 1: Collect signals from all providers
         raw_results = await asyncio.gather(
@@ -470,22 +507,33 @@ class SignalAggregator:
             f"{len(usable_signals)} usable of {len(all_signals)} total signals",
         )
 
-        # Step 3: Require at least 2 usable signals AND the math-based signal
-        has_math_signal = any(
-            s.source == "resolution_crypto" for s in usable_signals
-        )
-        if len(usable_signals) < 2 or not has_math_signal:
+        # Step 3: Check minimum signal requirements (varies by market type)
+        market_type = kwargs.get("market_type", "price_target")
+        skip_reason = None
+
+        if market_type == "event":
+            # Event markets: need 2+ usable signals from any source (no math model required)
+            if len(usable_signals) < 2:
+                skip_reason = f"only {len(usable_signals)} usable signals (need 2+ for event market)"
+        else:
+            # Price-target markets: need 2+ usable signals AND the math-based signal
+            has_math_signal = any(
+                s.source == "resolution_crypto" for s in usable_signals
+            )
             reasons = []
             if len(usable_signals) < 2:
                 reasons.append(f"only {len(usable_signals)} usable signals (need 2+)")
             if not has_math_signal:
                 reasons.append("missing resolution_crypto math signal")
-            reason = "; ".join(reasons)
-            logger.info("Insufficient signals for '%s': %s, skipping", market_question[:60], reason)
-            self._emit(market_question, "skip", reason)
+            if reasons:
+                skip_reason = "; ".join(reasons)
+
+        if skip_reason:
+            logger.info("Insufficient signals for '%s': %s, skipping", market_question[:60], skip_reason)
+            self._emit(market_question, "skip", skip_reason)
             self._log_aggregated_signal(
                 market_question, "aggregator_skip", None, 0.0,
-                f"Insufficient signals — {reason} — skipping market", "none",
+                f"Insufficient signals — {skip_reason} — skipping market", "none",
             )
             return AggregatedSignal(
                 market_question=market_question,
@@ -500,7 +548,7 @@ class SignalAggregator:
                 individual_signals=usable_signals,
                 all_signals=all_signals,
                 skipped=True,
-                skip_reason=reason,
+                skip_reason=skip_reason,
             )
 
         # Step 4: Compute weighted preliminary estimate
@@ -528,6 +576,7 @@ class SignalAggregator:
             signals=usable_signals,
             preliminary_prob=preliminary_prob,
             date_context_line=date_context_line,
+            market_type=market_type,
         )
 
         # Log full prompts for audit trail
@@ -562,9 +611,10 @@ class SignalAggregator:
 
         # Step 6a: Post-response divergence sanity check
         divergence = abs(final_prob - market_price)
+        eff_max_div_low = MAX_DIVERGENCE_LOW_CONFIDENCE_EVENT if market_type == "event" else MAX_DIVERGENCE_LOW_CONFIDENCE
         if (
             divergence > MAX_DIVERGENCE_ANY_CONFIDENCE
-            or (divergence > MAX_DIVERGENCE_LOW_CONFIDENCE and final_conf < DIVERGENCE_CONFIDENCE_THRESHOLD)
+            or (divergence > eff_max_div_low and final_conf < DIVERGENCE_CONFIDENCE_THRESHOLD)
         ):
             logger.warning(
                 "Frontier divergence sanity check FAILED for '%s': "
@@ -585,16 +635,17 @@ class SignalAggregator:
             return None
 
         # Step 6b: If confidence < threshold -> skip market
-        if final_conf < MIN_FRONTIER_CONFIDENCE:
+        eff_min_conf = MIN_FRONTIER_CONFIDENCE_EVENT if market_type == "event" else MIN_FRONTIER_CONFIDENCE
+        if final_conf < eff_min_conf:
             logger.info(
                 "Frontier confidence %.2f < %.2f for '%s', skipping",
-                final_conf, MIN_FRONTIER_CONFIDENCE, market_question[:60],
+                final_conf, eff_min_conf, market_question[:60],
             )
             self._emit(market_question, "skip", f"frontier confidence too low ({final_conf:.2f})")
             self._log_aggregated_signal(
                 market_question, "aggregator_low_confidence",
                 final_prob, final_conf,
-                f"Frontier confidence {final_conf:.2f} < {MIN_FRONTIER_CONFIDENCE} — skipping",
+                f"Frontier confidence {final_conf:.2f} < {eff_min_conf} — skipping",
                 "frontier",
             )
             return None

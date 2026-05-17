@@ -578,7 +578,7 @@ class TestValidateResolutionParams:
 
 
 class TestFilterComputableMarkets:
-    """Test that non-computable markets are filtered out."""
+    """Test that markets are classified as price_target or event."""
 
     def test_keeps_valid_markets(self) -> None:
         m1 = _make_market(condition_id="a", question="Will BTC hit $100k?",
@@ -593,8 +593,9 @@ class TestFilterComputableMarkets:
                           })
         result = filter_computable_markets([m1, m2])
         assert len(result) == 2
+        assert all(m["_market_type"] == "price_target" for m in result)
 
-    def test_rejects_event_markets(self) -> None:
+    def test_classifies_event_markets(self) -> None:
         # Crypto event question — no price target
         m1 = _make_market(condition_id="a", question="Will SEC approve Bitcoin ETF?",
                           _resolution_params={
@@ -608,13 +609,15 @@ class TestFilterComputableMarkets:
                               "target_direction": "above", "resolution_type": "barrier",
                           })
         result = filter_computable_markets([m1, m2])
-        assert len(result) == 1
-        assert result[0]["condition_id"] == "b"
+        assert len(result) == 2  # Both kept, but classified differently
+        assert result[0]["_market_type"] == "event"
+        assert result[1]["_market_type"] == "price_target"
 
-    def test_rejects_markets_without_params(self) -> None:
+    def test_classifies_markets_without_params_as_event(self) -> None:
         m = _make_market(condition_id="a", question="Will Binance get hacked?")
         result = filter_computable_markets([m])
-        assert len(result) == 0
+        assert len(result) == 1
+        assert result[0]["_market_type"] == "event"
 
 
 class TestCategorizeMarketKeywords:

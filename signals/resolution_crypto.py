@@ -788,14 +788,25 @@ class CryptoResolutionProvider(SignalProvider):
         target_direction = resolution_keywords.get("target_direction", "above")
 
         if target_value is None:
+            # Event market — no price target, but provide context data
+            # so the frontier model can see current price/trend info
+            trend = "No history available"
+            if chart_data and len(chart_data) >= 2:
+                trend = _describe_trend(chart_data)
             return SignalResult(
                 source="resolution_crypto",
                 probability=None,
-                confidence=0.1,
-                reasoning=f"No target value specified. Current {coin_id} price: ${current_price:,.2f}",
+                confidence=0.0,  # Explicitly 0 so aggregator excludes from weighted average
+                reasoning=f"Event market (no price target). Current {coin_id} price: ${current_price:,.2f}, 24h change: {change_24h:+.1f}%",
                 model_used="none",
                 data_points=1,
-                raw_data={"current_price": current_price, "coin_id": coin_id},
+                raw_data={
+                    "current_price": current_price,
+                    "coin_id": coin_id,
+                    "market_type": "event",
+                    "change_24h": change_24h,
+                    "trend": trend,
+                },
             )
 
         target_price = float(target_value)

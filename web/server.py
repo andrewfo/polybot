@@ -217,9 +217,9 @@ class BotEngine:
                 # Full filter pipeline
                 from strategy.market_filter import (
                     batch_categorize_markets,
+                    classify_market_types,
                     discover_markets,
                     extract_resolution_params,
-                    filter_computable_markets,
                     filter_markets,
                     pre_screen_crypto_edge,
                     rank_candidates,
@@ -240,8 +240,8 @@ class BotEngine:
                     if params:
                         m["_resolution_params"] = params
 
-                # Gate: only keep markets our math can actually model
-                crypto = filter_computable_markets(crypto)
+                # Classify markets as price_target or event (both kept)
+                crypto = classify_market_types(crypto)
 
                 # Pre-screen with CoinGecko math
                 crypto = await pre_screen_crypto_edge(crypto)
@@ -291,7 +291,7 @@ class BotEngine:
                             )
                             if params:
                                 m["_resolution_params"] = params
-                        crypto = filter_computable_markets(crypto)
+                        crypto = classify_market_types(crypto)
                         crypto = await pre_screen_crypto_edge(crypto)
                         ranked = rank_candidates(crypto)
                         self.filtered_market_cache = ranked
@@ -552,6 +552,7 @@ class BotEngine:
             market_price=market_price,
             condition_id=cid,
             resolution_keywords=m.get("_resolution_params"),
+            market_type=m.get("_market_type", "price_target"),
         )
 
         self.aggregated_ids[cid] = {"timestamp": time.time(), "market_price": market_price}
