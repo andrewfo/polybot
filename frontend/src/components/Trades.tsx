@@ -141,6 +141,30 @@ function PaperBadge() {
   )
 }
 
+const RESOLUTION_CONFIG: Record<string, { label: string; fg: string }> = {
+  pending_fill: { label: 'AWAITING FILL', fg: '#8899bb' },
+  open_winning: { label: 'WINNING', fg: '#00ff88' },
+  open_losing:  { label: 'LOSING', fg: '#ff3366' },
+  open_flat:    { label: 'FLAT', fg: '#8899bb' },
+  won:          { label: 'WON', fg: '#00ff88' },
+  lost:         { label: 'LOST', fg: '#ff3366' },
+  expired:      { label: 'EXPIRED', fg: '#556688' },
+}
+
+function ResolutionBadge({ status }: { status: string | undefined }) {
+  if (!status) return null
+  const cfg = RESOLUTION_CONFIG[status] || { label: status.toUpperCase(), fg: colors.textMuted }
+  return (
+    <span style={{
+      padding: '2px 6px', borderRadius: 3, fontSize: 8, fontWeight: 600,
+      background: cfg.fg + '12', color: cfg.fg, fontFamily: fonts.mono,
+      border: `1px solid ${cfg.fg}20`, letterSpacing: '0.04em',
+    }}>
+      {cfg.label}
+    </span>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Signal card inside detail panel
 // ---------------------------------------------------------------------------
@@ -381,6 +405,7 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
           <SideBadge side={trade.side} />
           <StatusBadge status={trade.status} />
+          <ResolutionBadge status={trade.resolution_status} />
           {trade.paper === 1 && <PaperBadge />}
           <span style={{ fontSize: 10, color: colors.textDim, fontFamily: fonts.mono, marginLeft: 'auto' }}>
             {formatTs(trade.timestamp)}
@@ -517,13 +542,15 @@ function TradeStats({ trades, paperBal }: { trades: Trade[]; paperBal: PaperBala
 type FilterStatus = 'all' | 'filled' | 'pending'
 type FilterPnl = 'all' | 'winners' | 'losers' | 'open'
 type FilterType = 'all' | 'paper' | 'live'
+type FilterResolution = 'all' | 'open' | 'won' | 'lost' | 'expired'
 
 function FilterBar({
-  status, onStatus, pnl, onPnl, tradeType, onTradeType,
+  status, onStatus, pnl, onPnl, tradeType, onTradeType, resolution, onResolution,
 }: {
   status: FilterStatus; onStatus: (v: FilterStatus) => void
   pnl: FilterPnl; onPnl: (v: FilterPnl) => void
   tradeType: FilterType; onTradeType: (v: FilterType) => void
+  resolution: FilterResolution; onResolution: (v: FilterResolution) => void
 }) {
   const btnStyle = (active: boolean): React.CSSProperties => ({
     padding: '4px 10px', borderRadius: 4, fontSize: 10, fontWeight: 600,
@@ -555,6 +582,12 @@ function FilterBar({
           <button key={v} style={btnStyle(tradeType === v)} onClick={() => onTradeType(v)}>{v}</button>
         ))}
       </div>
+      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+        <span style={{ fontSize: 9, color: colors.textDim, fontFamily: fonts.mono, marginRight: 4 }}>OUTCOME</span>
+        {(['all', 'open', 'won', 'lost', 'expired'] as FilterResolution[]).map(v => (
+          <button key={v} style={btnStyle(resolution === v)} onClick={() => onResolution(v)}>{v}</button>
+        ))}
+      </div>
     </div>
   )
 }
@@ -571,6 +604,7 @@ export default function Trades() {
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all')
   const [filterPnl, setFilterPnl] = useState<FilterPnl>('all')
   const [filterType, setFilterType] = useState<FilterType>('all')
+  const [filterResolution, setFilterResolution] = useState<FilterResolution>('all')
 
   const load = useCallback(() => {
     api.fetchTrades()
@@ -595,6 +629,11 @@ export default function Trades() {
     if (filterPnl === 'open' && t.pnl != null) return false
     if (filterType === 'paper' && t.paper !== 1) return false
     if (filterType === 'live' && t.paper !== 0) return false
+    const rs = t.resolution_status || ''
+    if (filterResolution === 'open' && !rs.startsWith('open_') && rs !== 'pending_fill') return false
+    if (filterResolution === 'won' && rs !== 'won') return false
+    if (filterResolution === 'lost' && rs !== 'lost') return false
+    if (filterResolution === 'expired' && rs !== 'expired') return false
     return true
   })
 
@@ -614,6 +653,7 @@ export default function Trades() {
         status={filterStatus} onStatus={setFilterStatus}
         pnl={filterPnl} onPnl={setFilterPnl}
         tradeType={filterType} onTradeType={setFilterType}
+        resolution={filterResolution} onResolution={setFilterResolution}
       />
 
       {/* Split layout */}
@@ -666,6 +706,7 @@ export default function Trades() {
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                     <SideBadge side={t.side} />
                     <StatusBadge status={t.status} />
+                    <ResolutionBadge status={t.resolution_status} />
                     {t.paper === 1 && <PaperBadge />}
                     <span style={{ fontSize: 10, color: colors.textDim, fontFamily: fonts.mono }}>
                       {fmtUsd(t.size)} @ {fmt(t.price, 4)}

@@ -112,6 +112,7 @@ export interface Trade {
   market_question?: string
   fill_price?: number | null
   pnl?: number | null
+  resolution_status?: string
 }
 
 export interface FrontierDecision {

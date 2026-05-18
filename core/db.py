@@ -311,6 +311,72 @@ def get_open_trades() -> list[dict[str, Any]]:
     return list(db["trades"].rows_where("status = ?", ["PENDING"]))
 
 
+def _compute_resolution_status(trade: dict[str, Any], position: dict[str, Any] | None) -> str:
+    """Derive resolution status from trade + position state.
+
+    Returns one of:
+      pending_fill  — order placed, not yet filled
+      open_winning  — position open, currently profitable
+      open_losing   — position open, currently at a loss
+      open_flat     — position open, roughly break-even
+      won           — position closed with profit
+      lost          — position closed with loss
+      expired       — order cancelled / never filled
+    """
+    status = (trade.get("status") or "").upper()
+
+    if status in ("CANCELLED", "EXPIRED"):
+        return "expired"
+    if status == "PENDING":
+        return "pending_fill"
+
+    # FILLED — check if position is still open or closed
+    if trade.get("pnl") is not None:
+        return "won" if trade["pnl"] > 0 else "lost"
+
+    # No PnL recorded yet — check live position
+    if position and (position.get("status") or "open") != "closed":
+        entry = trade.get("price") or 0
+        current = position.get("current_price") or entry
+        size = position.get("size") or trade.get("size") or 0
+        unrealized = (current - entry) * size if entry > 0 else 0
+        if abs(unrealized) < 0.01:
+            return "open_flat"
+        return "open_winning" if unrealized > 0 else "open_losing"
+
+    # Position closed but trade pnl not set — check position's realized_pnl
+    if position and position.get("status") == "closed":
+        rpnl = position.get("realized_pnl", 0) or 0
+        return "won" if rpnl > 0 else "lost"
+
+    # Filled but no position data — treat as open_flat
+    return "open_flat"
+
+
+def _enrich_trades_with_resolution(trades: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Add resolution_status field to each trade by joining with positions."""
+    db = get_db()
+    # Bulk-fetch positions for all token_ids in the trade list
+    token_ids = {t.get("token_id", "") for t in trades if t.get("token_id")}
+    positions_by_token: dict[str, dict[str, Any]] = {}
+    if token_ids and "positions" in db.table_names():
+        placeholders = ",".join("?" for _ in token_ids)
+        pos_rows = db.execute(
+            f"SELECT * FROM positions WHERE token_id IN ({placeholders})",
+            list(token_ids),
+        ).fetchall()
+        if pos_rows:
+            pos_cols = [col.name for col in db["positions"].columns]
+            for row in pos_rows:
+                pos = {pos_cols[i]: row[i] for i in range(len(pos_cols))}
+                positions_by_token[pos["token_id"]] = pos
+
+    for trade in trades:
+        pos = positions_by_token.get(trade.get("token_id", ""))
+        trade["resolution_status"] = _compute_resolution_status(trade, pos)
+    return trades
+
+
 def get_all_trades(limit: int = 200) -> list[dict[str, Any]]:
     """Return all trades ordered by timestamp descending."""
     db = get_db()
@@ -319,7 +385,8 @@ def get_all_trades(limit: int = 200) -> list[dict[str, Any]]:
         [limit],
     ).fetchall()
     columns = [col.name for col in db["trades"].columns]
-    return [{columns[i]: row[i] for i in range(len(columns))} for row in rows]
+    trades = [{columns[i]: row[i] for i in range(len(columns))} for row in rows]
+    return _enrich_trades_with_resolution(trades)
 
 
 def get_trade_with_context(trade_id: str) -> dict[str, Any] | None:
@@ -384,6 +451,16 @@ def get_trade_with_context(trade_id: str) -> dict[str, Any] | None:
 
     if trade.get("paper") and not trade.get("order_id"):
         trade["order_id"] = f"paper-{trade_id[:8]}"
+
+    # Compute resolution status
+    pos = None
+    token_id = trade.get("token_id", "")
+    if token_id and "positions" in db.table_names():
+        try:
+            pos = dict(db["positions"].get(token_id))
+        except Exception:
+            pass
+    trade["resolution_status"] = _compute_resolution_status(trade, pos)
 
     return result
 
