@@ -77,7 +77,9 @@ Core project structure, dependencies, config/settings.py (env-overridable), .env
 
 ---
 
-## Section 10: Paper Trading Validation
+## Section 10: Paper Trading Validation — NOT STARTED
+
+**Status:** Not started. Paper summary endpoint, live readiness gate, and requirements.txt cleanup all remain. requirements.txt still contains banned/unused deps (schedule, python-telegram-bot, feedparser, beautifulsoup4, lxml).
 
 ### Context
 Paper trading is already implemented in `strategy/executor.py` (PaperExecutor). This section adds validation tooling and the live-trading readiness gate.
@@ -112,7 +114,9 @@ Paper trading is already implemented in `strategy/executor.py` (PaperExecutor). 
 
 ---
 
-## Section 11: Documentation & Polish
+## Section 11: Documentation & Polish — NOT STARTED
+
+**Status:** Not started. Zero TODOs/FIXMEs in codebase. All 364 tests pass. Dead code removal and README update remain.
 
 ### Tasks
 1. **Update README.md** — accurate setup, architecture, and usage instructions reflecting web dashboard (not TUI)

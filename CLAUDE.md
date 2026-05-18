@@ -41,9 +41,9 @@ frontend/                     → React (Vite) dashboard: Dashboard, Markets, An
 ## Build Sequence & Progress
 Built section by section from `POLYMARKET_BOT_PLAN (1).md`. Build in order, run tests after each section.
 
-**Sections 0-9: COMPLETE** — Core infra, LLM, wallet, DB, market filtering, signal engine (4 providers + aggregator), Kelly criterion, order execution, web dashboard (6 tabs: Dashboard, Markets, Analysis, Learning, Database, Logs), continuous learning engine, monitoring & notifications, health checks, pipeline integration (headless main loop, 3 workers, database explorer).
+**Sections 0-9: COMPLETE** — Core infra, LLM, wallet, DB, market filtering, signal engine (4 providers + aggregator), Kelly criterion, order execution, web dashboard (6 tabs: Dashboard, Markets, Analysis, Learning, Database, Logs), continuous learning engine, monitoring & notifications, health checks, pipeline integration (headless main loop, 3 workers, database explorer). 364 tests passing, zero TODOs/FIXMEs.
 
-**Next:** Section 10 (paper trading validation & dep cleanup) → 11 (docs & polish)
+**Next:** Section 10 (paper trading summary endpoint, live readiness gate, requirements.txt cleanup) → 11 (docs & dead code removal)
 
 Available skills: `/build-section N`, `/verify-section N`, `/status`, `/test-module <name>`, `/audit-llm`, `/check-health`, `/run-pipeline`, `/add-signal <name>`, `/improve-signal <name>`, `/tune-prompts`.
 
