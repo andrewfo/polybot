@@ -685,6 +685,19 @@ def get_cached_market(condition_id: str) -> dict[str, Any] | None:
         return None
 
 
+def get_gamma_id_for_condition(condition_id: str) -> str | None:
+    """Look up the Gamma numeric market ID for a condition_id from cache.
+
+    Returns the Gamma ID string (e.g., '573655') or None if not in cache.
+    """
+    cached = get_cached_market(condition_id)
+    if cached and isinstance(cached.get("data"), dict):
+        gamma_id = cached["data"].get("_gamma_id")
+        if gamma_id:
+            return str(gamma_id)
+    return None
+
+
 def clear_pipeline_cache() -> None:
     """Clear the market_cache table. Called on bot stop to reset pipeline state."""
     db = get_db()

@@ -540,12 +540,23 @@ GAMMA_API_URL = "https://gamma-api.polymarket.com/markets"
 
 
 async def _fetch_gamma_price(condition_id: str) -> float | None:
-    """Fetch current YES price from Gamma API for a market."""
+    """Fetch current YES price from Gamma API for a market.
+
+    Uses the cached Gamma numeric ID for lookup, since Gamma's ?id= param
+    requires the numeric ID, not the condition_id (0x...).
+    """
+    from core.db import get_gamma_id_for_condition
+
+    gamma_id = get_gamma_id_for_condition(condition_id)
+    if not gamma_id:
+        logger.debug("No cached Gamma ID for %s, cannot fetch price", condition_id[:20])
+        return None
+
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 GAMMA_API_URL,
-                params={"id": condition_id},
+                params={"id": gamma_id},
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 if resp.status != 200:

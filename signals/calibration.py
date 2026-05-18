@@ -245,15 +245,47 @@ def get_multiplier_dict() -> dict[str, float]:
     return {source: cal.multiplier for source, cal in calibrations.items()}
 
 
+def _extract_resolution(mkt: dict) -> float | None:
+    """Extract resolution outcome from a Gamma market dict.
+
+    Returns 1.0 (YES), 0.0 (NO), or None if not clearly resolved.
+    """
+    if not mkt.get("closed"):
+        return None
+
+    outcome_prices = mkt.get("outcomePrices", "")
+    if isinstance(outcome_prices, str):
+        try:
+            import json
+            prices = json.loads(outcome_prices)
+        except (ValueError, TypeError):
+            return None
+    else:
+        prices = outcome_prices
+
+    if not prices or len(prices) < 2:
+        return None
+
+    yes_price = float(prices[0])
+    if yes_price >= 0.95:
+        return 1.0
+    elif yes_price <= 0.05:
+        return 0.0
+    return None
+
+
 async def check_and_record_resolutions() -> int:
     """Check Gamma API for recently resolved markets and update calibration.
 
     Queries for markets that have predictions in our calibration table
-    but haven't been resolved yet. Returns count of newly resolved markets.
+    but haven't been resolved yet. Uses cached Gamma numeric IDs for
+    individual lookups, then batch-fetches closed markets to catch any
+    that aren't in the cache.
+
+    Returns count of newly resolved markets.
     """
     try:
         d = db.get_db()
-        # Get distinct unresolved market IDs
         rows = list(d.execute(
             "SELECT DISTINCT market_id FROM signal_calibration "
             "WHERE actual_outcome IS NULL"
@@ -265,17 +297,23 @@ async def check_and_record_resolutions() -> int:
     if not rows:
         return 0
 
-    market_ids = [row[0] for row in rows]
+    # Split into condition_ids we can look up via cache vs those we can't
+    condition_ids = [row[0] for row in rows if row[0].startswith("0x")]
     resolved_count = 0
+    resolved_cids: set[str] = set()
 
     try:
-        timeout = aiohttp.ClientTimeout(total=15)
+        timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            for market_id in market_ids:
+            # --- Phase 1: Individual lookups using cached Gamma numeric IDs ---
+            for cid in condition_ids:
+                gamma_id = db.get_gamma_id_for_condition(cid)
+                if not gamma_id:
+                    continue
                 try:
                     async with session.get(
                         GAMMA_MARKET_URL,
-                        params={"id": market_id},
+                        params={"id": gamma_id},
                     ) as resp:
                         if resp.status != 200:
                             continue
@@ -283,42 +321,30 @@ async def check_and_record_resolutions() -> int:
 
                     markets = data if isinstance(data, list) else [data]
                     for mkt in markets:
-                        if not mkt.get("closed"):
-                            continue
-
-                        # Determine resolution outcome
-                        outcome_prices = mkt.get("outcomePrices", "")
-                        if isinstance(outcome_prices, str):
-                            try:
-                                import json
-                                prices = json.loads(outcome_prices)
-                            except (ValueError, TypeError):
-                                continue
-                        else:
-                            prices = outcome_prices
-
-                        if not prices or len(prices) < 2:
-                            continue
-
-                        # YES outcome = first price, should be 1.0 or 0.0 at resolution
-                        yes_price = float(prices[0])
-                        if yes_price >= 0.95:
-                            actual = 1.0
-                        elif yes_price <= 0.05:
-                            actual = 0.0
-                        else:
-                            continue  # Not clearly resolved
-
-                        record_resolution(market_id, actual)
-                        resolved_count += 1
-                        logger.info(
-                            "Recorded resolution for %s: outcome=%.0f",
-                            market_id[:20], actual,
-                        )
-
+                        actual = _extract_resolution(mkt)
+                        if actual is not None:
+                            record_resolution(cid, actual)
+                            resolved_cids.add(cid)
+                            resolved_count += 1
+                            logger.info(
+                                "Recorded resolution for %s: outcome=%.0f",
+                                cid[:20], actual,
+                            )
                 except Exception as e:
-                    logger.debug("Failed to check resolution for %s: %s", market_id[:20], e)
-                    continue
+                    logger.debug("Failed to check resolution for %s: %s", cid[:20], e)
+
+            # --- Phase 2: Batch scan of recently closed markets ---
+            # Catches markets not in cache (cache cleared, or pre-cache data)
+            remaining = set(condition_ids) - resolved_cids
+            if remaining:
+                batch_resolved = await _batch_resolve_closed(session, remaining)
+                for cid, actual in batch_resolved.items():
+                    record_resolution(cid, actual)
+                    resolved_count += 1
+                    logger.info(
+                        "Recorded resolution (batch) for %s: outcome=%.0f",
+                        cid[:20], actual,
+                    )
 
     except Exception as e:
         logger.warning("Resolution check session error: %s", e)
@@ -327,3 +353,48 @@ async def check_and_record_resolutions() -> int:
         logger.info("Recorded %d new market resolutions for calibration", resolved_count)
 
     return resolved_count
+
+
+async def _batch_resolve_closed(
+    session: aiohttp.ClientSession,
+    target_cids: set[str],
+) -> dict[str, float]:
+    """Fetch recently closed markets from Gamma and match against target condition_ids.
+
+    Fetches up to 3 pages (300 markets) of closed markets, ordered by most
+    recently closed. Returns {condition_id: actual_outcome} for matches.
+    """
+    results: dict[str, float] = {}
+    max_pages = 3
+
+    for page in range(max_pages):
+        if not target_cids - set(results.keys()):
+            break  # All resolved
+        try:
+            async with session.get(
+                GAMMA_MARKET_URL,
+                params={
+                    "closed": "true",
+                    "limit": "100",
+                    "offset": str(page * 100),
+                },
+            ) as resp:
+                if resp.status != 200:
+                    break
+                data = await resp.json()
+
+            if not isinstance(data, list) or not data:
+                break
+
+            for mkt in data:
+                cid = mkt.get("conditionId", "")
+                if cid in target_cids and cid not in results:
+                    actual = _extract_resolution(mkt)
+                    if actual is not None:
+                        results[cid] = actual
+
+        except Exception as e:
+            logger.debug("Batch resolution fetch page %d failed: %s", page, e)
+            break
+
+    return results

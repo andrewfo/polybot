@@ -1248,10 +1248,11 @@ def assess_parameter_impact(days_window: int = 7) -> list[dict[str, Any]]:
 async def update_skipped_resolutions() -> int:
     """Check Gamma API for resolved markets in the skipped_markets table.
 
-    Similar to calibration.check_and_record_resolutions() but for the
-    skipped_markets table's resolution_outcome column.
+    Uses cached Gamma numeric IDs for individual lookups, then falls back
+    to batch-fetching closed markets to catch any not in cache.
     """
     import aiohttp
+    from signals.calibration import _extract_resolution, _batch_resolve_closed
 
     try:
         d = db.get_db()
@@ -1266,17 +1267,22 @@ async def update_skipped_resolutions() -> int:
     if not rows:
         return 0
 
-    market_ids = [row[0] for row in rows]
+    condition_ids = [row[0] for row in rows if row[0].startswith("0x")]
     resolved_count = 0
+    resolved_cids: set[str] = set()
 
     try:
-        timeout = aiohttp.ClientTimeout(total=15)
+        timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            for market_id in market_ids:
+            # Phase 1: Individual lookups via cached Gamma numeric IDs
+            for cid in condition_ids:
+                gamma_id = db.get_gamma_id_for_condition(cid)
+                if not gamma_id:
+                    continue
                 try:
                     async with session.get(
                         "https://gamma-api.polymarket.com/markets",
-                        params={"id": market_id},
+                        params={"id": gamma_id},
                     ) as resp:
                         if resp.status != 200:
                             continue
@@ -1284,38 +1290,29 @@ async def update_skipped_resolutions() -> int:
 
                     markets = data if isinstance(data, list) else [data]
                     for mkt in markets:
-                        if not mkt.get("closed"):
-                            continue
-
-                        outcome_prices = mkt.get("outcomePrices", "")
-                        if isinstance(outcome_prices, str):
-                            try:
-                                prices = json.loads(outcome_prices)
-                            except (ValueError, TypeError):
-                                continue
-                        else:
-                            prices = outcome_prices
-
-                        if not prices or len(prices) < 2:
-                            continue
-
-                        yes_price = float(prices[0])
-                        if yes_price >= 0.95:
-                            actual = 1.0
-                        elif yes_price <= 0.05:
-                            actual = 0.0
-                        else:
-                            continue
-
-                        d.execute(
-                            "UPDATE skipped_markets SET resolution_outcome = ? "
-                            "WHERE market_id = ? AND resolution_outcome IS NULL",
-                            [actual, market_id],
-                        )
-                        resolved_count += 1
-
+                        actual = _extract_resolution(mkt)
+                        if actual is not None:
+                            d.execute(
+                                "UPDATE skipped_markets SET resolution_outcome = ? "
+                                "WHERE market_id = ? AND resolution_outcome IS NULL",
+                                [actual, cid],
+                            )
+                            resolved_cids.add(cid)
+                            resolved_count += 1
                 except Exception:
                     continue
+
+            # Phase 2: Batch scan for markets not in cache
+            remaining = set(condition_ids) - resolved_cids
+            if remaining:
+                batch_resolved = await _batch_resolve_closed(session, remaining)
+                for cid, actual in batch_resolved.items():
+                    d.execute(
+                        "UPDATE skipped_markets SET resolution_outcome = ? "
+                        "WHERE market_id = ? AND resolution_outcome IS NULL",
+                        [actual, cid],
+                    )
+                    resolved_count += 1
 
     except Exception as e:
         logger.warning("Skipped resolution check failed: %s", e)
