@@ -1,0 +1,708 @@
+import { useState, useEffect, useCallback } from 'react'
+import { colors, cardStyle, fonts } from '../theme'
+import { api, Trade, TradeDetail, FrontierDecision, Signal, PaperBalance } from '../api'
+import AnalysisDetail from './AnalysisDetail'
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const fmt = (v: unknown, decimals = 2): string => {
+  if (v == null) return '--'
+  const n = typeof v === 'number' ? v : parseFloat(String(v))
+  return isNaN(n) ? '--' : n.toFixed(decimals)
+}
+
+const fmtPct = (v: unknown): string => {
+  if (v == null) return '--'
+  const n = typeof v === 'number' ? v : parseFloat(String(v))
+  return isNaN(n) ? '--' : (n * 100).toFixed(1) + '%'
+}
+
+const fmtUsd = (v: unknown): string => {
+  if (v == null) return '--'
+  const n = typeof v === 'number' ? v : parseFloat(String(v))
+  return isNaN(n) ? '--' : '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function formatTs(ts: string | null | undefined): string {
+  if (!ts) return '--'
+  try {
+    const d = new Date(ts)
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' +
+      d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
+  } catch { return ts }
+}
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+function SectionHeader({ title, badge }: { title: string; badge?: string }) {
+  return (
+    <h3 style={{
+      margin: '20px 0 10px', fontSize: 10, fontWeight: 600,
+      color: colors.textMuted, textTransform: 'uppercase',
+      letterSpacing: '0.1em',
+      borderBottom: `1px solid ${colors.border}`,
+      paddingBottom: 8,
+      display: 'flex', alignItems: 'center', gap: 6,
+      fontFamily: fonts.mono,
+    }}>
+      <span style={{ width: 3, height: 3, borderRadius: 1, background: colors.accent, boxShadow: `0 0 4px ${colors.accent}` }} />
+      {title}
+      {badge && (
+        <span style={{
+          fontSize: 9, padding: '1px 6px', borderRadius: 3,
+          background: colors.accentDim, color: colors.textDim, fontWeight: 500,
+          marginLeft: 4, fontFamily: fonts.mono, border: `1px solid ${colors.border}`,
+        }}>{badge}</span>
+      )}
+    </h3>
+  )
+}
+
+function MetricRow({ label, value, highlight, detail }: { label: string; value: string; highlight?: string; detail?: string }) {
+  return (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      padding: '5px 0', borderBottom: `1px solid ${colors.border}`, fontSize: 12,
+    }}>
+      <span style={{ color: colors.textMuted }}>{label}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        {detail && <span style={{ fontSize: 10, color: colors.textDim }}>{detail}</span>}
+        <span style={{
+          fontWeight: 600, color: highlight || colors.textPrimary,
+          fontFamily: fonts.mono, fontSize: 12,
+        }}>
+          {value}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function PnlBadge({ pnl }: { pnl: number | null | undefined }) {
+  if (pnl == null) return <span style={{ fontSize: 11, color: colors.textDim, fontFamily: fonts.mono }}>--</span>
+  const positive = pnl > 0
+  const fg = positive ? colors.success : pnl < 0 ? colors.danger : colors.textMuted
+  return (
+    <span style={{
+      fontSize: 11, fontWeight: 600, fontFamily: fonts.mono, color: fg,
+      textShadow: `0 0 8px ${fg}30`,
+    }}>
+      {positive ? '+' : ''}{fmtUsd(pnl)}
+    </span>
+  )
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const upper = status.toUpperCase()
+  const fg = upper === 'FILLED' ? colors.success
+    : upper === 'PENDING' ? colors.accent
+    : upper === 'CANCELLED' ? colors.danger
+    : colors.textMuted
+  const bg = fg + '15'
+  return (
+    <span style={{
+      padding: '2px 8px', borderRadius: 3, fontSize: 9, fontWeight: 600,
+      background: bg, color: fg, letterSpacing: '0.06em',
+      fontFamily: fonts.mono, textTransform: 'uppercase',
+      border: `1px solid ${fg}20`,
+    }}>
+      {upper}
+    </span>
+  )
+}
+
+function SideBadge({ side }: { side: string }) {
+  const isYes = side.toUpperCase().includes('YES')
+  const fg = isYes ? colors.success : colors.danger
+  return (
+    <span style={{
+      padding: '2px 6px', borderRadius: 3, fontSize: 9, fontWeight: 600,
+      background: fg + '12', color: fg, fontFamily: fonts.mono,
+      border: `1px solid ${fg}20`, letterSpacing: '0.04em',
+    }}>
+      {side.toUpperCase()}
+    </span>
+  )
+}
+
+function PaperBadge() {
+  return (
+    <span style={{
+      padding: '2px 6px', borderRadius: 3, fontSize: 8, fontWeight: 600,
+      background: colors.warningDim, color: colors.warning, fontFamily: fonts.mono,
+      border: `1px solid rgba(255,170,0,0.15)`, letterSpacing: '0.04em',
+    }}>
+      PAPER
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Signal card inside detail panel
+// ---------------------------------------------------------------------------
+
+function SignalCard({ signal }: { signal: Signal }) {
+  const [expanded, setExpanded] = useState(false)
+  const prob = signal.probability
+  const conf = signal.confidence
+  const probColor = prob > 0.6 ? colors.success : prob < 0.4 ? colors.danger : colors.warning
+
+  let rawData: Record<string, unknown> | null = null
+  if (signal.raw_data) {
+    try { rawData = JSON.parse(signal.raw_data) } catch { /* ignore */ }
+  }
+
+  return (
+    <div style={{
+      background: 'rgba(6, 10, 20, 0.6)', border: `1px solid ${colors.border}`,
+      borderRadius: 6, padding: 12, marginBottom: 8,
+      backdropFilter: 'blur(8px)',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: colors.textPrimary, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          {signal.signal_source.replace(/_/g, ' ')}
+        </span>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <span style={{ fontSize: 10, color: colors.textDim, fontFamily: fonts.mono }}>
+            conf {(conf * 100).toFixed(0)}%
+          </span>
+          <span style={{ fontSize: 14, fontWeight: 700, fontFamily: fonts.mono, color: probColor }}>
+            {(prob * 100).toFixed(1)}%
+          </span>
+        </div>
+      </div>
+
+      {/* Probability bar */}
+      <div style={{ height: 4, background: 'rgba(255,255,255,0.04)', borderRadius: 2, marginBottom: 8, overflow: 'hidden' }}>
+        <div style={{
+          width: `${prob * 100}%`, height: '100%', borderRadius: 2,
+          background: probColor, boxShadow: `0 0 8px ${probColor}40`,
+          transition: 'width 0.3s ease',
+        }} />
+      </div>
+
+      {/* Reasoning */}
+      {signal.reasoning && (
+        <div style={{
+          fontSize: 11, color: colors.textSecondary, lineHeight: 1.5,
+          maxHeight: expanded ? 'none' : 60, overflow: 'hidden',
+          position: 'relative',
+        }}>
+          {signal.reasoning}
+          {!expanded && signal.reasoning.length > 200 && (
+            <div style={{
+              position: 'absolute', bottom: 0, left: 0, right: 0, height: 24,
+              background: 'linear-gradient(transparent, rgba(6,10,20,0.9))',
+            }} />
+          )}
+        </div>
+      )}
+      {signal.reasoning && signal.reasoning.length > 200 && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          style={{
+            background: 'none', border: 'none', color: colors.accent, fontSize: 10,
+            cursor: 'pointer', padding: '4px 0', fontFamily: fonts.mono,
+          }}
+        >
+          {expanded ? 'show less' : 'show more'}
+        </button>
+      )}
+
+      {/* Model + timestamp */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 9, color: colors.textDim, fontFamily: fonts.mono }}>
+        <span>{signal.model_used || '--'}</span>
+        <span>{formatTs(signal.timestamp)}</span>
+      </div>
+
+      {/* Raw data (collapsed) */}
+      {rawData && (
+        <RawDataSection data={rawData} />
+      )}
+    </div>
+  )
+}
+
+function RawDataSection({ data }: { data: Record<string, unknown> }) {
+  const [show, setShow] = useState(false)
+  return (
+    <div style={{ marginTop: 6 }}>
+      <button
+        onClick={() => setShow(!show)}
+        style={{
+          background: 'none', border: 'none', color: colors.textDim, fontSize: 9,
+          cursor: 'pointer', padding: '2px 0', fontFamily: fonts.mono,
+        }}
+      >
+        {show ? '- hide raw data' : '+ raw data'}
+      </button>
+      {show && (
+        <pre style={{
+          fontSize: 10, color: colors.textMuted, fontFamily: fonts.mono,
+          background: 'rgba(0,0,0,0.3)', borderRadius: 4, padding: 8,
+          marginTop: 4, overflow: 'auto', maxHeight: 200,
+          border: `1px solid ${colors.border}`,
+        }}>
+          {JSON.stringify(data, null, 2)}
+        </pre>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Frontier Decision detail
+// ---------------------------------------------------------------------------
+
+function FrontierDecisionPanel({ fd }: { fd: FrontierDecision }) {
+  const edgeColor = fd.edge > 0.05 ? colors.success : fd.edge > 0 ? colors.warning : colors.danger
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 8, marginBottom: 12 }}>
+        {[
+          { label: 'Estimated Prob', value: fmtPct(fd.estimated_prob), color: colors.accent },
+          { label: 'Effective Prob', value: fmtPct(fd.effective_prob), color: colors.accentLight },
+          { label: 'Market Price', value: fmtPct(fd.market_price) },
+          { label: 'Edge', value: fmtPct(fd.edge), color: edgeColor },
+          { label: 'Kelly Fraction', value: fmtPct(fd.kelly_fraction) },
+          { label: 'Bet Size', value: fmtUsd(fd.bet_size_usd) },
+          { label: 'Confidence', value: fmtPct(fd.confidence) },
+          { label: 'Decision', value: fd.should_trade ? 'TRADE' : 'SKIP', color: fd.should_trade ? colors.success : colors.warning },
+        ].map((s, i) => (
+          <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: fonts.mono }}>
+              {s.label}
+            </span>
+            <span style={{
+              fontSize: 13, fontWeight: 600, fontFamily: fonts.mono,
+              color: s.color || colors.textPrimary,
+              textShadow: s.color ? `0 0 12px ${s.color}25` : 'none',
+            }}>
+              {s.value}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Edge bar */}
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 9, color: colors.textDim, marginBottom: 4, fontFamily: fonts.mono }}>EDGE VS MARKET</div>
+        <div style={{ position: 'relative', height: 20, background: 'rgba(255,255,255,0.03)', borderRadius: 4, overflow: 'hidden' }}>
+          {/* Market price marker */}
+          <div style={{
+            position: 'absolute', left: `${fd.market_price * 100}%`, top: 0, bottom: 0,
+            width: 2, background: colors.textDim, zIndex: 2,
+          }} />
+          {/* Estimate bar */}
+          <div style={{
+            position: 'absolute',
+            left: `${Math.min(fd.market_price, fd.effective_prob) * 100}%`,
+            width: `${Math.abs(fd.effective_prob - fd.market_price) * 100}%`,
+            top: 2, bottom: 2, borderRadius: 3,
+            background: edgeColor, opacity: 0.5,
+          }} />
+          {/* Labels */}
+          <span style={{
+            position: 'absolute', left: `${fd.market_price * 100}%`, top: -1,
+            transform: 'translateX(-50%)', fontSize: 8, color: colors.textDim, fontFamily: fonts.mono,
+          }}>mkt</span>
+        </div>
+      </div>
+
+      {fd.skip_reason && (
+        <div style={{
+          marginTop: 8, padding: '6px 10px', borderRadius: 4,
+          background: colors.warningDim, border: `1px solid rgba(255,170,0,0.15)`,
+          fontSize: 11, color: colors.warning,
+        }}>
+          Skip reason: {fd.skip_reason}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Trade Detail Panel (right side)
+// ---------------------------------------------------------------------------
+
+function TradeDetailPanel({ tradeId }: { tradeId: string }) {
+  const [detail, setDetail] = useState<TradeDetail | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [hasAnalysis, setHasAnalysis] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    setHasAnalysis(null)
+    api.fetchTradeDetail(tradeId)
+      .then(d => {
+        if (cancelled) return
+        setDetail(d)
+        // Probe whether full analysis exists for this market
+        api.fetchAnalysisDetail(d.trade.market_id)
+          .then(() => { if (!cancelled) setHasAnalysis(true) })
+          .catch(() => { if (!cancelled) setHasAnalysis(false) })
+      })
+      .catch(e => { if (!cancelled) setError(e.message) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [tradeId])
+
+  if (loading) return (
+    <div style={{ padding: 40, textAlign: 'center', color: colors.textDim }}>
+      <div style={{ fontSize: 12, fontFamily: fonts.mono, animation: 'textGlow 2s ease-in-out infinite' }}>Loading analysis...</div>
+    </div>
+  )
+  if (error) return (
+    <div style={{ padding: 20, color: colors.danger, fontSize: 12 }}>Error: {error}</div>
+  )
+  if (!detail) return null
+
+  const { trade, frontier_decision, signals } = detail
+
+  return (
+    <div style={{ padding: '4px 0' }}>
+      {/* Trade execution header */}
+      <div style={{
+        marginBottom: 16, padding: 16,
+        background: 'rgba(6, 10, 20, 0.6)', border: `1px solid ${colors.border}`,
+        borderRadius: 8, backdropFilter: 'blur(8px)',
+      }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: colors.textPrimary, lineHeight: 1.4, marginBottom: 10 }}>
+          {trade.market_question || 'Unknown Market'}
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+          <SideBadge side={trade.side} />
+          <StatusBadge status={trade.status} />
+          {trade.paper === 1 && <PaperBadge />}
+          <span style={{ fontSize: 10, color: colors.textDim, fontFamily: fonts.mono, marginLeft: 'auto' }}>
+            {formatTs(trade.timestamp)}
+          </span>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 8 }}>
+          {[
+            { label: 'Entry Price', value: fmtUsd(trade.price) },
+            { label: 'Fill Price', value: trade.fill_price != null ? fmtUsd(trade.fill_price) : '--' },
+            { label: 'Size', value: fmtUsd(trade.size) },
+            { label: 'P&L', value: trade.pnl != null ? fmtUsd(trade.pnl) : '--',
+              color: trade.pnl != null ? (trade.pnl > 0 ? colors.success : trade.pnl < 0 ? colors.danger : undefined) : undefined },
+            { label: 'Order ID', value: trade.order_id ? trade.order_id.slice(0, 12) + '...' : '--' },
+          ].map((s, i) => (
+            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <span style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: fonts.mono }}>
+                {s.label}
+              </span>
+              <span style={{
+                fontSize: 13, fontWeight: 600, fontFamily: fonts.mono,
+                color: s.color || colors.textPrimary,
+                textShadow: s.color ? `0 0 12px ${s.color}25` : 'none',
+              }}>
+                {s.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Full analysis from AnalysisDetail (same as Analysis tab) */}
+      {hasAnalysis && (
+        <AnalysisDetail conditionId={trade.market_id} />
+      )}
+
+      {/* DB-backed fallback for older trades without in-memory analysis */}
+      {hasAnalysis === false && (
+        <>
+          {/* Frontier Decision from DB */}
+          {frontier_decision && (
+            <>
+              <SectionHeader title="Frontier Decision (from history)" />
+              <FrontierDecisionPanel fd={frontier_decision} />
+            </>
+          )}
+
+          {/* Signals from DB */}
+          {signals.length > 0 && (
+            <>
+              <SectionHeader title="Signals (from history)" badge={`${signals.length}`} />
+              {signals.map(sig => (
+                <SignalCard key={sig.id} signal={sig} />
+              ))}
+            </>
+          )}
+
+          {/* No data at all */}
+          {!frontier_decision && signals.length === 0 && (
+            <div style={{
+              marginTop: 20, padding: 16, textAlign: 'center',
+              background: 'rgba(85,102,136,0.05)', borderRadius: 6,
+              border: `1px solid ${colors.border}`,
+            }}>
+              <div style={{ fontSize: 12, color: colors.textDim }}>No analysis data linked to this trade</div>
+              <div style={{ fontSize: 10, color: colors.textDim, marginTop: 4 }}>
+                Decision and signal data may not have been recorded for older trades
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Summary stats bar
+// ---------------------------------------------------------------------------
+
+function TradeStats({ trades, paperBal }: { trades: Trade[]; paperBal: PaperBalance | null }) {
+  const total = trades.length
+  const filled = trades.filter(t => t.status.toUpperCase() === 'FILLED').length
+  const withPnl = trades.filter(t => t.pnl != null)
+  const wins = withPnl.filter(t => (t.pnl as number) > 0).length
+  const winRate = withPnl.length > 0 ? wins / withPnl.length : null
+  const totalPnl = withPnl.reduce((s, t) => s + (t.pnl as number), 0)
+
+  const stats: { label: string; value: string; color?: string }[] = [
+    { label: 'Total Trades', value: String(total) },
+    { label: 'Filled', value: String(filled) },
+    { label: 'Win Rate', value: winRate != null ? (winRate * 100).toFixed(1) + '%' : '--', color: winRate != null ? (winRate >= 0.5 ? colors.success : colors.danger) : undefined },
+    { label: 'Realized P&L', value: fmtUsd(totalPnl), color: totalPnl > 0 ? colors.success : totalPnl < 0 ? colors.danger : undefined },
+  ]
+
+  if (paperBal) {
+    const balColor = paperBal.total_value >= paperBal.starting_balance ? colors.success : colors.danger
+    stats.push(
+      { label: 'Total Value', value: fmtUsd(paperBal.total_value), color: balColor },
+      { label: 'Available', value: fmtUsd(paperBal.available_cash) },
+      { label: 'Deployed', value: fmtUsd(paperBal.deployed_capital) },
+      { label: 'Unrealized P&L', value: fmtUsd(paperBal.unrealized_pnl), color: paperBal.unrealized_pnl > 0 ? colors.success : paperBal.unrealized_pnl < 0 ? colors.danger : undefined },
+      { label: 'Open Positions', value: String(paperBal.open_positions) },
+    )
+  }
+
+  return (
+    <div style={{
+      display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 12,
+      ...cardStyle, padding: 16, marginBottom: 16,
+    }}>
+      {stats.map((s, i) => (
+        <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: fonts.mono }}>
+            {s.label}
+          </span>
+          <span style={{
+            fontSize: 16, fontWeight: 700, fontFamily: fonts.mono,
+            color: s.color || colors.textPrimary,
+            textShadow: s.color ? `0 0 12px ${s.color}30` : 'none',
+          }}>
+            {s.value}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Filter bar
+// ---------------------------------------------------------------------------
+
+type FilterStatus = 'all' | 'filled' | 'pending'
+type FilterPnl = 'all' | 'winners' | 'losers' | 'open'
+type FilterType = 'all' | 'paper' | 'live'
+
+function FilterBar({
+  status, onStatus, pnl, onPnl, tradeType, onTradeType,
+}: {
+  status: FilterStatus; onStatus: (v: FilterStatus) => void
+  pnl: FilterPnl; onPnl: (v: FilterPnl) => void
+  tradeType: FilterType; onTradeType: (v: FilterType) => void
+}) {
+  const btnStyle = (active: boolean): React.CSSProperties => ({
+    padding: '4px 10px', borderRadius: 4, fontSize: 10, fontWeight: 600,
+    fontFamily: fonts.mono, letterSpacing: '0.04em', cursor: 'pointer',
+    border: `1px solid ${active ? colors.accent + '40' : colors.border}`,
+    background: active ? colors.accentDim : 'transparent',
+    color: active ? colors.accent : colors.textMuted,
+    transition: 'all 0.2s',
+    textTransform: 'uppercase' as const,
+  })
+
+  return (
+    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+        <span style={{ fontSize: 9, color: colors.textDim, fontFamily: fonts.mono, marginRight: 4 }}>STATUS</span>
+        {(['all', 'filled', 'pending'] as FilterStatus[]).map(v => (
+          <button key={v} style={btnStyle(status === v)} onClick={() => onStatus(v)}>{v}</button>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+        <span style={{ fontSize: 9, color: colors.textDim, fontFamily: fonts.mono, marginRight: 4 }}>P&L</span>
+        {(['all', 'winners', 'losers', 'open'] as FilterPnl[]).map(v => (
+          <button key={v} style={btnStyle(pnl === v)} onClick={() => onPnl(v)}>{v}</button>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+        <span style={{ fontSize: 9, color: colors.textDim, fontFamily: fonts.mono, marginRight: 4 }}>TYPE</span>
+        {(['all', 'paper', 'live'] as FilterType[]).map(v => (
+          <button key={v} style={btnStyle(tradeType === v)} onClick={() => onTradeType(v)}>{v}</button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Main Trades component
+// ---------------------------------------------------------------------------
+
+export default function Trades() {
+  const [trades, setTrades] = useState<Trade[]>([])
+  const [paperBal, setPaperBal] = useState<PaperBalance | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [filterStatus, setFilterStatus] = useState<FilterStatus>('all')
+  const [filterPnl, setFilterPnl] = useState<FilterPnl>('all')
+  const [filterType, setFilterType] = useState<FilterType>('all')
+
+  const load = useCallback(() => {
+    api.fetchTrades()
+      .then(setTrades)
+      .catch(() => {})
+      .finally(() => setLoading(false))
+    api.fetchPaperBalance().then(setPaperBal).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    load()
+    const id = setInterval(load, 30000)
+    return () => clearInterval(id)
+  }, [load])
+
+  // Apply filters
+  const filtered = trades.filter(t => {
+    if (filterStatus === 'filled' && t.status.toUpperCase() !== 'FILLED') return false
+    if (filterStatus === 'pending' && t.status.toUpperCase() !== 'PENDING') return false
+    if (filterPnl === 'winners' && !(t.pnl != null && t.pnl > 0)) return false
+    if (filterPnl === 'losers' && !(t.pnl != null && t.pnl < 0)) return false
+    if (filterPnl === 'open' && t.pnl != null) return false
+    if (filterType === 'paper' && t.paper !== 1) return false
+    if (filterType === 'live' && t.paper !== 0) return false
+    return true
+  })
+
+  if (loading) return (
+    <div style={{ padding: 40, textAlign: 'center', color: colors.textDim, fontFamily: fonts.mono }}>
+      Loading trades...
+    </div>
+  )
+
+  return (
+    <div>
+      {/* Summary stats */}
+      <TradeStats trades={trades} paperBal={paperBal} />
+
+      {/* Filters */}
+      <FilterBar
+        status={filterStatus} onStatus={setFilterStatus}
+        pnl={filterPnl} onPnl={setFilterPnl}
+        tradeType={filterType} onTradeType={setFilterType}
+      />
+
+      {/* Split layout */}
+      <div style={{ display: 'flex', gap: 16, minHeight: 500 }}>
+        {/* Trade list */}
+        <div style={{
+          ...cardStyle, flex: '0 0 480px', padding: 0,
+          maxHeight: 'calc(100vh - 320px)', overflowY: 'auto',
+        }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: colors.textDim, fontSize: 12 }}>
+              No trades match filters
+            </div>
+          ) : (
+            filtered.map((t, i) => {
+              const isSelected = selectedId === t.id
+              return (
+                <div
+                  key={t.id}
+                  onClick={() => setSelectedId(isSelected ? null : t.id)}
+                  style={{
+                    padding: '12px 16px',
+                    borderBottom: `1px solid ${colors.border}`,
+                    cursor: 'pointer',
+                    background: isSelected ? colors.accentDim : 'transparent',
+                    borderLeft: isSelected ? `2px solid ${colors.accent}` : '2px solid transparent',
+                    transition: 'all 0.15s ease',
+                  }}
+                  onMouseEnter={e => {
+                    if (!isSelected) e.currentTarget.style.background = 'rgba(0,229,255,0.02)'
+                  }}
+                  onMouseLeave={e => {
+                    if (!isSelected) e.currentTarget.style.background = 'transparent'
+                  }}
+                >
+                  {/* Row 1: question + badges */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                    <div style={{
+                      fontSize: 12, fontWeight: 500, color: colors.textPrimary,
+                      lineHeight: 1.4, flex: 1, marginRight: 10,
+                      overflow: 'hidden', textOverflow: 'ellipsis',
+                      display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                    }}>
+                      {t.market_question || t.market_id.slice(0, 16) + '...'}
+                    </div>
+                    <PnlBadge pnl={t.pnl} />
+                  </div>
+
+                  {/* Row 2: meta */}
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <SideBadge side={t.side} />
+                    <StatusBadge status={t.status} />
+                    {t.paper === 1 && <PaperBadge />}
+                    <span style={{ fontSize: 10, color: colors.textDim, fontFamily: fonts.mono }}>
+                      {fmtUsd(t.size)} @ {fmt(t.price, 4)}
+                    </span>
+                    <span style={{ fontSize: 9, color: colors.textDim, fontFamily: fonts.mono, marginLeft: 'auto' }}>
+                      {formatTs(t.timestamp)}
+                    </span>
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+
+        {/* Detail panel */}
+        <div style={{
+          ...cardStyle, flex: 1, padding: 20,
+          maxHeight: 'calc(100vh - 320px)', overflowY: 'auto',
+        }}>
+          {selectedId ? (
+            <TradeDetailPanel tradeId={selectedId} />
+          ) : (
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              height: '100%', minHeight: 300,
+            }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 32, marginBottom: 12, opacity: 0.15 }}>&#9783;</div>
+                <div style={{ fontSize: 13, color: colors.textDim }}>Select a trade to view full analysis</div>
+                <div style={{ fontSize: 11, color: colors.textDim, marginTop: 4 }}>
+                  Includes frontier decision, signal breakdown, and execution details
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

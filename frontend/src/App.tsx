@@ -7,9 +7,10 @@ import Markets from './components/Markets'
 import Analysis from './components/Analysis'
 import Learning from './components/Learning'
 import Database from './components/Database'
+import Trades from './components/Trades'
 import Logs from './components/Logs'
 
-type Tab = 'dashboard' | 'markets' | 'analysis' | 'learning' | 'database' | 'logs'
+type Tab = 'dashboard' | 'markets' | 'analysis' | 'trades' | 'learning' | 'database' | 'logs'
 
 interface DiscoveryEvent {
   discovered: number
@@ -264,6 +265,7 @@ export default function App() {
           {activeTab === 'dashboard' && <Dashboard wsBotStatus={wsBotStatus} wsDiscovery={lastDiscovery} wsBatchProgress={batchProgress} />}
           {activeTab === 'markets' && <Markets />}
           {activeTab === 'analysis' && <Analysis />}
+          {activeTab === 'trades' && <Trades />}
           {activeTab === 'learning' && <Learning />}
           {activeTab === 'database' && <Database />}
           {activeTab === 'logs' && <Logs />}
