@@ -16,8 +16,8 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 KELLY_FRACTION = float(os.getenv("KELLY_FRACTION", "0.25"))           # Quarter Kelly (conservative)
 MIN_EDGE_THRESHOLD = float(os.getenv("MIN_EDGE_THRESHOLD", "0.04"))   # Only trade when edge > 4%
 MAX_POSITION_PCT = float(os.getenv("MAX_POSITION_PCT", "0.10"))       # Max 10% of bankroll per market
-MIN_BANKROLL_RESERVE = float(os.getenv("MIN_BANKROLL_RESERVE", "20")) # Always keep $20 USDC untouched
-TEST_BANKROLL = float(os.getenv("TEST_BANKROLL", "1000"))            # Placeholder bankroll for testing ($1000)
+MIN_BANKROLL_RESERVE = float(os.getenv("MIN_BANKROLL_RESERVE", "10")) # Always keep $10 USDC untouched
+TEST_BANKROLL = float(os.getenv("TEST_BANKROLL", "200"))             # Paper trading bankroll ($200)
 
 # --- Market Filtering ---
 MIN_MARKET_LIQUIDITY = float(os.getenv("MIN_MARKET_LIQUIDITY", "500"))
