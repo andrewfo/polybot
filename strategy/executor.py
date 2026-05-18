@@ -15,7 +15,6 @@ from config.settings import (
     MAX_DAILY_LOSS_PCT,
     MAX_DRAWDOWN_PCT,
     MAX_NEW_TRADES_PER_HOUR,
-    MAX_SIMULTANEOUS_POSITIONS,
     SLIPPAGE_BUFFER,
     STALE_ORDER_MINUTES,
     STOP_LOSS_PCT,
@@ -38,15 +37,6 @@ class AutoStopError(Exception):
 # ---------------------------------------------------------------------------
 # Risk guardrails (standalone functions)
 # ---------------------------------------------------------------------------
-
-def check_position_count() -> tuple[bool, str]:
-    """Check if we're at the max simultaneous positions limit."""
-    positions = db.get_open_positions()
-    count = len(positions)
-    if count >= MAX_SIMULTANEOUS_POSITIONS:
-        return False, f"at position limit ({count}/{MAX_SIMULTANEOUS_POSITIONS})"
-    return True, ""
-
 
 def check_trade_rate() -> tuple[bool, str]:
     """Check if we've exceeded the hourly trade rate limit."""
@@ -100,10 +90,6 @@ def check_all_guardrails(bankroll: float) -> tuple[bool, str]:
     check_daily_loss(bankroll)
 
     # These return soft blocks
-    ok, reason = check_position_count()
-    if not ok:
-        return False, reason
-
     ok, reason = check_trade_rate()
     if not ok:
         return False, reason

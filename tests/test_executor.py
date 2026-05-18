@@ -13,7 +13,6 @@ from strategy.executor import (
     check_all_guardrails,
     check_daily_loss,
     check_drawdown,
-    check_position_count,
     check_trade_rate,
     compute_limit_price,
 )
@@ -65,22 +64,6 @@ def _make_market_data(**overrides) -> dict:
 # ---------------------------------------------------------------------------
 # Risk guardrail tests
 # ---------------------------------------------------------------------------
-
-class TestCheckPositionCount:
-    @patch("strategy.executor.db")
-    def test_under_limit(self, mock_db):
-        mock_db.get_open_positions.return_value = [{"token_id": "a"}]
-        ok, reason = check_position_count()
-        assert ok is True
-        assert reason == ""
-
-    @patch("strategy.executor.db")
-    def test_at_limit(self, mock_db):
-        mock_db.get_open_positions.return_value = [{"token_id": str(i)} for i in range(5)]
-        ok, reason = check_position_count()
-        assert ok is False
-        assert "position limit" in reason
-
 
 class TestCheckTradeRate:
     @patch("strategy.executor.db")
