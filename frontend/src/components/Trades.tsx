@@ -412,33 +412,81 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
           </span>
         </div>
 
-        {(() => { const ep = trade.fill_price != null ? trade.fill_price : trade.price; return (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 8 }}>
-          {[
-            { label: 'Entry Price', value: fmtUsd(trade.price) },
-            { label: 'Fill Price', value: trade.fill_price != null ? fmtUsd(trade.fill_price) : '--' },
-            { label: 'Size', value: fmtUsd(trade.size) },
-            { label: 'P&L', value: trade.pnl != null ? fmtUsd(trade.pnl) : '--',
-              color: trade.pnl != null ? (trade.pnl > 0 ? colors.success : trade.pnl < 0 ? colors.danger : undefined) : undefined },
-            { label: 'Max Gain', value: ep > 0 && ep < 1 ? fmtUsd(trade.size * (1 - ep) / ep) : '--', color: colors.accent },
-            { label: 'Payout If Won', value: ep > 0 && ep < 1 ? fmtUsd(trade.size / ep) : '--' },
-            { label: 'Order ID', value: trade.order_id ? trade.order_id.slice(0, 12) + '...' : '--' },
-          ].map((s, i) => (
-            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <span style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: fonts.mono }}>
-                {s.label}
+        {(() => {
+          const ep = trade.fill_price != null ? trade.fill_price : trade.price
+          const cost = trade.size * ep
+          const maxGain = trade.size - cost
+          const pnlColor = trade.pnl != null ? (trade.pnl > 0 ? colors.success : trade.pnl < 0 ? colors.danger : undefined) : undefined
+          return (
+          <>
+            {/* Cost hero — the main "how much money was placed" number */}
+            <div style={{
+              display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12,
+              padding: '10px 12px', borderRadius: 6,
+              background: 'rgba(68,136,204,0.06)', border: `1px solid ${colors.accent}20`,
+            }}>
+              <span style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', fontFamily: fonts.mono, letterSpacing: '0.06em' }}>
+                Amount Placed
               </span>
-              <span style={{
-                fontSize: 13, fontWeight: 600, fontFamily: fonts.mono,
-                color: s.color || colors.textPrimary,
-                textShadow: s.color ? `0 0 12px ${s.color}25` : 'none',
-              }}>
-                {s.value}
+              <span style={{ fontSize: 22, fontWeight: 700, fontFamily: fonts.mono, color: colors.textPrimary }}>
+                {fmtUsd(cost)}
               </span>
+              {ep > 0 && ep < 1 && (
+                <span style={{ fontSize: 12, color: colors.success, fontFamily: fonts.mono }}>
+                  +{fmtUsd(maxGain)} potential ({cost > 0 ? ((maxGain / cost) * 100).toFixed(0) : '0'}%)
+                </span>
+              )}
             </div>
-          ))}
-        </div>
-        ); })()}
+
+            {/* Price bar visual */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: colors.textDim, fontFamily: fonts.mono, marginBottom: 4 }}>
+                <span>$0.00</span>
+                <span>ENTRY @ {fmt(ep, 3)}</span>
+                <span>$1.00</span>
+              </div>
+              <div style={{ position: 'relative', height: 12, background: 'rgba(255,255,255,0.04)', borderRadius: 4, overflow: 'hidden' }}>
+                {/* Fill level */}
+                <div style={{
+                  width: `${ep * 100}%`, height: '100%', borderRadius: 4,
+                  background: `linear-gradient(90deg, ${trade.side.toUpperCase().includes('YES') ? colors.success : colors.danger}40, ${trade.side.toUpperCase().includes('YES') ? colors.success : colors.danger}80)`,
+                }} />
+                {/* Entry marker */}
+                <div style={{
+                  position: 'absolute', left: `${ep * 100}%`, top: 0, bottom: 0,
+                  width: 2, background: colors.textPrimary, transform: 'translateX(-1px)',
+                }} />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 8 }}>
+              {[
+                { label: 'Cost', value: fmtUsd(cost) },
+                { label: 'Entry Price', value: fmtUsd(trade.price) },
+                { label: 'Fill Price', value: trade.fill_price != null ? fmtUsd(trade.fill_price) : '--' },
+                { label: 'Size (tokens)', value: fmt(trade.size, 1) },
+                { label: 'P&L', value: trade.pnl != null ? fmtUsd(trade.pnl) : '--', color: pnlColor },
+                { label: 'Max Gain', value: ep > 0 && ep < 1 ? fmtUsd(maxGain) : '--', color: colors.success },
+                { label: 'Payout If Won', value: ep > 0 && ep < 1 ? fmtUsd(trade.size) : '--' },
+                { label: 'Order ID', value: trade.order_id ? trade.order_id.slice(0, 12) + '...' : '--' },
+              ].map((s, i) => (
+                <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: fonts.mono }}>
+                    {s.label}
+                  </span>
+                  <span style={{
+                    fontSize: 13, fontWeight: 600, fontFamily: fonts.mono,
+                    color: s.color || colors.textPrimary,
+                    textShadow: s.color ? `0 0 12px ${s.color}25` : 'none',
+                  }}>
+                    {s.value}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </>
+          )
+        })()}
       </div>
 
       {/* Full analysis from AnalysisDetail (same as Analysis tab) */}
@@ -706,24 +754,53 @@ export default function Trades() {
                     <PnlBadge pnl={t.pnl} />
                   </div>
 
-                  {/* Row 2: meta */}
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {/* Row 2: badges */}
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
                     <SideBadge side={t.side} />
                     <StatusBadge status={t.status} />
                     <ResolutionBadge status={t.resolution_status} />
                     {t.paper === 1 && <PaperBadge />}
-                    <span style={{ fontSize: 10, color: colors.textDim, fontFamily: fonts.mono }}>
-                      {fmtUsd(t.size)} @ {fmt(t.price, 4)}
-                    </span>
-                    {t.price > 0 && t.price < 1 && (
-                      <span style={{ fontSize: 10, color: colors.accent, fontFamily: fonts.mono }}>
-                        win {fmtUsd(t.size * (1 - t.price) / t.price)}
-                      </span>
-                    )}
                     <span style={{ fontSize: 9, color: colors.textDim, fontFamily: fonts.mono, marginLeft: 'auto' }}>
                       {formatTs(t.timestamp)}
                     </span>
                   </div>
+
+                  {/* Row 3: money line — matches Dashboard trade history */}
+                  {(() => {
+                    const ep = t.fill_price ?? t.price
+                    const cost = t.size * ep
+                    const maxGain = t.size - cost
+                    return (
+                      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: colors.textPrimary, fontFamily: fonts.mono }}>
+                          {fmtUsd(cost)}
+                        </span>
+                        <span style={{ fontSize: 9, color: colors.textDim, fontFamily: fonts.mono }}>
+                          @ {fmt(ep, 3)}
+                        </span>
+                        {ep > 0 && ep < 1 && (
+                          <span style={{ fontSize: 10, color: colors.success, fontFamily: fonts.mono }}>
+                            +{fmtUsd(maxGain)}
+                            <span style={{ color: colors.textDim, fontSize: 9, marginLeft: 3 }}>
+                              ({cost > 0 ? ((maxGain / cost) * 100).toFixed(0) : '0'}%)
+                            </span>
+                          </span>
+                        )}
+                        {/* Mini price bar */}
+                        <div style={{
+                          flex: 1, minWidth: 60, height: 4,
+                          background: 'rgba(255,255,255,0.04)', borderRadius: 2,
+                          overflow: 'hidden', position: 'relative',
+                        }}>
+                          <div style={{
+                            width: `${ep * 100}%`, height: '100%', borderRadius: 2,
+                            background: t.side.toUpperCase().includes('YES') ? colors.success : colors.danger,
+                            opacity: 0.5,
+                          }} />
+                        </div>
+                      </div>
+                    )
+                  })()}
                 </div>
               )
             })
