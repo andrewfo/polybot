@@ -381,11 +381,12 @@ async def filter_markets(
     _log_filter_step("time_to_resolution", len(markets), len(filtered))
     markets = filtered
 
-    # 4. Near-certain price filter: drop if any outcome price <= 0.02 or >= 0.98
+    # 4. Near-certain price filter: drop if any outcome price <= 0.05 or >= 0.95
+    # Prices in this range are lottery tickets where models are unreliable
     filtered = []
     for m in markets:
         prices = _get_outcome_prices(m)
-        if prices and all(0.02 < p < 0.98 for p in prices):
+        if prices and all(0.05 < p < 0.95 for p in prices):
             filtered.append(m)
         elif not prices:
             # No price data available — keep the market (don't penalize missing data)

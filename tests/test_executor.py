@@ -170,9 +170,15 @@ class TestPaperExecutor:
     @pytest.mark.asyncio
     @patch("strategy.executor.db")
     async def test_execute_trade_blocked_by_guardrail(self, mock_db):
-        mock_db.get_open_positions.return_value = [{"token_id": str(i)} for i in range(5)]
+        # 12 open positions exceeds MAX_OPEN_POSITIONS (10) guardrail
+        mock_db.get_open_positions.return_value = [
+            {"token_id": str(i), "market_id": f"mkt_{i}", "market_question": f"Q{i}"}
+            for i in range(12)
+        ]
         mock_db.get_total_pnl.return_value = 0.0
         mock_db.get_daily_pnl.return_value = 0.0
+        mock_db.get_recent_trade_count.return_value = 0
+        mock_db.get_paper_balance.return_value = {"available_cash": 1000.0}
 
         executor = PaperExecutor()
         decision = _make_decision()

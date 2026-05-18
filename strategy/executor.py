@@ -12,9 +12,11 @@ from typing import Any
 import aiohttp
 
 from config.settings import (
+    MAX_CORRELATED_POSITIONS,
     MAX_DAILY_LOSS_PCT,
     MAX_DRAWDOWN_PCT,
     MAX_NEW_TRADES_PER_HOUR,
+    MAX_OPEN_POSITIONS,
     SLIPPAGE_BUFFER,
     STALE_ORDER_MINUTES,
     STOP_LOSS_PCT,
@@ -72,6 +74,52 @@ def check_daily_loss(bankroll: float) -> tuple[bool, str]:
     return True, ""
 
 
+def check_open_positions() -> tuple[bool, str]:
+    """Check if total open positions exceeds the cap."""
+    positions = db.get_open_positions()
+    if len(positions) >= MAX_OPEN_POSITIONS:
+        return False, f"max open positions reached ({len(positions)}/{MAX_OPEN_POSITIONS})"
+    return True, ""
+
+
+def check_correlated_positions(market_question: str) -> tuple[bool, str]:
+    """Check if we already have too many positions on the same underlying asset.
+
+    Extracts the primary asset (e.g., Bitcoin, Ethereum) from the market question
+    and counts how many open positions reference that same asset.
+    """
+    ASSET_KEYWORDS: dict[str, list[str]] = {
+        "bitcoin": ["bitcoin", "btc"],
+        "ethereum": ["ethereum", "eth"],
+        "solana": ["solana", "sol"],
+        "xrp": ["xrp", "ripple"],
+        "dogecoin": ["dogecoin", "doge"],
+        "gold": ["gold", "xauusd"],
+    }
+
+    q_lower = market_question.lower()
+    matched_asset = None
+    for asset, keywords in ASSET_KEYWORDS.items():
+        if any(kw in q_lower for kw in keywords):
+            matched_asset = asset
+            break
+
+    if matched_asset is None:
+        return True, ""
+
+    positions = db.get_open_positions()
+    count = 0
+    keywords = ASSET_KEYWORDS[matched_asset]
+    for pos in positions:
+        pos_q = (pos.get("market_question") or "").lower()
+        if any(kw in pos_q for kw in keywords):
+            count += 1
+
+    if count >= MAX_CORRELATED_POSITIONS:
+        return False, f"max correlated positions for {matched_asset} ({count}/{MAX_CORRELATED_POSITIONS})"
+    return True, ""
+
+
 def check_balance(bankroll: float) -> tuple[bool, str]:
     """Check if available cash exceeds the minimum bankroll reserve."""
     from config.settings import MIN_BANKROLL_RESERVE
@@ -83,13 +131,17 @@ def check_balance(bankroll: float) -> tuple[bool, str]:
     return True, ""
 
 
-def check_all_guardrails(bankroll: float) -> tuple[bool, str]:
+def check_all_guardrails(bankroll: float, market_question: str = "") -> tuple[bool, str]:
     """Run all risk guardrails. Returns (ok, reason). May raise AutoStopError."""
     # These raise AutoStopError on critical failures
     check_drawdown(bankroll)
     check_daily_loss(bankroll)
 
     # These return soft blocks
+    ok, reason = check_open_positions()
+    if not ok:
+        return False, reason
+
     ok, reason = check_trade_rate()
     if not ok:
         return False, reason
@@ -97,6 +149,11 @@ def check_all_guardrails(bankroll: float) -> tuple[bool, str]:
     ok, reason = check_balance(bankroll)
     if not ok:
         return False, reason
+
+    if market_question:
+        ok, reason = check_correlated_positions(market_question)
+        if not ok:
+            return False, reason
 
     return True, ""
 
@@ -158,7 +215,7 @@ class PaperExecutor:
     ) -> str | None:
         """Execute a paper trade. Returns trade_id or None if blocked."""
         # Run guardrails
-        ok, reason = check_all_guardrails(bankroll)
+        ok, reason = check_all_guardrails(bankroll, market_question=decision.market_question)
         if not ok:
             logger.warning("Trade blocked by guardrail: %s", reason)
             return None
@@ -290,7 +347,7 @@ class TradeExecutor:
         bankroll: float,
     ) -> str | None:
         """Execute a live trade. Returns trade_id or None if blocked."""
-        ok, reason = check_all_guardrails(bankroll)
+        ok, reason = check_all_guardrails(bankroll, market_question=decision.market_question)
         if not ok:
             logger.warning("Trade blocked by guardrail: %s", reason)
             return None
