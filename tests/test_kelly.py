@@ -127,10 +127,10 @@ class TestConfidenceBlending:
 
     def test_zero_confidence_uses_blend_floor(self) -> None:
         d = _kelly(estimated_prob=0.60, market_price=0.40, confidence=0.0)
-        # With MIN_CONFIDENCE_BLEND=0.25: blend = max(0^0.75, 0.25) = 0.25
-        # effective = 0.25*0.60 + 0.75*0.40 = 0.15 + 0.30 = 0.45
-        assert abs(d.effective_prob - 0.45) < 1e-4
-        assert d.should_trade is True  # 5% edge after blend floor
+        # With MIN_CONFIDENCE_BLEND=0.20: blend = max(0^0.75, 0.20) = 0.20
+        # effective = 0.20*0.60 + 0.80*0.40 = 0.12 + 0.32 = 0.44
+        assert abs(d.effective_prob - 0.44) < 1e-4
+        assert d.should_trade is True  # 4% edge after blend floor
 
     def test_low_confidence_preserves_edge(self) -> None:
         """Low confidence with sublinear blending preserves more edge than linear."""

@@ -347,7 +347,7 @@ class BotEngine:
                 })
 
                 # Select candidates (dedup by conditionId, allow re-analysis on price move)
-                batch_size = 15
+                batch_size = 20
                 now_ts = time.time()
                 reanalysis_hours = AGGREGATION_INTERVAL_MINUTES / 60
 
