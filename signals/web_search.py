@@ -61,8 +61,8 @@ class WebSearchSignalProvider(SignalProvider):
         market_end_date: str,
         **kwargs: Any,
     ) -> SignalResult:
-        # Check cache
-        cache_key = market_question
+        # Check cache (include end_date to avoid stale hits when deadline changes)
+        cache_key = f"{market_question}|{market_end_date}"
         if cache_key in _signal_cache:
             cached_result, cached_time = _signal_cache[cache_key]
             if time.monotonic() - cached_time < CACHE_TTL_SECONDS:
@@ -116,8 +116,8 @@ class WebSearchSignalProvider(SignalProvider):
         self._emit(market_question, "searching", "Sonar web search")
 
         prompt = (
-            f'You are a prediction market analyst. Search the web for the latest information '
-            f'about this prediction market question and estimate its probability.\n'
+            f'You are a calibrated prediction market analyst. Search the web for the latest '
+            f'information about this prediction market question and estimate its probability.\n'
             f'{date_line}'
             f'Market question: "{market_question}"\n'
             f'Category: {market_category}\n'
@@ -126,7 +126,17 @@ class WebSearchSignalProvider(SignalProvider):
             f'Search for the most recent and relevant information. Then:\n'
             f'1. Summarize the key evidence you found (cite sources)\n'
             f'2. Estimate the probability of YES (0.0 to 1.0)\n'
-            f'3. Rate your confidence (0.0 to 1.0)\n'
+            f'3. Rate your confidence (0.0 to 1.0) — confidence should reflect how much '
+            f'relevant evidence you actually found, NOT how certain the outcome seems\n'
+            f'\n'
+            f'CALIBRATION RULES:\n'
+            f'- Most binary events resolve NO. Start from a base rate of ~0.3 for YES and '
+            f'adjust based on evidence strength.\n'
+            f'- Probabilities between 0.20 and 0.80 are appropriate for most events. '
+            f'Only go below 0.10 or above 0.90 if you have very strong, specific evidence.\n'
+            f'- If you found little or no relevant evidence, keep probability near 0.3-0.5 '
+            f'and set confidence LOW (0.2-0.4).\n'
+            f'- Confidence 0.8+ means you found multiple high-quality, recent, concordant sources.\n'
             f'\n'
             f'IMPORTANT: Do NOT use prediction market prices (Polymarket, Kalshi, Manifold, '
             f'PredictIt, etc.) as evidence. We need an INDEPENDENT estimate based on '
@@ -165,10 +175,25 @@ class WebSearchSignalProvider(SignalProvider):
             prob = max(0.0, min(1.0, prob))
         conf = max(0.0, min(1.0, conf))
 
-        # Sonar is a search/synthesis model, not calibration-trained.
-        # Its self-reported confidence is systematically inflated (0.6-0.8
-        # even for highly uncertain events). Discount by 0.7x.
-        conf *= 0.7
+        effective_sources = max(sources_found, len(key_evidence))
+
+        # --- Evidence-aware confidence ---
+        # Sonar's self-reported confidence is inflated (0.6-0.8 even for
+        # highly uncertain events). Instead of a flat 0.7x discount, scale
+        # by evidence quantity so thin-evidence signals get lower weight
+        # in the aggregator.
+        #   evidence_factor: 0 sources → 0.3, 1 → 0.44, 3 → 0.72, 5+ → 1.0
+        evidence_factor = min(effective_sources, 5) / 5.0
+        evidence_factor = 0.3 + 0.7 * evidence_factor  # floor at 0.3
+        conf = conf * 0.7 * evidence_factor
+
+        # --- Probability shrinkage toward 0.5 when evidence is thin ---
+        # With few sources, Sonar's extreme outputs are unreliable.
+        # Shrink toward 0.5 proportionally to evidence scarcity.
+        #   shrinkage: 0 sources → 0.6 (heavy pull to 0.5), 5+ → 0.0 (no pull)
+        if prob is not None and effective_sources < 5:
+            shrinkage = 0.6 * (1.0 - min(effective_sources, 5) / 5.0)
+            prob = prob * (1.0 - shrinkage) + 0.5 * shrinkage
 
         return SignalResult(
             source="web_search",
@@ -176,7 +201,7 @@ class WebSearchSignalProvider(SignalProvider):
             confidence=conf,
             reasoning=reasoning,
             model_used="sonar",
-            data_points=max(sources_found, len(key_evidence)),
+            data_points=effective_sources,
             raw_data={
                 "key_evidence": key_evidence,
                 "sources_found": sources_found,
