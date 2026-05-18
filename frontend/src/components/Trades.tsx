@@ -412,6 +412,7 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
           </span>
         </div>
 
+        {(() => { const ep = trade.fill_price != null ? trade.fill_price : trade.price; return (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 8 }}>
           {[
             { label: 'Entry Price', value: fmtUsd(trade.price) },
@@ -419,6 +420,8 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
             { label: 'Size', value: fmtUsd(trade.size) },
             { label: 'P&L', value: trade.pnl != null ? fmtUsd(trade.pnl) : '--',
               color: trade.pnl != null ? (trade.pnl > 0 ? colors.success : trade.pnl < 0 ? colors.danger : undefined) : undefined },
+            { label: 'Max Gain', value: ep > 0 && ep < 1 ? fmtUsd(trade.size * (1 - ep) / ep) : '--', color: colors.accent },
+            { label: 'Payout If Won', value: ep > 0 && ep < 1 ? fmtUsd(trade.size / ep) : '--' },
             { label: 'Order ID', value: trade.order_id ? trade.order_id.slice(0, 12) + '...' : '--' },
           ].map((s, i) => (
             <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -435,6 +438,7 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
             </div>
           ))}
         </div>
+        ); })()}
       </div>
 
       {/* Full analysis from AnalysisDetail (same as Analysis tab) */}
@@ -711,6 +715,11 @@ export default function Trades() {
                     <span style={{ fontSize: 10, color: colors.textDim, fontFamily: fonts.mono }}>
                       {fmtUsd(t.size)} @ {fmt(t.price, 4)}
                     </span>
+                    {t.price > 0 && t.price < 1 && (
+                      <span style={{ fontSize: 10, color: colors.accent, fontFamily: fonts.mono }}>
+                        win {fmtUsd(t.size * (1 - t.price) / t.price)}
+                      </span>
+                    )}
                     <span style={{ fontSize: 9, color: colors.textDim, fontFamily: fonts.mono, marginLeft: 'auto' }}>
                       {formatTs(t.timestamp)}
                     </span>
