@@ -943,9 +943,9 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
               <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 3px', fontSize: 12 }}>
                 <thead>
                   <tr>
-                    {['Market', 'Side', 'Entry', 'Current', 'Cost', 'P&L'].map(h => (
+                    {['Market', 'Side', 'Size', 'Entry', 'Current', 'Cost', 'Max Gain', 'P&L', 'Opened'].map(h => (
                       <th key={h} style={{
-                        padding: '8px 12px', textAlign: h === 'Market' || h === 'Side' ? 'left' : 'right',
+                        padding: '8px 12px', textAlign: h === 'Market' || h === 'Side' || h === 'Opened' ? 'left' : 'right',
                         color: colors.textDim, fontWeight: 500, fontSize: 10,
                         textTransform: 'uppercase', letterSpacing: '0.08em',
                         fontFamily: fonts.mono,
@@ -960,6 +960,19 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                     const pnlColor = p.unrealized_pnl >= 0 ? colors.success : colors.danger
                     const pnlBg = p.unrealized_pnl >= 0 ? colors.successDim : colors.dangerDim
                     const pnlPct = p.avg_entry > 0 ? ((p.current_price - p.avg_entry) / p.avg_entry * 100) : 0
+                    const cost = p.size * p.avg_entry
+                    // Max gain: payout on win ($1/token) minus cost
+                    const maxGain = p.size - cost
+                    // Time since opened
+                    const openedAgo = p.opened_at ? (() => {
+                      const ms = Date.now() - new Date(p.opened_at).getTime()
+                      const mins = Math.floor(ms / 60000)
+                      if (mins < 60) return `${mins}m ago`
+                      const hrs = Math.floor(mins / 60)
+                      if (hrs < 24) return `${hrs}h ago`
+                      const days = Math.floor(hrs / 24)
+                      return `${days}d ago`
+                    })() : '--'
                     return (
                       <tr key={p.token_id} style={{
                         background: colors.bgCard,
@@ -976,7 +989,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                         e.currentTarget.style.boxShadow = 'none'
                       }}>
                         <td style={{
-                          padding: '10px 12px', maxWidth: 300, overflow: 'hidden',
+                          padding: '10px 12px', maxWidth: 260, overflow: 'hidden',
                           textOverflow: 'ellipsis', whiteSpace: 'nowrap', borderRadius: '6px 0 0 6px',
                           fontSize: 12,
                         }}>
@@ -993,16 +1006,29 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                           />
                         </td>
                         <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
+                          {p.size.toFixed(1)}
+                        </td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
                           ${p.avg_entry.toFixed(3)}
                         </td>
                         <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
                           ${p.current_price.toFixed(3)}
                         </td>
                         <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
-                          ${(p.size * p.avg_entry).toFixed(2)}
+                          ${cost.toFixed(2)}
+                        </td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11 }}>
+                          <span style={{
+                            color: colors.success, fontWeight: 500,
+                          }}>
+                            +${maxGain.toFixed(2)}
+                          </span>
+                          <span style={{ color: colors.textDim, fontSize: 9, marginLeft: 3 }}>
+                            ({((maxGain / cost) * 100).toFixed(0)}%)
+                          </span>
                         </td>
                         <td style={{
-                          padding: '10px 12px', textAlign: 'right', borderRadius: '0 6px 6px 0',
+                          padding: '10px 12px', textAlign: 'right',
                           fontFamily: fonts.mono, fontSize: 11,
                         }}>
                           <span style={{
@@ -1016,6 +1042,12 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                               {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(1)}%
                             </span>
                           </span>
+                        </td>
+                        <td style={{
+                          padding: '10px 12px', whiteSpace: 'nowrap', borderRadius: '0 6px 6px 0',
+                          fontFamily: fonts.mono, fontSize: 10, color: colors.textDim,
+                        }}>
+                          {openedAgo}
                         </td>
                       </tr>
                     )
@@ -1052,7 +1084,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
             <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 3px', fontSize: 12 }}>
               <thead>
                 <tr>
-                  {['Time', 'Market', 'Side', 'Price', 'Fill', 'Cost', 'Status', 'P&L'].map(h => (
+                  {['Time', 'Market', 'Side', 'Size', 'Price', 'Fill', 'Cost', 'Max Gain', 'Status', 'P&L'].map(h => (
                     <th key={h} style={{
                       padding: '8px 12px', textAlign: h === 'Market' || h === 'Time' ? 'left' : 'right',
                       color: colors.textDim, fontWeight: 500, fontSize: 10,
@@ -1068,6 +1100,10 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                 {trades.map((t, ti) => {
                   const tradePnl = t.pnl
                   const hasPnl = tradePnl != null && tradePnl !== 0
+                  const fillOrPrice = t.fill_price ?? t.price
+                  const tradeCost = t.size * fillOrPrice
+                  // Max gain: payout on win ($1/token) minus cost
+                  const tradeMaxGain = t.size - tradeCost
                   return (
                     <tr
                       key={t.id || ti}
@@ -1094,7 +1130,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                         {t.timestamp ? t.timestamp.replace('T', ' ').slice(0, 19) : '--'}
                       </td>
                       <td style={{
-                        padding: '8px 12px', maxWidth: 250, overflow: 'hidden',
+                        padding: '8px 12px', maxWidth: 220, overflow: 'hidden',
                         textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12,
                       }}>
                         {t.market_question || t.market_id}
@@ -1110,13 +1146,24 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                         />
                       </td>
                       <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
+                        {t.size.toFixed(1)}
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
                         ${t.price.toFixed(3)}
                       </td>
                       <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
                         {t.fill_price != null ? `$${t.fill_price.toFixed(3)}` : '--'}
                       </td>
                       <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
-                        ${(t.size * t.price).toFixed(2)}
+                        ${tradeCost.toFixed(2)}
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11 }}>
+                        <span style={{ color: colors.success, fontWeight: 500 }}>
+                          +${tradeMaxGain.toFixed(2)}
+                        </span>
+                        <span style={{ color: colors.textDim, fontSize: 9, marginLeft: 3 }}>
+                          ({tradeCost > 0 ? ((tradeMaxGain / tradeCost) * 100).toFixed(0) : '0'}%)
+                        </span>
                       </td>
                       <td style={{ padding: '8px 12px', textAlign: 'right' }}>
                         <PillBadge
