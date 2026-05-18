@@ -55,6 +55,7 @@ def _format_status_message(
     bot_paused: bool,
     bot_phase: str,
     cycle_etas: dict[str, float | None],
+    recent_trades: list[dict[str, Any]] | None = None,
 ) -> str:
     """Build the status message for Telegram."""
     mode = "PAPER" if PAPER_TRADING else "LIVE"
@@ -118,6 +119,25 @@ def _format_status_message(
     else:
         lines.append("No open positions.")
 
+    # Recent trade history
+    if recent_trades:
+        lines.append("")
+        lines.append(f"{'📜'} Recent Trades ({len(recent_trades)})")
+        for t in recent_trades:
+            question = (t.get("market_question") or t.get("market_id") or "?")[:50]
+            side = t.get("side", "?")
+            size = t.get("size", 0) or 0
+            price = t.get("fill_price") or t.get("price") or 0
+            status = t.get("status", "?")
+            pnl = t.get("pnl")
+            ts = (t.get("timestamp") or "")[:16].replace("T", " ")
+            pnl_str = ""
+            if pnl is not None:
+                sign = "+" if pnl >= 0 else ""
+                pnl_str = f" ({sign}${pnl:.2f})"
+            lines.append(f"  {ts} {side} {question}")
+            lines.append(f"    {size:.0f} @ {price:.3f} [{status}]{pnl_str}")
+
     return "\n".join(lines)
 
 
@@ -127,9 +147,16 @@ async def _status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     try:
-        from core.db import get_daily_pnl, get_open_positions, get_paper_balance, get_total_pnl
+        from core.db import (
+            get_all_trades,
+            get_daily_pnl,
+            get_open_positions,
+            get_paper_balance,
+            get_total_pnl,
+        )
 
         positions = get_open_positions()
+        recent_trades = get_all_trades(limit=5)
         balance = get_paper_balance(TEST_BANKROLL) if PAPER_TRADING else {
             "total_value": 0, "available_cash": 0, "deployed_capital": 0,
             "unrealized_pnl": 0, "realized_pnl": 0,
@@ -178,6 +205,7 @@ async def _status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             bot_paused=bot_paused,
             bot_phase=bot_phase,
             cycle_etas=cycle_etas,
+            recent_trades=recent_trades,
         )
         await _safe_reply(update, msg)
     except (NetworkError, TimedOut, httpx.HTTPError) as e:
