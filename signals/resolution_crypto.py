@@ -700,11 +700,14 @@ class CryptoResolutionProvider(SignalProvider):
                 logger.debug("Whitelist match: '%s' → %s", coin_name[:40], cg_id)
                 return cg_id
 
-        # Check cache for a previous mapping
+        # Check cache for a previous mapping (positive or negative)
         cache_key = f"coingecko_map:{coin_name_lower}"
         cached = db.get_cached_market(cache_key)
         if cached and isinstance(cached.get("data"), dict):
             mapped_id = cached["data"].get("coin_id")
+            if mapped_id == "__none__":
+                logger.debug("Negative cache hit for coin mapping: '%s'", coin_name[:40])
+                return None
             if mapped_id:
                 return mapped_id
 
@@ -729,6 +732,15 @@ class CryptoResolutionProvider(SignalProvider):
         except Exception as e:
             logger.warning("Failed to map coin name to CoinGecko ID: %s", e)
 
+        # Negative cache: avoid re-hitting LLM for the same unmappable question
+        try:
+            db.cache_market(
+                condition_id=cache_key,
+                data={"coin_id": "__none__", "coin_name": coin_name},
+                category="crypto",
+            )
+        except Exception:
+            pass
         return None
 
     async def _fetch_coin_data(
@@ -992,9 +1004,12 @@ class CryptoResolutionProvider(SignalProvider):
         confidence = 0.55  # base confidence for mathematical model
         data_points = vol_est.data_points
 
-        if annual_vol > 0 and data_points > 10:
+        # Cap confidence when vol data is missing/default — the model is guessing
+        if vol_source == "default_80pct":
+            confidence = 0.30
+        elif annual_vol > 0 and data_points > 10:
             confidence = 0.65
-        if annual_vol > 0 and data_points > 30:
+        if annual_vol > 0 and data_points > 30 and vol_source != "default_80pct":
             confidence = 0.70
 
         # Boost for forward-looking IV (much better than historical)
@@ -1009,25 +1024,41 @@ class CryptoResolutionProvider(SignalProvider):
             vol_ratio = max(vol_est.annual_vol, vol_est.annual_vol_ewm) / \
                         min(vol_est.annual_vol, vol_est.annual_vol_ewm)
             if vol_ratio > 2.5:
-                confidence = max(confidence - 0.10, 0.40)
+                confidence = max(confidence - 0.10, 0.30)
                 logger.info(
                     "Vol regime very unstable for %s (ratio=%.1f), reducing confidence",
                     coin_id, vol_ratio,
                 )
             elif vol_ratio > 1.8:
-                confidence = max(confidence - 0.05, 0.45)
+                confidence = max(confidence - 0.05, 0.35)
 
         # For near-the-money predictions (prob 0.3-0.7), the model is less
         # decisive — small vol/drift errors swing the output a lot.
         # For deep ITM/OTM (prob <0.1 or >0.9), the math is more certain.
         if 0.35 < model_prob < 0.65:
-            confidence = max(confidence - 0.05, 0.45)
+            confidence = max(confidence - 0.05, 0.35)
 
         # Reduce confidence when drift was heavily shrunk (uncertain trend)
         if realized_drift is not None and shrunk_drift is not None and realized_drift != 0:
             shrink_ratio = abs(shrunk_drift) / abs(realized_drift)
             if shrink_ratio < 0.3:
-                confidence = max(confidence - 0.05, 0.40)
+                confidence = max(confidence - 0.05, 0.30)
+
+        # Price sensitivity penalty ("gamma risk"): if a 1% price move would
+        # swing the model probability by a large amount, the prediction is
+        # fragile and confidence should reflect that.  Compute dP for ±1%.
+        price_up = current_price * 1.01
+        price_dn = current_price * 0.99
+        _prob_fn = barrier_probability if resolution_type == "barrier" else log_normal_probability
+        prob_up = _prob_fn(price_up, target_price, annual_vol, days_remaining, target_direction, shrunk_drift)
+        prob_dn = _prob_fn(price_dn, target_price, annual_vol, days_remaining, target_direction, shrunk_drift)
+        price_sensitivity = abs(prob_up - prob_dn)
+        if price_sensitivity > 0.25:
+            # Extremely fragile: 1% move swings prob by 25pp+
+            confidence = max(confidence - 0.12, 0.30)
+        elif price_sensitivity > 0.15:
+            # Quite fragile: 1% move swings prob by 15pp+
+            confidence = max(confidence - 0.07, 0.35)
 
         # Build detailed reasoning
         vol_label = f"vol={annual_vol:.0%}({vol_source})"
@@ -1083,6 +1114,7 @@ class CryptoResolutionProvider(SignalProvider):
                 "change_24h": change_24h / 100 if change_24h else 0.0,
                 "trend": trend_description,
                 "distance_pct": distance_pct,
+                "price_sensitivity_1pct": round(price_sensitivity, 4),
                 "price_7d_ago": _price_n_days_ago(chart_data, 7),
                 "avg_interval_hours": vol_est.avg_interval_hours,
                 "price_history": [
