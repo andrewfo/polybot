@@ -10,13 +10,7 @@ from core import db
 from monitoring import pnl
 
 
-@pytest.fixture(autouse=True)
-def fresh_db(tmp_path, monkeypatch):
-    """Use a fresh temporary database for each test."""
-    test_db_path = tmp_path / "test.db"
-    monkeypatch.setattr(db, "DB_PATH", test_db_path)
-    db.ensure_tables()
-    return test_db_path
+# DB isolation is handled by conftest.py's _isolate_db fixture (autouse=True)
 
 
 @pytest.fixture

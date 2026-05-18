@@ -56,6 +56,13 @@ if __name__ == "__main__":
 
         app = create_app()
         port = int(os.environ.get("WEB_PORT", "8080"))
-        uvicorn.run(app, host="127.0.0.1", port=port)
+        reload = "--reload" in sys.argv
+        uvicorn.run(
+            "web.server:create_app",
+            host="127.0.0.1",
+            port=port,
+            reload=reload,
+            factory=True,
+        )
     else:
         asyncio.run(main())

@@ -914,7 +914,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
               <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 3px', fontSize: 12 }}>
                 <thead>
                   <tr>
-                    {['Market', 'Side', 'Entry', 'Current', 'Size', 'P&L'].map(h => (
+                    {['Market', 'Side', 'Entry', 'Current', 'Cost', 'P&L'].map(h => (
                       <th key={h} style={{
                         padding: '8px 12px', textAlign: h === 'Market' || h === 'Side' ? 'left' : 'right',
                         color: colors.textDim, fontWeight: 500, fontSize: 10,
@@ -962,7 +962,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                           ${p.current_price.toFixed(3)}
                         </td>
                         <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
-                          ${p.size.toFixed(2)}
+                          ${(p.size * p.avg_entry).toFixed(2)}
                         </td>
                         <td style={{
                           padding: '10px 12px', textAlign: 'right', borderRadius: '0 6px 6px 0',
@@ -1009,7 +1009,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
             <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 3px', fontSize: 12 }}>
               <thead>
                 <tr>
-                  {['Time', 'Market', 'Side', 'Price', 'Fill', 'Size', 'Status', 'P&L'].map(h => (
+                  {['Time', 'Market', 'Side', 'Price', 'Fill', 'Cost', 'Status', 'P&L'].map(h => (
                     <th key={h} style={{
                       padding: '8px 12px', textAlign: h === 'Market' || h === 'Time' ? 'left' : 'right',
                       color: colors.textDim, fontWeight: 500, fontSize: 10,
@@ -1067,7 +1067,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                         {t.fill_price != null ? `$${t.fill_price.toFixed(3)}` : '--'}
                       </td>
                       <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
-                        ${t.size.toFixed(2)}
+                        ${(t.size * t.price).toFixed(2)}
                       </td>
                       <td style={{ padding: '8px 12px', textAlign: 'right' }}>
                         <PillBadge
@@ -1300,9 +1300,9 @@ function TradeDetailModal({ detail, loading, onClose }: {
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                 <PillBadge
-                  text={trade.side === 'BUY_YES' ? 'YES' : trade.side === 'BUY_NO' ? 'NO' : trade.side}
-                  bg={trade.side === 'BUY_NO' ? colors.dangerDim : colors.successDim}
-                  fg={trade.side === 'BUY_NO' ? colors.danger : colors.success}
+                  text={trade.side === 'BUY_YES' || trade.side === 'BUY' ? 'BUY' : trade.side === 'BUY_NO' ? 'NO' : trade.side === 'SELL' ? 'SELL' : trade.side}
+                  bg={trade.side === 'BUY_NO' || trade.side === 'SELL' ? colors.dangerDim : colors.successDim}
+                  fg={trade.side === 'BUY_NO' || trade.side === 'SELL' ? colors.danger : colors.success}
                 />
                 <PillBadge
                   text={trade.status.toUpperCase()}
@@ -1320,16 +1320,16 @@ function TradeDetailModal({ detail, loading, onClose }: {
               padding: 14, border: `1px solid ${colors.border}`,
             }}>
               <ModalStat label="Limit Price" value={`$${trade.price.toFixed(4)}`} />
-              <ModalStat label="Fill Price" value={trade.fill_price != null ? `$${trade.fill_price.toFixed(4)}` : '--'} />
-              <ModalStat label="Size (tokens)" value={trade.size.toFixed(2)} />
+              <ModalStat label="Fill Price" value={trade.fill_price != null ? `$${trade.fill_price.toFixed(4)}` : (trade.status?.toUpperCase() === 'FILLED' ? `$${trade.price.toFixed(4)}` : '--')} />
+              <ModalStat label="Cost" value={`$${(trade.size * trade.price).toFixed(2)}`} />
               <ModalStat
                 label="P&L"
-                value={trade.pnl != null ? `${trade.pnl >= 0 ? '+' : ''}$${trade.pnl.toFixed(2)}` : '--'}
+                value={trade.pnl != null ? `${trade.pnl >= 0 ? '+' : ''}$${trade.pnl.toFixed(2)}` : (trade.status?.toUpperCase() === 'PENDING' ? 'Pending' : '$0.00')}
                 color={trade.pnl != null ? (trade.pnl >= 0 ? colors.success : colors.danger) : undefined}
               />
-              <ModalStat label="Placed At" value={trade.placed_at ? trade.placed_at.replace('T', ' ').slice(0, 19) : '--'} />
+              <ModalStat label="Placed At" value={(trade.placed_at || trade.timestamp) ? (trade.placed_at || trade.timestamp).replace('T', ' ').slice(0, 19) : '--'} />
               <ModalStat label="Timestamp" value={trade.timestamp ? trade.timestamp.replace('T', ' ').slice(0, 19) : '--'} />
-              <ModalStat label="Order ID" value={trade.order_id ? trade.order_id.slice(0, 16) : '--'} />
+              <ModalStat label="Order ID" value={trade.order_id ? trade.order_id.slice(0, 16) : (trade.paper ? 'Paper Trade' : '--')} />
               <ModalStat label="Trade ID" value={trade.id.slice(0, 16)} />
             </div>
 

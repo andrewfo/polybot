@@ -9,14 +9,7 @@ from unittest import mock
 
 import pytest
 
-
-@pytest.fixture(autouse=True)
-def _use_temp_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Point db module at a unique temporary database for each test."""
-    import core.db as db_mod
-    test_db = tmp_path / f"test_{uuid.uuid4().hex[:8]}.db"
-    monkeypatch.setattr(db_mod, "DB_PATH", test_db)
-    db_mod.ensure_tables()
+# DB isolation is handled by conftest.py's _isolate_db fixture (autouse=True)
 
 
 def _get_db():

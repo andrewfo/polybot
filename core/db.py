@@ -334,6 +334,7 @@ def get_trade_with_context(trade_id: str) -> dict[str, Any] | None:
     result: dict[str, Any] = {"trade": trade, "frontier_decision": None, "signals": []}
 
     # Find the closest frontier decision for this market (by timestamp)
+    fd = None
     try:
         fd_rows = db.execute(
             "SELECT * FROM frontier_decisions WHERE market_id = ? "
@@ -342,7 +343,8 @@ def get_trade_with_context(trade_id: str) -> dict[str, Any] | None:
         ).fetchall()
         if fd_rows:
             fd_cols = [col.name for col in db["frontier_decisions"].columns]
-            result["frontier_decision"] = {fd_cols[i]: fd_rows[0][i] for i in range(len(fd_cols))}
+            fd = {fd_cols[i]: fd_rows[0][i] for i in range(len(fd_cols))}
+            result["frontier_decision"] = fd
     except Exception:
         pass
 
@@ -357,6 +359,31 @@ def get_trade_with_context(trade_id: str) -> dict[str, Any] | None:
             result["signals"] = [{sig_cols[i]: row[i] for i in range(len(sig_cols))} for row in sig_rows]
     except Exception:
         pass
+
+    # Backfill missing trade fields from related data
+    if not trade.get("market_question"):
+        # Try frontier decision, then positions table
+        if fd and fd.get("market_question"):
+            trade["market_question"] = fd["market_question"]
+        else:
+            try:
+                pos_rows = db.execute(
+                    "SELECT market_question FROM positions WHERE market_id = ? LIMIT 1",
+                    [market_id],
+                ).fetchall()
+                if pos_rows and pos_rows[0][0]:
+                    trade["market_question"] = pos_rows[0][0]
+            except Exception:
+                pass
+
+    if not trade.get("placed_at"):
+        trade["placed_at"] = trade.get("timestamp")
+
+    if trade.get("fill_price") is None and trade.get("status") in ("FILLED", "filled"):
+        trade["fill_price"] = trade.get("price")
+
+    if trade.get("paper") and not trade.get("order_id"):
+        trade["order_id"] = f"paper-{trade_id[:8]}"
 
     return result
 
@@ -416,7 +443,8 @@ def close_position(
     """Mark a position as closed and record realized PnL.
 
     Updates status to 'closed', sets current_price to exit_price,
-    and records the realized PnL in the unrealized_pnl field (now realized).
+    and records the realized PnL. Also updates the matching trade's pnl
+    field so that get_total_pnl() and metrics stay consistent.
     """
     db = get_db()
     now = datetime.now(timezone.utc).isoformat()
@@ -432,6 +460,19 @@ def close_position(
     except Exception:
         # Fallback: delete if update fails (old schema)
         db["positions"].delete(token_id)
+
+    # Also update the most recent FILLED trade for this token so
+    # get_total_pnl() / get_daily_pnl() / metrics reflect the PnL
+    try:
+        trade_rows = db.execute(
+            "SELECT id FROM trades WHERE token_id = ? AND status = 'FILLED' "
+            "AND pnl IS NULL ORDER BY timestamp DESC LIMIT 1",
+            [token_id],
+        ).fetchall()
+        if trade_rows:
+            db["trades"].update(trade_rows[0][0], {"pnl": realized_pnl})
+    except Exception:
+        pass
 
 
 def get_open_positions() -> list[dict[str, Any]]:
@@ -537,8 +578,20 @@ def get_paper_balance(starting_bankroll: float) -> dict[str, float]:
 
     Returns dict with starting_balance, realized_pnl, deployed_capital,
     unrealized_pnl, available_cash, total_value.
+
+    Realized PnL comes from closed positions (where close_position() stores it).
+    This is the authoritative source for paper trades — trades.pnl is not
+    reliably set for paper trades.
     """
-    realized_pnl = get_total_pnl()
+    db = get_db()
+
+    # Realized PnL from closed positions (authoritative for paper trades)
+    closed_rows = list(db.execute(
+        "SELECT COALESCE(SUM(realized_pnl), 0) FROM positions "
+        "WHERE status = 'closed' AND realized_pnl IS NOT NULL"
+    ).fetchall())
+    realized_pnl = float(closed_rows[0][0]) if closed_rows else 0.0
+
     positions = get_open_positions()
     deployed_capital = sum(p["size"] * p["avg_entry"] for p in positions)
     unrealized_pnl = sum(p.get("unrealized_pnl", 0) for p in positions)
