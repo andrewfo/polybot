@@ -509,6 +509,8 @@ def upsert_position(
         "last_updated": now,
         "paper": int(paper),
         "status": "open",
+        "exit_price": None,
+        "realized_pnl": None,
     }, pk="token_id")
 
 

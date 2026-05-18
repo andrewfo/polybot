@@ -282,8 +282,9 @@ class PaperExecutor:
             if not pos.get("paper"):
                 continue
 
-            # Fetch current price from Gamma
-            current_price = await _fetch_gamma_price(pos["market_id"])
+            # Fetch current price from Gamma (side-aware: YES price for BUY_YES, NO price for BUY_NO)
+            pos_side = pos.get("side", "BUY_YES")
+            current_price = await _fetch_gamma_price(pos["market_id"], side=pos_side)
             if current_price is None:
                 continue
 
@@ -315,7 +316,7 @@ class PaperExecutor:
                 token_id=pos["token_id"],
                 market_id=pos["market_id"],
                 market_question=pos.get("market_question", ""),
-                side=pos["side"],
+                side=pos_side,
                 avg_entry=pos["avg_entry"],
                 size=pos["size"],
                 current_price=current_price,
@@ -465,7 +466,8 @@ class TradeExecutor:
             if pos.get("paper"):
                 continue
 
-            current_price = await _fetch_gamma_price(pos["market_id"])
+            pos_side = pos.get("side", "BUY_YES")
+            current_price = await _fetch_gamma_price(pos["market_id"], side=pos_side)
             if current_price is None:
                 continue
 
@@ -517,7 +519,7 @@ class TradeExecutor:
                 token_id=pos["token_id"],
                 market_id=pos["market_id"],
                 market_question=pos.get("market_question", ""),
-                side=pos["side"],
+                side=pos_side,
                 avg_entry=pos["avg_entry"],
                 size=pos["size"],
                 current_price=current_price,
@@ -539,8 +541,11 @@ class TradeExecutor:
 GAMMA_API_URL = "https://gamma-api.polymarket.com/markets"
 
 
-async def _fetch_gamma_price(condition_id: str) -> float | None:
-    """Fetch current YES price from Gamma API for a market.
+async def _fetch_gamma_price(condition_id: str, side: str = "BUY_YES") -> float | None:
+    """Fetch current token price from Gamma API for a market.
+
+    For BUY_YES positions returns the YES price (prices[0]).
+    For BUY_NO positions returns the NO price (prices[1], i.e. 1 - YES).
 
     Uses the cached Gamma numeric ID for lookup, since Gamma's ?id= param
     requires the numeric ID, not the condition_id (0x...).
@@ -581,7 +586,12 @@ async def _fetch_gamma_price(condition_id: str) -> float | None:
                 else:
                     return None
 
-                return float(prices[0]) if prices else None
+                if not prices:
+                    return None
+                yes_price = float(prices[0])
+                if side == "BUY_NO":
+                    return 1.0 - yes_price
+                return yes_price
     except Exception as e:
         logger.debug("Failed to fetch Gamma price for %s: %s", condition_id, e)
         return None
