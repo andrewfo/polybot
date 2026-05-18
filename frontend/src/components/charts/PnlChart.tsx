@@ -18,7 +18,7 @@ export default function PnlChart({ snapshots }: { snapshots: PnlSnapshot[] }) {
     return (
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        height: 220, color: colors.textDim, fontSize: 13,
+        flex: 1, minHeight: 200, color: colors.textDim, fontSize: 13,
         background: `repeating-linear-gradient(
           -45deg, transparent, transparent 10px,
           rgba(30,45,74,0.2) 10px, rgba(30,45,74,0.2) 20px
@@ -45,7 +45,7 @@ export default function PnlChart({ snapshots }: { snapshots: PnlSnapshot[] }) {
   const fillColor = isPositive ? 'rgba(0, 255, 136, 0.08)' : 'rgba(255, 51, 102, 0.08)'
 
   return (
-    <div style={{ height: 220 }}>
+    <div style={{ flex: 1, minHeight: 200 }}>
       <Line
         data={{
           labels,

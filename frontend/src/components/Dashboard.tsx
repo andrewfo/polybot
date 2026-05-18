@@ -6,6 +6,8 @@ import {
 } from '../api'
 import CostBreakdown from './charts/CostBreakdown'
 import PnlChart from './charts/PnlChart'
+import DailyPnlBar from './charts/DailyPnlBar'
+import CashDeployedArea from './charts/CashDeployedArea'
 
 // ---------------------------------------------------------------------------
 // Shared UI atoms — Quantum Terminal style
@@ -18,6 +20,8 @@ function Card({ title, children, accent, style, index = 0 }: {
     <div style={{
       ...cardStyle,
       ...animDelay(index),
+      display: 'flex',
+      flexDirection: 'column' as const,
       ...style,
     }}
       onMouseEnter={e => {
@@ -67,7 +71,9 @@ function Card({ title, children, accent, style, index = 0 }: {
         }} />
         {title}
       </h3>
-      {children}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        {children}
+      </div>
     </div>
   )
 }
@@ -759,7 +765,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
       {/* Row 3: PnL Chart + Right column */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
         {/* PnL Chart */}
-        <Card title="Portfolio Value" accent={colors.accent} style={{ minHeight: 280 }} index={6}>
+        <Card title="Portfolio Value" accent={colors.accent} style={{ minHeight: 280, display: 'flex', flexDirection: 'column' }} index={6}>
           <PnlChart snapshots={pnlData?.snapshots ?? []} />
         </Card>
 
@@ -895,15 +901,25 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
         </div>
       </div>
 
-      {/* Row 4: Activity Feed + Positions */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 16 }}>
+      {/* Row 4: Daily P&L + Capital Allocation charts */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <Card title="Daily P&L" accent={dailyPnl >= 0 ? colors.success : colors.danger} style={{ minHeight: 240, display: 'flex', flexDirection: 'column' }} index={9}>
+          <DailyPnlBar snapshots={pnlData?.snapshots ?? []} />
+        </Card>
+        <Card title="Capital Allocation" accent={colors.purple} style={{ minHeight: 240, display: 'flex', flexDirection: 'column' }} index={10}>
+          <CashDeployedArea snapshots={pnlData?.snapshots ?? []} />
+        </Card>
+      </div>
+
+      {/* Row 5: Activity Feed + Positions */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 16, alignItems: 'stretch' }}>
         {/* Pipeline Activity Feed */}
-        <Card title="Pipeline Activity" accent={colors.accent} index={9}>
+        <Card title="Pipeline Activity" accent={colors.accent} index={11} style={{ minHeight: 260 }}>
           <ActivityFeed events={cycles?.activity_feed ?? []} />
         </Card>
 
         {/* Positions table */}
-        <Card title={`Open Positions (${positions.length})`} accent={positions.length > 0 ? colors.warning : undefined} index={10}>
+        <Card title={`Open Positions (${positions.length})`} accent={positions.length > 0 ? colors.warning : undefined} index={12}>
           {positions.length === 0 ? (
             <div style={{
               padding: 40, textAlign: 'center', color: colors.textDim,
@@ -1011,8 +1027,8 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
         </Card>
       </div>
 
-      {/* Row 5: Trade History */}
-      <Card title={`Trade History (${trades.length})`} accent={trades.length > 0 ? colors.purple : undefined} index={11}>
+      {/* Row 6: Trade History */}
+      <Card title={`Trade History (${trades.length})`} accent={trades.length > 0 ? colors.purple : undefined} index={13}>
         {trades.length === 0 ? (
           <div style={{
             padding: 40, textAlign: 'center', color: colors.textDim,
@@ -1194,9 +1210,11 @@ function ActivityFeed({ events }: { events: ActivityEvent[] }) {
   if (events.length === 0) {
     return (
       <div style={{
-        padding: 24, textAlign: 'center', color: colors.textDim,
+        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        textAlign: 'center', color: colors.textDim,
         fontSize: 11, fontFamily: fonts.mono,
         border: `1px dashed ${colors.border}`, borderRadius: 6,
+        background: `linear-gradient(135deg, rgba(0, 229, 255, 0.02) 0%, rgba(0, 112, 255, 0.01) 100%)`,
       }}>
         No pipeline activity yet
       </div>
@@ -1206,7 +1224,7 @@ function ActivityFeed({ events }: { events: ActivityEvent[] }) {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', gap: 1,
-      maxHeight: 240, overflowY: 'auto',
+      flex: 1, overflowY: 'auto',
       /* Custom scrollbar */
       scrollbarWidth: 'thin',
       scrollbarColor: `${colors.border} transparent`,
