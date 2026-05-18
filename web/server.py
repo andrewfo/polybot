@@ -49,6 +49,11 @@ from config.settings import (
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Module-level engine ref — lets Telegram bot check engine state
+# ---------------------------------------------------------------------------
+_engine_ref: "BotEngine | None" = None
+
+# ---------------------------------------------------------------------------
 # Cached Wallet singleton — avoid re-initializing on every API call
 # ---------------------------------------------------------------------------
 _wallet_instance = None
@@ -986,8 +991,10 @@ class WSManager:
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
 
+    global _engine_ref
     ws_manager = WSManager()
     engine = BotEngine(ws_manager)
+    _engine_ref = engine
     log_buffer = LogBuffer()
 
     # Attach log buffer to root logger
@@ -1001,7 +1008,30 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI):
         _session_holder["session"] = aiohttp.ClientSession()
         logger.info("Web dashboard started on http://127.0.0.1:%s", os.environ.get("WEB_PORT", "8080"))
+
+        # Start Telegram bot if configured
+        telegram_app = None
+        try:
+            from monitoring.telegram import create_telegram_app
+            telegram_app = create_telegram_app()
+            if telegram_app is not None:
+                await telegram_app.initialize()
+                await telegram_app.start()
+                await telegram_app.updater.start_polling(drop_pending_updates=True)
+                logger.info("Telegram bot started (polling)")
+        except Exception as e:
+            logger.warning("Telegram bot failed to start: %s", e)
+
         yield
+
+        # Stop Telegram bot
+        if telegram_app is not None:
+            try:
+                await telegram_app.updater.stop()
+                await telegram_app.stop()
+                await telegram_app.shutdown()
+            except Exception:
+                pass
         # Stop bot workers on shutdown
         if engine.running:
             await engine.stop()

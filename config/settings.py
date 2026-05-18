@@ -89,6 +89,10 @@ STALE_ORDER_MINUTES = int(os.getenv("STALE_ORDER_MINUTES", "15"))
 TAKE_PROFIT_PCT = float(os.getenv("TAKE_PROFIT_PCT", "0.12"))    # Close position at +12% profit
 STOP_LOSS_PCT = float(os.getenv("STOP_LOSS_PCT", "0.10"))        # Close position at -10% loss
 
+# --- Telegram ---
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+
 # --- Web UI ---
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
 

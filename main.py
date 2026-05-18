@@ -33,6 +33,19 @@ async def main() -> None:
     engine = BotEngine(ws)
     await engine.start()
 
+    # Start Telegram bot if configured
+    telegram_app = None
+    try:
+        from monitoring.telegram import create_telegram_app
+        telegram_app = create_telegram_app()
+        if telegram_app is not None:
+            await telegram_app.initialize()
+            await telegram_app.start()
+            await telegram_app.updater.start_polling(drop_pending_updates=True)
+            logger.info("Telegram bot started (polling)")
+    except Exception as e:
+        logger.warning("Telegram bot failed to start: %s", e)
+
     # Keep running until interrupted
     try:
         while engine.running:
@@ -40,6 +53,13 @@ async def main() -> None:
     except (KeyboardInterrupt, asyncio.CancelledError):
         pass
     finally:
+        if telegram_app is not None:
+            try:
+                await telegram_app.updater.stop()
+                await telegram_app.stop()
+                await telegram_app.shutdown()
+            except Exception:
+                pass
         if engine.running:
             await engine.stop()
         logger.info("Bot shut down.")
