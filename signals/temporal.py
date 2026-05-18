@@ -155,22 +155,23 @@ def build_frontier_system_prompt(
         if urgency == "imminent":
             lines.append(
                 "CALIBRATION: This market resolves in less than 5 days. "
-                "Probabilities should be extreme (close to 0 or 1) unless there is genuine "
-                "uncertainty about the outcome. Near-resolution markets have very little time "
-                "for conditions to change — anchor heavily to current observable facts and the "
-                "market price."
+                "With very little time for conditions to change, your estimate should be driven "
+                "by current observable data (prices, levels, confirmed facts). "
+                "Probabilities should be pushed toward 0 or 1 when the data clearly supports it. "
+                "If the math model says 3%, trust it — don't round up to 'near the market' at 5%."
             )
         elif urgency == "short_term":
             lines.append(
                 "CALIBRATION: This market resolves in 5-14 days. "
-                "Moderate uncertainty is appropriate, but most major factors are likely already known. "
-                "Only diverge from the market price with concrete, recent evidence."
+                "Moderate uncertainty is appropriate, but most major factors are already known. "
+                "Your quantitative signals (resolution_crypto) are well-calibrated for this timeframe. "
+                "Trust them over sentiment-based signals."
             )
         elif urgency == "medium":
             lines.append(
                 "CALIBRATION: This market resolves in 14-30 days. "
                 "More uncertainty is appropriate. Trends, momentum, and structural factors matter. "
-                "You may diverge from the market price if signal evidence is strong and consistent."
+                "Quantitative models remain useful but have wider confidence intervals."
             )
         else:  # long
             lines.append(
@@ -185,9 +186,12 @@ def build_frontier_system_prompt(
         )
 
     lines.append(
-        "The market price reflects crowd consensus. Only diverge significantly from it "
-        "when you have concrete evidence. If your estimate would be more than 0.25 away "
-        "from the market price, verify you have strong justification."
+        "IMPORTANT: Your job is to estimate the TRUE probability from the evidence, not to "
+        "track the market price. Mid-to-low liquidity crypto prediction markets are frequently "
+        "mispriced. If your data-driven analysis yields a different number than the market, "
+        "COMMIT to your estimate. A well-calibrated math model disagreeing with a thin market "
+        "is a trading opportunity, not a reason to second-guess. Do NOT split the difference "
+        "between your analysis and the market price."
     )
 
     return "\n\n".join(lines)

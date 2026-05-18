@@ -169,5 +169,5 @@ class TestBuildFrontierSystemPrompt:
 
     def test_market_price_divergence_warning(self):
         prompt = build_frontier_system_prompt("2026-06-30")
-        assert "0.25" in prompt
-        assert "diverge" in prompt.lower()
+        assert "true probability" in prompt.lower()
+        assert "mispriced" in prompt.lower()

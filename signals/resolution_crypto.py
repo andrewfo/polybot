@@ -46,6 +46,17 @@ _COINGECKO_TO_DERIBIT: dict[str, str] = {
 
 USER_AGENT = "polymarket-bot/1.0 (signal research)"
 
+# Non-crypto assets that Polymarket sometimes tags as "crypto" category.
+# CoinGecko may return garbage data for these (random low-cap tokens with
+# the same name), causing wildly wrong probability estimates.
+NON_CRYPTO_KEYWORDS: set[str] = {
+    "gold", "xauusd", "xau", "silver", "xagusd", "xag",
+    "oil", "crude", "wti", "brent",
+    "platinum", "palladium",
+    "s&p", "sp500", "nasdaq", "dow jones", "djia",
+    "treasury", "t-bill", "bond",
+}
+
 # Top 50 ticker → CoinGecko ID whitelist (avoids LLM hallucination for common coins)
 TICKER_TO_COINGECKO: dict[str, str] = {
     "btc": "bitcoin", "bitcoin": "bitcoin",
@@ -758,6 +769,19 @@ class CryptoResolutionProvider(SignalProvider):
         """
         resolution_keywords = kwargs.get("resolution_keywords", {})
 
+        # Gate: reject non-crypto assets that Polymarket may tag as "crypto"
+        question_lower = market_question.lower()
+        for keyword in NON_CRYPTO_KEYWORDS:
+            if keyword in question_lower:
+                return SignalResult(
+                    source="resolution_crypto",
+                    probability=None,
+                    confidence=0.0,
+                    reasoning=f"Non-crypto asset detected ('{keyword}') — CoinGecko data unreliable",
+                    model_used="none",
+                    data_points=0,
+                )
+
         # Resolve coin ID
         self._emit(market_question, "coingecko", "resolving coin ID")
         coin_id = await self._resolve_coin_id(resolution_keywords, market_question)
@@ -767,6 +791,19 @@ class CryptoResolutionProvider(SignalProvider):
                 probability=None,
                 confidence=0.0,
                 reasoning="Could not determine CoinGecko coin ID",
+                model_used="none",
+                data_points=0,
+            )
+
+        # Validate coin_id format — reject garbage from LLM (e.g. "price", "the", "coin")
+        _GARBAGE_IDS = {"price", "the", "coin", "token", "crypto", "market", "unknown", "none", "null", "n/a"}
+        if coin_id.lower() in _GARBAGE_IDS or len(coin_id) < 2 or len(coin_id) > 80 or not coin_id.replace("-", "").replace("_", "").isalnum():
+            logger.warning("Invalid coin_id format rejected: '%s'", coin_id[:40])
+            return SignalResult(
+                source="resolution_crypto",
+                probability=None,
+                confidence=0.0,
+                reasoning=f"Invalid coin_id format: '{coin_id}'",
                 model_used="none",
                 data_points=0,
             )
@@ -789,15 +826,49 @@ class CryptoResolutionProvider(SignalProvider):
         current_price = price_data.get("usd", 0.0)
         change_24h = price_data.get("usd_24h_change", 0.0)
 
-        if current_price <= 0:
+        # Reject zero/negative AND suspiciously tiny prices (likely wrong token
+        # or CoinGecko returned a near-dead micro-cap with the same name).
+        # Real crypto targets on Polymarket are always > $0.01.
+        if current_price < 0.01:
             return SignalResult(
                 source="resolution_crypto",
                 probability=None,
                 confidence=0.0,
-                reasoning=f"Invalid price for {coin_id}: {current_price}",
+                reasoning=f"Invalid/suspicious price for {coin_id}: ${current_price} (too low)",
                 model_used="none",
                 data_points=0,
+                raw_data={"coin_id": coin_id, "current_price": current_price},
             )
+
+        # Sanity check: if the resolved coin price is absurdly far from the
+        # target, the coin_id probably resolved to the wrong token (e.g. a
+        # random "gold" memecoin instead of actual gold/XAUUSD).
+        target_value = resolution_keywords.get("target_value")
+        if target_value is not None:
+            target_f = float(target_value)
+            if target_f > 0:
+                ratio = current_price / target_f
+                # 200x is generous enough for real crypto (BTC at $100k vs
+                # target $500 is 200x) but catches wrong-token mismatches
+                # where a $0.003 memecoin resolves for a $100k target.
+                if ratio < 0.005 or ratio > 200:
+                    logger.warning(
+                        "Price sanity check failed for %s: current=$%.4f vs target=$%.2f (ratio=%.6f)",
+                        coin_id, current_price, target_f, ratio,
+                    )
+                    return SignalResult(
+                        source="resolution_crypto",
+                        probability=None,
+                        confidence=0.0,
+                        reasoning=(
+                            f"Price sanity check failed for {coin_id}: "
+                            f"${current_price:,.4f} vs target ${target_f:,.2f} — "
+                            f"likely wrong CoinGecko token"
+                        ),
+                        model_used="none",
+                        data_points=0,
+                        raw_data={"coin_id": coin_id, "current_price": current_price, "target_price": target_f},
+                    )
 
         # Get target value and direction
         target_value = resolution_keywords.get("target_value")
@@ -826,6 +897,18 @@ class CryptoResolutionProvider(SignalProvider):
             )
 
         target_price = float(target_value)
+
+        # Reject nonsensical target prices (e.g. $0 from bad keyword extraction)
+        if target_price <= 0:
+            return SignalResult(
+                source="resolution_crypto",
+                probability=None,
+                confidence=0.0,
+                reasoning=f"Invalid target price for {coin_id}: ${target_price}",
+                model_used="none",
+                data_points=0,
+                raw_data={"coin_id": coin_id, "current_price": current_price, "target_price": target_price},
+            )
 
         # Compute rich volatility estimate from chart data
         vol_est = VolEstimate(0.0, 0.0, 0.0, None, None, 1, 0.0)
