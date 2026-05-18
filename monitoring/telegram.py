@@ -205,14 +205,25 @@ async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 def _build_request() -> HTTPXRequest:
-    """HTTPXRequest forcing IPv4 — avoids long hangs when AAAA records are unroutable."""
-    transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0")
+    """HTTPXRequest with generous timeouts.
+
+    TELEGRAM_FORCE_IP can be set to 'v4' or 'v6' to pin the outbound family —
+    useful when one path is blocked (e.g. ISP blocks TCP 443 to Telegram IPv4
+    but IPv6 works, or vice versa). Default: let the OS choose.
+    """
+    import os
+    httpx_kwargs: dict[str, Any] = {}
+    force_ip = (os.getenv("TELEGRAM_FORCE_IP") or "").strip().lower()
+    if force_ip == "v4":
+        httpx_kwargs["transport"] = httpx.AsyncHTTPTransport(local_address="0.0.0.0")
+    elif force_ip == "v6":
+        httpx_kwargs["transport"] = httpx.AsyncHTTPTransport(local_address="::")
     return HTTPXRequest(
         connect_timeout=15.0,
         read_timeout=30.0,
         write_timeout=30.0,
         pool_timeout=5.0,
-        httpx_kwargs={"transport": transport},
+        httpx_kwargs=httpx_kwargs,
     )
 
 
