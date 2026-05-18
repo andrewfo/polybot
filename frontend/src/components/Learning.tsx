@@ -21,36 +21,38 @@ function Card({ title, children, accent, style, index = 0 }: {
       onMouseEnter={e => {
         e.currentTarget.style.borderColor = accent || colors.borderHover
         e.currentTarget.style.boxShadow = glowShadow(accent || colors.accent, 0.08)
+        e.currentTarget.style.transform = 'translateY(-1px) scale(1.005)'
       }}
       onMouseLeave={e => {
         e.currentTarget.style.borderColor = colors.border
         e.currentTarget.style.boxShadow = 'none'
+        e.currentTarget.style.transform = 'translateY(0) scale(1)'
       }}
     >
       {accent && (
         <div style={{
-          position: 'absolute', top: 0, left: 0, right: 0, height: 1,
-          background: `linear-gradient(90deg, transparent, ${accent}, transparent)`,
-          opacity: 0.6,
+          position: 'absolute', top: 0, left: 0, right: 0, height: 2,
+          background: `linear-gradient(90deg, transparent 5%, ${accent}88 30%, ${accent} 50%, ${accent}88 70%, transparent 95%)`,
+          opacity: 0.7,
         }} />
       )}
       <div style={{
         position: 'absolute', top: 6, left: 6,
-        width: 8, height: 8,
+        width: 10, height: 10,
         borderTop: `1px solid ${accent || colors.borderLight}`,
         borderLeft: `1px solid ${accent || colors.borderLight}`,
-        opacity: 0.4,
+        opacity: 0.35,
       }} />
       <h3 style={{
-        margin: '0 0 14px', fontSize: 10, fontWeight: 600,
+        margin: '0 0 16px', fontSize: 10, fontWeight: 600,
         color: colors.textMuted, textTransform: 'uppercase',
-        letterSpacing: '0.1em', fontFamily: fonts.mono,
-        display: 'flex', alignItems: 'center', gap: 6,
+        letterSpacing: '0.12em', fontFamily: fonts.mono,
+        display: 'flex', alignItems: 'center', gap: 7,
       }}>
         <span style={{
-          width: 4, height: 4, borderRadius: 1,
+          width: 5, height: 5, borderRadius: 1,
           background: accent || colors.accent,
-          boxShadow: accent ? `0 0 6px ${accent}` : `0 0 6px ${colors.accent}`,
+          boxShadow: accent ? `0 0 8px ${accent}` : `0 0 8px ${colors.accent}`,
         }} />
         {title}
       </h3>
@@ -73,14 +75,15 @@ function PillBadge({ text, bg, fg }: { text: string; bg: string; fg?: string }) 
 
 function Skeleton() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {[1, 2, 3].map(i => (
         <div key={i} style={{
-          height: 12, borderRadius: 3,
-          background: `linear-gradient(90deg, ${colors.border} 0%, rgba(0,229,255,0.04) 50%, ${colors.border} 100%)`,
+          height: 12, borderRadius: 4,
+          background: `linear-gradient(90deg, ${colors.border} 0%, rgba(0,229,255,0.06) 50%, ${colors.border} 100%)`,
           backgroundSize: '200% 100%',
           width: `${60 + i * 12}%`,
           animation: 'shimmer 2s ease-in-out infinite',
+          animationDelay: `${i * 0.15}s`,
         }} />
       ))}
     </div>
@@ -103,13 +106,19 @@ function RecommendationRow({ rec, onRevert }: { rec: LearningRecommendation; onR
 
   const formatVal = (v: number) => isPercent ? fmtPct(v) : v.toFixed(4)
 
+  const accentColor = rec.auto_applied ? colors.success : rec.confidence > 0.7 ? colors.accent : rec.confidence > 0.4 ? colors.warning : colors.textDim
+
   return (
     <div style={{
-      padding: '10px 12px', borderRadius: 6,
+      padding: '12px 14px', borderRadius: 8,
       background: rec.auto_applied ? 'rgba(0,255,136,0.03)' : 'rgba(0,229,255,0.02)',
       border: `1px solid ${rec.auto_applied ? 'rgba(0,255,136,0.1)' : colors.border}`,
-      marginBottom: 6,
-    }}>
+      borderLeft: `3px solid ${accentColor}`,
+      marginBottom: 8,
+      transition: 'background 0.25s ease, border-color 0.25s ease',
+    }}
+      onMouseEnter={e => { e.currentTarget.style.background = rec.auto_applied ? 'rgba(0,255,136,0.05)' : 'rgba(0,229,255,0.04)' }}
+      onMouseLeave={e => { e.currentTarget.style.background = rec.auto_applied ? 'rgba(0,255,136,0.03)' : 'rgba(0,229,255,0.02)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{
@@ -182,25 +191,29 @@ function CalibrationChart({ data }: { data: CalibrationResponse }) {
   return (
     <div>
       {/* Summary stats */}
-      <div style={{ display: 'flex', gap: 20, marginBottom: 14 }}>
-        <div>
-          <div style={{ fontSize: 20, fontWeight: 600, fontFamily: fonts.mono, color: data.mean_bias > 0.05 ? colors.warning : colors.success }}>
-            {data.mean_bias > 0 ? '+' : ''}{(data.mean_bias * 100).toFixed(1)}%
+      <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+        {[
+          { value: `${data.mean_bias > 0 ? '+' : ''}${(data.mean_bias * 100).toFixed(1)}%`, label: 'Mean Bias', color: data.mean_bias > 0.05 ? colors.warning : colors.success },
+          { value: `${(data.abs_mean_error * 100).toFixed(1)}%`, label: 'Abs Error', color: colors.textPrimary },
+          { value: `${data.sample_count}`, label: 'Samples', color: colors.textPrimary },
+        ].map((stat, i) => (
+          <div key={stat.label} style={{
+            flex: 1, padding: '10px 12px', borderRadius: 8,
+            background: `${stat.color}06`,
+            border: `1px solid ${stat.color}12`,
+            textAlign: 'center',
+          }}>
+            <div style={{
+              fontSize: 22, fontWeight: 700, fontFamily: fonts.mono, color: stat.color,
+              textShadow: `0 0 16px ${stat.color}25`,
+            }}>
+              {stat.value}
+            </div>
+            <div style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 3 }}>
+              {stat.label}
+            </div>
           </div>
-          <div style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Mean Bias</div>
-        </div>
-        <div>
-          <div style={{ fontSize: 20, fontWeight: 600, fontFamily: fonts.mono, color: colors.textPrimary }}>
-            {(data.abs_mean_error * 100).toFixed(1)}%
-          </div>
-          <div style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Abs Error</div>
-        </div>
-        <div>
-          <div style={{ fontSize: 20, fontWeight: 600, fontFamily: fonts.mono, color: colors.textPrimary }}>
-            {data.sample_count}
-          </div>
-          <div style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Samples</div>
-        </div>
+        ))}
       </div>
 
       {/* Calibration curve — estimated vs actual */}
@@ -228,20 +241,32 @@ function CalibrationChart({ data }: { data: CalibrationResponse }) {
                   }}>
                     {b.bucket}
                   </span>
-                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <div style={{ flex: 2, position: 'relative', height: 14, display: 'flex', alignItems: 'center' }}>
+                    {/* Background track */}
+                    <div style={{
+                      position: 'absolute', left: 0, right: 0, height: 6, borderRadius: 3,
+                      background: 'rgba(255,255,255,0.03)',
+                    }} />
                     {/* Estimated bar */}
                     <div style={{
-                      height: 6, borderRadius: 3,
+                      position: 'absolute', left: 0, height: 6, borderRadius: 3,
                       width: `${b.avg_estimated * 100}%`,
-                      background: colors.accent, opacity: 0.5,
+                      background: colors.accent, opacity: 0.45,
                     }} />
-                  </div>
-                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
                     {/* Actual bar */}
                     <div style={{
-                      height: 6, borderRadius: 3,
+                      position: 'absolute', left: 0, height: 6, borderRadius: 3,
                       width: `${b.avg_actual * 100}%`,
-                      background: colors.success, opacity: 0.7,
+                      background: colors.success, opacity: 0.65,
+                      boxShadow: `0 0 6px ${colors.success}20`,
+                    }} />
+                    {/* Estimated marker */}
+                    <div style={{
+                      position: 'absolute',
+                      left: `${b.avg_estimated * 100}%`,
+                      top: 0, width: 2, height: 14, borderRadius: 1,
+                      background: colors.accent,
+                      transform: 'translateX(-1px)',
                     }} />
                   </div>
                   <span style={{
@@ -318,7 +343,7 @@ function OverridesTable({ overrides, onRevert }: {
       <div style={{
         padding: 20, textAlign: 'center', color: colors.textDim,
         fontSize: 11, fontFamily: fonts.mono,
-        border: `1px dashed ${colors.border}`, borderRadius: 6,
+        border: `1px dashed ${colors.borderLight}`, borderRadius: 8,
       }}>
         No active parameter overrides
       </div>
@@ -336,11 +361,15 @@ function OverridesTable({ overrides, onRevert }: {
         return (
           <div key={o.parameter} style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '8px 12px', borderRadius: 6,
+            padding: '10px 14px', borderRadius: 8,
             background: 'rgba(0,229,255,0.02)',
             border: `1px solid ${colors.border}`,
+            borderLeft: `3px solid ${colors.warning}`,
+            transition: 'background 0.25s ease',
             ...animDelay(i),
-          }}>
+          }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(0,229,255,0.04)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,229,255,0.02)' }}>
             <div style={{ flex: 1 }}>
               <div style={{
                 fontSize: 12, fontWeight: 600, fontFamily: fonts.mono,
@@ -383,7 +412,7 @@ function SkipAnalysisPanel({ data }: { data: SkipAnalysis }) {
       <div style={{
         padding: 20, textAlign: 'center', color: colors.textDim,
         fontSize: 11, fontFamily: fonts.mono,
-        border: `1px dashed ${colors.border}`, borderRadius: 6,
+        border: `1px dashed ${colors.borderLight}`, borderRadius: 8,
       }}>
         No skipped markets to analyze yet
       </div>
@@ -397,34 +426,29 @@ function SkipAnalysisPanel({ data }: { data: SkipAnalysis }) {
   return (
     <div>
       {/* Summary stats */}
-      <div style={{ display: 'flex', gap: 20, marginBottom: 14 }}>
-        <div>
-          <div style={{ fontSize: 20, fontWeight: 600, fontFamily: fonts.mono, color: colors.textPrimary }}>
-            {data.total_skipped}
-          </div>
-          <div style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Total Skipped</div>
-        </div>
-        <div>
-          <div style={{ fontSize: 20, fontWeight: 600, fontFamily: fonts.mono, color: colors.textPrimary }}>
-            {data.resolved_count}
-          </div>
-          <div style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Resolved</div>
-        </div>
-        <div>
-          <div style={{
-            fontSize: 20, fontWeight: 600, fontFamily: fonts.mono,
-            color: data.missed_opportunities > 0 ? colors.warning : colors.success,
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16 }}>
+        {[
+          { value: data.total_skipped, label: 'Total Skipped', color: colors.textPrimary },
+          { value: data.resolved_count, label: 'Resolved', color: colors.textPrimary },
+          { value: data.missed_opportunities, label: 'Missed Opps', color: data.missed_opportunities > 0 ? colors.warning : colors.success },
+          { value: `${missedRate}%`, label: 'Miss Rate', color: colors.textPrimary },
+        ].map((stat) => (
+          <div key={stat.label} style={{
+            padding: '10px 8px', borderRadius: 8,
+            background: `${stat.color}06`, border: `1px solid ${stat.color}12`,
+            textAlign: 'center',
           }}>
-            {data.missed_opportunities}
+            <div style={{
+              fontSize: 20, fontWeight: 700, fontFamily: fonts.mono, color: stat.color,
+              textShadow: `0 0 16px ${stat.color}25`,
+            }}>
+              {stat.value}
+            </div>
+            <div style={{ fontSize: 8, color: colors.textDim, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 3 }}>
+              {stat.label}
+            </div>
           </div>
-          <div style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Missed Opps</div>
-        </div>
-        <div>
-          <div style={{ fontSize: 20, fontWeight: 600, fontFamily: fonts.mono, color: colors.textPrimary }}>
-            {missedRate}%
-          </div>
-          <div style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Miss Rate</div>
-        </div>
+        ))}
       </div>
 
       {/* Avg missed edge */}
@@ -578,37 +602,46 @@ export default function Learning() {
     : dataSufficiency === 'partial' ? colors.warning : colors.textDim
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Header row: Data sufficiency + Run button */}
       <div style={{
-        ...cardStyle, padding: '12px 20px',
+        ...cardStyle, padding: '16px 24px',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        background: `linear-gradient(135deg, rgba(10, 15, 30, 0.95) 0%, rgba(0, 229, 255, 0.02) 100%)`,
+        borderBottom: `1px solid ${colors.borderLight}`,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
           <div>
-            <div style={{ fontSize: 10, color: colors.textDim, fontFamily: fonts.mono, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            <div style={{ fontSize: 9, color: colors.textDim, fontFamily: fonts.mono, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
               Data Sufficiency
             </div>
-            <div style={{ fontSize: 16, fontWeight: 600, fontFamily: fonts.mono, color: suffColor, marginTop: 2 }}>
+            <div style={{
+              fontSize: 18, fontWeight: 700, fontFamily: fonts.mono, color: suffColor, marginTop: 3,
+              textShadow: `0 0 16px ${suffColor}33`,
+            }}>
               {dataSufficiency.toUpperCase()}
             </div>
           </div>
           {report?.total_decisions != null && (
-            <div>
-              <div style={{ fontSize: 10, color: colors.textDim, fontFamily: fonts.mono, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            <div style={{
+              paddingLeft: 24, borderLeft: `1px solid ${colors.border}`,
+            }}>
+              <div style={{ fontSize: 9, color: colors.textDim, fontFamily: fonts.mono, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                 Decisions
               </div>
-              <div style={{ fontSize: 16, fontWeight: 600, fontFamily: fonts.mono, color: colors.textPrimary, marginTop: 2 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, fontFamily: fonts.mono, color: colors.textPrimary, marginTop: 3 }}>
                 {report.total_decisions}
               </div>
             </div>
           )}
           {report?.resolved_decisions != null && (
-            <div>
-              <div style={{ fontSize: 10, color: colors.textDim, fontFamily: fonts.mono, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            <div style={{
+              paddingLeft: 24, borderLeft: `1px solid ${colors.border}`,
+            }}>
+              <div style={{ fontSize: 9, color: colors.textDim, fontFamily: fonts.mono, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                 Resolved
               </div>
-              <div style={{ fontSize: 16, fontWeight: 600, fontFamily: fonts.mono, color: colors.textPrimary, marginTop: 2 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, fontFamily: fonts.mono, color: colors.textPrimary, marginTop: 3 }}>
                 {report.resolved_decisions}
               </div>
             </div>
@@ -627,14 +660,17 @@ export default function Learning() {
             disabled={runLoading}
             onClick={handleRunCycle}
             style={{
-              padding: '8px 20px', borderRadius: 6, border: 'none', fontFamily: fonts.mono,
+              padding: '10px 24px', borderRadius: 8, border: 'none', fontFamily: fonts.mono,
               background: runLoading ? colors.bgSecondary : colors.gradientAccent,
               color: runLoading ? colors.textMuted : '#000',
               cursor: runLoading ? 'wait' : 'pointer',
-              fontSize: 11, fontWeight: 600,
-              boxShadow: runLoading ? 'none' : '0 2px 12px rgba(0,229,255,0.2)',
+              fontSize: 11, fontWeight: 700,
+              boxShadow: runLoading ? 'none' : '0 2px 16px rgba(0,229,255,0.25)',
               letterSpacing: '0.06em', textTransform: 'uppercase',
+              transition: 'all 0.25s ease',
             }}
+            onMouseEnter={e => { if (!runLoading) { e.currentTarget.style.transform = 'scale(1.03)'; e.currentTarget.style.boxShadow = '0 4px 24px rgba(0,229,255,0.35)' } }}
+            onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = runLoading ? 'none' : '0 2px 16px rgba(0,229,255,0.25)' }}
           >
             {runLoading ? 'Running...' : 'Run Learning Cycle'}
           </button>
@@ -642,7 +678,7 @@ export default function Learning() {
       </div>
 
       {/* Main grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         {/* Recommendations */}
         <Card title={`Recommendations (${recommendations.length})`} accent={colors.purple} index={1}>
           {report == null ? (
@@ -651,7 +687,7 @@ export default function Learning() {
             <div style={{
               padding: 20, textAlign: 'center', color: colors.textDim,
               fontSize: 11, fontFamily: fonts.mono,
-              border: `1px dashed ${colors.border}`, borderRadius: 6,
+              border: `1px dashed ${colors.borderLight}`, borderRadius: 8,
             }}>
               {report.status === 'no_data'
                 ? 'No learning data yet. Run a learning cycle after some trades resolve.'
@@ -677,7 +713,7 @@ export default function Learning() {
       </div>
 
       {/* Bottom row */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         {/* Active Overrides */}
         <Card title={`Active Overrides (${overrides.length})`} accent={colors.warning} index={3}>
           <OverridesTable overrides={overrides} onRevert={handleRevert} />
@@ -794,7 +830,13 @@ export default function Learning() {
                     : suffLabel === 'partial' ? colors.warning : colors.textDim
 
                   return (
-                    <tr key={i} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                    <tr key={i} style={{
+                      borderBottom: `1px solid ${colors.border}`,
+                      transition: 'background 0.2s ease',
+                    }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(0,229,255,0.02)' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+                    >
                       <td style={{ padding: '6px 10px', color: colors.textMuted, fontSize: 10 }}>
                         {h.timestamp ? h.timestamp.replace('T', ' ').slice(0, 19) : '--'}
                       </td>

@@ -56,7 +56,7 @@ export const cardStyle: React.CSSProperties = {
   borderRadius: 10,
   padding: 20,
   backdropFilter: 'blur(16px)',
-  transition: 'border-color 0.3s ease, box-shadow 0.3s ease',
+  transition: 'border-color 0.3s ease, box-shadow 0.3s ease, transform 0.25s ease',
   position: 'relative',
   overflow: 'hidden',
 }

@@ -23,45 +23,47 @@ function Card({ title, children, accent, style, index = 0 }: {
       onMouseEnter={e => {
         e.currentTarget.style.borderColor = accent || colors.borderHover
         e.currentTarget.style.boxShadow = glowShadow(accent || colors.accent, 0.08)
+        e.currentTarget.style.transform = 'translateY(-1px) scale(1.005)'
       }}
       onMouseLeave={e => {
         e.currentTarget.style.borderColor = colors.border
         e.currentTarget.style.boxShadow = 'none'
+        e.currentTarget.style.transform = 'translateY(0) scale(1)'
       }}
     >
       {/* Top accent line */}
       {accent && (
         <div style={{
-          position: 'absolute', top: 0, left: 0, right: 0, height: 1,
-          background: `linear-gradient(90deg, transparent, ${accent}, transparent)`,
-          opacity: 0.6,
+          position: 'absolute', top: 0, left: 0, right: 0, height: 2,
+          background: `linear-gradient(90deg, transparent 5%, ${accent}88 30%, ${accent} 50%, ${accent}88 70%, transparent 95%)`,
+          opacity: 0.7,
         }} />
       )}
       {/* Corner tick marks */}
       <div style={{
         position: 'absolute', top: 6, left: 6,
-        width: 8, height: 8,
+        width: 10, height: 10,
         borderTop: `1px solid ${accent || colors.borderLight}`,
         borderLeft: `1px solid ${accent || colors.borderLight}`,
-        opacity: 0.4,
+        opacity: 0.35,
       }} />
       <div style={{
         position: 'absolute', top: 6, right: 6,
-        width: 8, height: 8,
+        width: 10, height: 10,
         borderTop: `1px solid ${accent || colors.borderLight}`,
         borderRight: `1px solid ${accent || colors.borderLight}`,
-        opacity: 0.4,
+        opacity: 0.35,
       }} />
       <h3 style={{
-        margin: '0 0 14px', fontSize: 10, fontWeight: 600,
+        margin: '0 0 16px', fontSize: 10, fontWeight: 600,
         color: colors.textMuted, textTransform: 'uppercase',
-        letterSpacing: '0.1em', fontFamily: fonts.mono,
-        display: 'flex', alignItems: 'center', gap: 6,
+        letterSpacing: '0.12em', fontFamily: fonts.mono,
+        display: 'flex', alignItems: 'center', gap: 7,
       }}>
         <span style={{
-          width: 4, height: 4, borderRadius: 1,
+          width: 5, height: 5, borderRadius: 1,
           background: accent || colors.accent,
-          boxShadow: accent ? `0 0 6px ${accent}` : `0 0 6px ${colors.accent}`,
+          boxShadow: accent ? `0 0 8px ${accent}` : `0 0 8px ${colors.accent}`,
         }} />
         {title}
       </h3>
@@ -136,7 +138,7 @@ function CountdownRing({ secondsRemaining, totalSeconds, label, accent, sublabel
   accent: string
   sublabel?: string
 }) {
-  const size = 72
+  const size = 78
   const stroke = 3
   const radius = (size - stroke) / 2
   const circumference = 2 * Math.PI * radius
@@ -384,9 +386,9 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
   const unrealizedPnl = positions.reduce((s, p) => s + p.unrealized_pnl, 0)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Row 1: Key metrics strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
         {/* Bot Status */}
         <Card title="Bot Status" accent={displayStatus?.paused ? colors.warning : displayStatus?.running ? colors.success : colors.textDim} index={0}>
           {displayStatus ? (
@@ -426,14 +428,17 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                     disabled={actionLoading}
                     onClick={handlePauseResume}
                     style={{
-                      flex: 1, padding: '8px 0', borderRadius: 6, border: 'none', fontFamily: fonts.mono,
+                      flex: 1, padding: '9px 0', borderRadius: 6, border: 'none', fontFamily: fonts.mono,
                       background: displayStatus.paused ? colors.successDim : colors.warningDim,
                       color: displayStatus.paused ? colors.success : colors.warning,
                       cursor: actionLoading ? 'wait' : 'pointer',
-                      fontSize: 11, fontWeight: 600, transition: 'all 0.3s',
+                      fontSize: 11, fontWeight: 600,
+                      transition: 'all 0.25s ease',
                       letterSpacing: '0.06em',
                       textTransform: 'uppercase',
                     }}
+                    onMouseEnter={e => { if (!actionLoading) e.currentTarget.style.transform = 'scale(1.02)' }}
+                    onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}
                   >
                     {actionLoading ? '...' : displayStatus.paused ? 'Resume' : 'Pause'}
                   </button>
@@ -442,17 +447,20 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                   disabled={actionLoading}
                   onClick={displayStatus.running ? handleStop : handleStart}
                   style={{
-                    flex: 1, padding: '8px 0', borderRadius: 6, border: 'none', fontFamily: fonts.mono,
+                    flex: 1, padding: '9px 0', borderRadius: 6, border: 'none', fontFamily: fonts.mono,
                     background: displayStatus.running
                       ? colors.dangerDim
                       : colors.gradientAccent,
                     color: displayStatus.running ? colors.danger : '#000',
                     cursor: actionLoading ? 'wait' : 'pointer',
-                    fontSize: 11, fontWeight: 600, transition: 'all 0.3s',
-                    boxShadow: displayStatus.running ? 'none' : `0 2px 12px rgba(0,229,255,0.25)`,
+                    fontSize: 11, fontWeight: 600,
+                    transition: 'all 0.25s ease',
+                    boxShadow: displayStatus.running ? 'none' : `0 2px 16px rgba(0,229,255,0.3)`,
                     letterSpacing: '0.06em',
                     textTransform: 'uppercase',
                   }}
+                  onMouseEnter={e => { if (!actionLoading) e.currentTarget.style.transform = 'scale(1.02)' }}
+                  onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)' }}
                 >
                   {actionLoading ? '...' : displayStatus.running ? 'Stop' : 'Start Bot'}
                 </button>
@@ -610,7 +618,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
       </div>
 
       {/* Row 2: Cycle Timers + Session Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         {/* Cycle Countdown Timers */}
         <Card title="Pipeline Cycles" accent={colors.accent} index={4}>
           <div style={{
@@ -749,14 +757,14 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
       </div>
 
       {/* Row 3: PnL Chart + Right column */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
         {/* PnL Chart */}
         <Card title="Portfolio Value" accent={colors.accent} style={{ minHeight: 280 }} index={6}>
           <PnlChart snapshots={pnlData?.snapshots ?? []} />
         </Card>
 
         {/* Right column */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* Connections + Health Checks */}
           <Card title="Connections" index={7}>
             {health ? (
@@ -888,7 +896,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
       </div>
 
       {/* Row 4: Activity Feed + Positions */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 16 }}>
         {/* Pipeline Activity Feed */}
         <Card title="Pipeline Activity" accent={colors.accent} index={9}>
           <ActivityFeed events={cycles?.activity_feed ?? []} />
@@ -898,14 +906,19 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
         <Card title={`Open Positions (${positions.length})`} accent={positions.length > 0 ? colors.warning : undefined} index={10}>
           {positions.length === 0 ? (
             <div style={{
-              padding: 32, textAlign: 'center', color: colors.textDim,
-              background: 'rgba(0, 229, 255, 0.01)',
-              border: `1px dashed ${colors.border}`,
-              borderRadius: 8,
+              padding: 40, textAlign: 'center', color: colors.textDim,
+              background: `linear-gradient(135deg, rgba(0, 229, 255, 0.02) 0%, rgba(0, 112, 255, 0.01) 100%)`,
+              border: `1px dashed ${colors.borderLight}`,
+              borderRadius: 10,
               position: 'relative', overflow: 'hidden',
             }}>
-              <div style={{ fontSize: 13, marginBottom: 4, fontFamily: fonts.body }}>No open positions</div>
-              <div style={{ fontSize: 11, fontFamily: fonts.mono, letterSpacing: '0.02em' }}>
+              <div style={{
+                position: 'absolute', inset: 0, opacity: 0.03,
+                backgroundImage: `radial-gradient(${colors.accent} 1px, transparent 1px)`,
+                backgroundSize: '20px 20px',
+              }} />
+              <div style={{ fontSize: 13, marginBottom: 6, fontFamily: fonts.body, color: colors.textSecondary, position: 'relative' }}>No open positions</div>
+              <div style={{ fontSize: 11, fontFamily: fonts.mono, letterSpacing: '0.02em', position: 'relative' }}>
                 Start the bot to begin trading
               </div>
             </div>
@@ -935,8 +948,16 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                       <tr key={p.token_id} style={{
                         background: colors.bgCard,
                         borderRadius: 6,
-                        transition: 'background 0.2s',
+                        transition: 'background 0.25s ease, box-shadow 0.25s ease',
                         ...animDelay(pi + 11),
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = colors.bgCardHover
+                        e.currentTarget.style.boxShadow = `inset 2px 0 0 ${pnlColor}`
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = colors.bgCard
+                        e.currentTarget.style.boxShadow = 'none'
                       }}>
                         <td style={{
                           padding: '10px 12px', maxWidth: 300, overflow: 'hidden',
@@ -994,13 +1015,19 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
       <Card title={`Trade History (${trades.length})`} accent={trades.length > 0 ? colors.purple : undefined} index={11}>
         {trades.length === 0 ? (
           <div style={{
-            padding: 24, textAlign: 'center', color: colors.textDim,
-            background: 'rgba(139, 92, 246, 0.01)',
-            border: `1px dashed ${colors.border}`,
-            borderRadius: 8,
+            padding: 40, textAlign: 'center', color: colors.textDim,
+            background: `linear-gradient(135deg, rgba(139, 92, 246, 0.02) 0%, rgba(0, 112, 255, 0.01) 100%)`,
+            border: `1px dashed ${colors.borderLight}`,
+            borderRadius: 10,
+            position: 'relative', overflow: 'hidden',
           }}>
-            <div style={{ fontSize: 13, marginBottom: 4, fontFamily: fonts.body }}>No trades yet</div>
-            <div style={{ fontSize: 11, fontFamily: fonts.mono, letterSpacing: '0.02em' }}>
+            <div style={{
+              position: 'absolute', inset: 0, opacity: 0.03,
+              backgroundImage: `radial-gradient(${colors.purple} 1px, transparent 1px)`,
+              backgroundSize: '20px 20px',
+            }} />
+            <div style={{ fontSize: 13, marginBottom: 6, fontFamily: fonts.body, color: colors.textSecondary, position: 'relative' }}>No trades yet</div>
+            <div style={{ fontSize: 11, fontFamily: fonts.mono, letterSpacing: '0.02em', position: 'relative' }}>
               Trades will appear here as the bot executes orders
             </div>
           </div>
@@ -1033,10 +1060,16 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                         background: colors.bgCard,
                         borderRadius: 6,
                         cursor: 'pointer',
-                        transition: 'background 0.2s',
+                        transition: 'background 0.25s ease, box-shadow 0.25s ease',
                       }}
-                      onMouseEnter={e => { e.currentTarget.style.background = colors.bgCardHover }}
-                      onMouseLeave={e => { e.currentTarget.style.background = colors.bgCard }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = colors.bgCardHover
+                        e.currentTarget.style.boxShadow = `inset 2px 0 0 ${colors.purple}`
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = colors.bgCard
+                        e.currentTarget.style.boxShadow = 'none'
+                      }}
                     >
                       <td style={{
                         padding: '8px 12px', fontSize: 10, fontFamily: fonts.mono,
@@ -1121,15 +1154,25 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
 function SessionStat({ value, label, color }: { value: number; label: string; color: string }) {
   return (
     <div style={{
-      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-      padding: '8px 4px', borderRadius: 6,
+      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+      padding: '10px 6px', borderRadius: 8,
       background: `${color}08`,
-      border: `1px solid ${color}15`,
-    }}>
+      border: `1px solid ${color}12`,
+      transition: 'border-color 0.3s ease, background 0.3s ease',
+    }}
+      onMouseEnter={e => {
+        e.currentTarget.style.borderColor = `${color}30`
+        e.currentTarget.style.background = `${color}10`
+      }}
+      onMouseLeave={e => {
+        e.currentTarget.style.borderColor = `${color}12`
+        e.currentTarget.style.background = `${color}08`
+      }}
+    >
       <span style={{
-        fontSize: 20, fontWeight: 700, fontFamily: fonts.mono,
+        fontSize: 22, fontWeight: 700, fontFamily: fonts.mono,
         color, letterSpacing: '-0.02em',
-        textShadow: `0 0 16px ${color}33`,
+        textShadow: `0 0 20px ${color}33`,
       }}>
         {value}
       </span>
@@ -1172,13 +1215,25 @@ function ActivityFeed({ events }: { events: ActivityEvent[] }) {
         const meta = activityMeta(evt.type)
         return (
           <div key={`${evt.timestamp}-${i}`} style={{
-            display: 'flex', alignItems: 'flex-start', gap: 8,
-            padding: '6px 8px', borderRadius: 4,
-            background: i === 0 ? `${meta.color}06` : 'transparent',
+            display: 'flex', alignItems: 'flex-start', gap: 10,
+            padding: '7px 10px', borderRadius: 6,
+            background: i === 0 ? `${meta.color}08` : 'transparent',
             borderLeft: i === 0 ? `2px solid ${meta.color}` : '2px solid transparent',
-            transition: 'all 0.3s',
+            transition: 'background 0.25s ease, border-color 0.25s ease',
             ...animDelay(i),
-          }}>
+          }}
+            onMouseEnter={e => {
+              if (i !== 0) {
+                e.currentTarget.style.background = `${meta.color}06`
+                e.currentTarget.style.borderLeft = `2px solid ${meta.color}40`
+              }
+            }}
+            onMouseLeave={e => {
+              if (i !== 0) {
+                e.currentTarget.style.background = 'transparent'
+                e.currentTarget.style.borderLeft = '2px solid transparent'
+              }
+            }}>
             {/* Icon */}
             <span style={{
               width: 18, height: 18, borderRadius: 4, flexShrink: 0,
@@ -1237,10 +1292,10 @@ function TradeDetailModal({ detail, loading, onClose }: {
       onClick={onClose}
       style={{
         position: 'fixed', inset: 0, zIndex: 1000,
-        background: 'rgba(3, 5, 9, 0.85)',
-        backdropFilter: 'blur(8px)',
+        background: 'rgba(3, 5, 9, 0.88)',
+        backdropFilter: 'blur(12px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        animation: 'fadeInUp 0.2s ease forwards',
+        animation: 'fadeInUp 0.25s ease forwards',
       }}
     >
       <div
@@ -1248,8 +1303,8 @@ function TradeDetailModal({ detail, loading, onClose }: {
         style={{
           background: colors.gradientCard,
           border: `1px solid ${colors.borderLight}`,
-          borderRadius: 14,
-          padding: 28,
+          borderRadius: 16,
+          padding: 32,
           width: '90%',
           maxWidth: 720,
           maxHeight: '85vh',
@@ -1517,14 +1572,15 @@ function ModalStat({ label, value, color }: { label: string; value: string; colo
 
 function Skeleton() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {[1, 2, 3].map(i => (
         <div key={i} style={{
-          height: 12, borderRadius: 3,
-          background: `linear-gradient(90deg, ${colors.border} 0%, rgba(0,229,255,0.04) 50%, ${colors.border} 100%)`,
+          height: 12, borderRadius: 4,
+          background: `linear-gradient(90deg, ${colors.border} 0%, rgba(0,229,255,0.06) 50%, ${colors.border} 100%)`,
           backgroundSize: '200% 100%',
           width: `${60 + i * 12}%`,
           animation: 'shimmer 2s ease-in-out infinite',
+          animationDelay: `${i * 0.15}s`,
         }} />
       ))}
     </div>
