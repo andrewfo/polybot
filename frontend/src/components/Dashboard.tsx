@@ -3,6 +3,7 @@ import { colors, cardStyle, glowShadow, fonts, animDelay } from '../theme'
 import {
   api, HealthResponse, WalletResponse, CostResponse, BotStatus,
   Position, PnlResponse, PaperBalance, CyclesResponse, ActivityEvent, Trade, TradeDetail,
+  CalibrationResponse, SkipAnalysis,
 } from '../api'
 import CostBreakdown from './charts/CostBreakdown'
 import PnlChart from './charts/PnlChart'
@@ -280,6 +281,8 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
   const [actionLoading, setActionLoading] = useState(false)
   const [selectedTrade, setSelectedTrade] = useState<TradeDetail | null>(null)
   const [tradeModalLoading, setTradeModalLoading] = useState(false)
+  const [calibration, setCalibration] = useState<CalibrationResponse | null>(null)
+  const [skipAnalysis, setSkipAnalysis] = useState<SkipAnalysis | null>(null)
 
   // Live countdown state — ticks every second
   const [liveCountdowns, setLiveCountdowns] = useState<{
@@ -301,6 +304,8 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
     api.fetchPaperBalance().then(setPaperBal).catch(() => {})
     api.fetchCycles().then(setCycles).catch(() => {})
     api.fetchTrades().then(setTrades).catch(() => {})
+    api.fetchLearningCalibration().then(setCalibration).catch(() => {})
+    api.fetchSkipAnalysis().then(setSkipAnalysis).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -762,17 +767,22 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
         </Card>
       </div>
 
-      {/* Row 3: PnL Chart + Right column */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
+      {/* Row 3: PnL Chart + Signal Accuracy + Right column */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
         {/* PnL Chart */}
         <Card title="Portfolio Value" accent={colors.accent} style={{ minHeight: 280, display: 'flex', flexDirection: 'column' }} index={6}>
           <PnlChart snapshots={pnlData?.snapshots ?? []} />
         </Card>
 
+        {/* Signal Accuracy */}
+        <Card title="Signal Accuracy" accent={colors.purple} style={{ minHeight: 280 }} index={7}>
+          <SignalAccuracyCard calibration={calibration} skipAnalysis={skipAnalysis} />
+        </Card>
+
         {/* Right column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* Connections + Health Checks */}
-          <Card title="Connections" index={7}>
+          <Card title="Connections" index={8}>
             {health ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {health.services.map((s, si) => (
@@ -852,7 +862,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
           </Card>
 
           {/* LLM Costs */}
-          <Card title="LLM Costs" index={8}>
+          <Card title="LLM Costs" index={9}>
             {costData ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ display: 'flex', gap: 16 }}>
@@ -1205,6 +1215,180 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
           loading={tradeModalLoading}
           onClose={() => setSelectedTrade(null)}
         />
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Signal Accuracy card
+// ---------------------------------------------------------------------------
+
+function SignalAccuracyCard({ calibration, skipAnalysis }: {
+  calibration: CalibrationResponse | null
+  skipAnalysis: SkipAnalysis | null
+}) {
+  if (!calibration && !skipAnalysis) {
+    return (
+      <div style={{
+        flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: colors.textDim, fontSize: 11, fontFamily: fonts.mono,
+      }}>
+        No calibration data yet
+      </div>
+    )
+  }
+
+  const curve = calibration?.calibration_curve ?? []
+  const maxCount = Math.max(...curve.map(b => b.count), 1)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Top stats */}
+      {calibration && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+          <div style={{
+            padding: '8px 6px', borderRadius: 6, textAlign: 'center',
+            background: 'rgba(139,92,246,0.06)', border: `1px solid rgba(139,92,246,0.1)`,
+          }}>
+            <div style={{
+              fontSize: 16, fontWeight: 700, fontFamily: fonts.mono,
+              color: Math.abs(calibration.mean_bias) < 0.05 ? colors.success : colors.warning,
+              letterSpacing: '-0.02em',
+            }}>
+              {calibration.mean_bias >= 0 ? '+' : ''}{(calibration.mean_bias * 100).toFixed(1)}%
+            </div>
+            <div style={{
+              fontSize: 8, color: colors.textDim, fontFamily: fonts.mono,
+              textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2,
+            }}>
+              Bias
+            </div>
+          </div>
+          <div style={{
+            padding: '8px 6px', borderRadius: 6, textAlign: 'center',
+            background: 'rgba(0,229,255,0.04)', border: `1px solid ${colors.border}`,
+          }}>
+            <div style={{
+              fontSize: 16, fontWeight: 700, fontFamily: fonts.mono,
+              color: calibration.abs_mean_error < 0.15 ? colors.success : colors.warning,
+              letterSpacing: '-0.02em',
+            }}>
+              {(calibration.abs_mean_error * 100).toFixed(1)}%
+            </div>
+            <div style={{
+              fontSize: 8, color: colors.textDim, fontFamily: fonts.mono,
+              textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2,
+            }}>
+              Avg Error
+            </div>
+          </div>
+          <div style={{
+            padding: '8px 6px', borderRadius: 6, textAlign: 'center',
+            background: 'rgba(0,229,255,0.04)', border: `1px solid ${colors.border}`,
+          }}>
+            <div style={{
+              fontSize: 16, fontWeight: 700, fontFamily: fonts.mono,
+              color: colors.textPrimary, letterSpacing: '-0.02em',
+            }}>
+              {calibration.sample_count}
+            </div>
+            <div style={{
+              fontSize: 8, color: colors.textDim, fontFamily: fonts.mono,
+              textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2,
+            }}>
+              Samples
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mini calibration curve */}
+      {curve.length > 0 && (
+        <div>
+          <div style={{
+            fontSize: 9, color: colors.textDim, fontFamily: fonts.mono,
+            letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6,
+          }}>
+            Calibration Curve
+          </div>
+          <div style={{
+            display: 'flex', alignItems: 'flex-end', gap: 3, height: 48,
+          }}>
+            {curve.map((bucket, i) => {
+              const estimated = bucket.avg_estimated
+              const actual = bucket.avg_actual
+              const barH = Math.max(4, (bucket.count / maxCount) * 48)
+              const isGood = Math.abs(estimated - actual) < 0.1
+              return (
+                <div key={i} style={{
+                  flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                  position: 'relative',
+                }}>
+                  {/* Actual vs expected dot */}
+                  <div style={{ position: 'relative', width: '100%', height: barH }}>
+                    <div style={{
+                      width: '100%', height: '100%', borderRadius: 2,
+                      background: isGood
+                        ? `linear-gradient(180deg, ${colors.success}40, ${colors.success}15)`
+                        : `linear-gradient(180deg, ${colors.warning}40, ${colors.warning}15)`,
+                      border: `1px solid ${isGood ? colors.success : colors.warning}25`,
+                    }} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          {/* X-axis labels */}
+          <div style={{
+            display: 'flex', justifyContent: 'space-between',
+            fontSize: 8, color: colors.textDim, fontFamily: fonts.mono,
+            marginTop: 3, padding: '0 2px',
+          }}>
+            <span>0%</span>
+            <span>50%</span>
+            <span>100%</span>
+          </div>
+        </div>
+      )}
+
+      {/* Skip analysis */}
+      {skipAnalysis && skipAnalysis.total_skipped > 0 && (
+        <div style={{
+          padding: '8px 10px', borderRadius: 6,
+          background: 'rgba(255,170,0,0.04)', border: `1px solid rgba(255,170,0,0.08)`,
+        }}>
+          <div style={{
+            fontSize: 9, color: colors.textDim, fontFamily: fonts.mono,
+            textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6,
+          }}>
+            Missed Opportunities
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <span style={{
+                fontSize: 18, fontWeight: 700, fontFamily: fonts.mono,
+                color: skipAnalysis.missed_opportunities > 0 ? colors.warning : colors.success,
+              }}>
+                {skipAnalysis.missed_opportunities}
+              </span>
+              <span style={{
+                fontSize: 10, color: colors.textDim, fontFamily: fonts.mono, marginLeft: 4,
+              }}>
+                / {skipAnalysis.resolved_count} resolved
+              </span>
+            </div>
+            {skipAnalysis.avg_missed_edge > 0 && (
+              <div style={{
+                fontSize: 10, fontFamily: fonts.mono, color: colors.warning,
+                padding: '2px 8px', borderRadius: 4,
+                background: colors.warningDim,
+              }}>
+                avg edge: {(skipAnalysis.avg_missed_edge * 100).toFixed(1)}%
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )
