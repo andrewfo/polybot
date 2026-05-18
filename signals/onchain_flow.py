@@ -288,14 +288,20 @@ async def _fetch_coingecko_global(
 # Composite flow data
 # ---------------------------------------------------------------------------
 
+_flow_fetch_lock = asyncio.Lock()
+
+
 async def _fetch_flow_data(
     coin_id: str,
 ) -> tuple[float, dict[str, Any]]:
     """Fetch and compute composite flow pressure from all sources.
 
     Returns (pressure_score, raw_data_dict).
+    All four sources return global market data (not coin-specific), so we
+    cache under a single key and use a lock to prevent concurrent fetches
+    from stampeding rate-limited APIs (especially CoinGecko free tier).
     """
-    cache_key = f"composite_{coin_id}"
+    cache_key = "composite_global"
 
     now = time.monotonic()
     cached = _flow_cache.get(cache_key)
@@ -305,86 +311,96 @@ async def _fetch_flow_data(
             logger.debug("Flow cache hit for %s", coin_id)
             return cached_data.get("pressure_score", 0.0), cached_data
 
-    # Fetch all sources concurrently
-    async with aiohttp.ClientSession() as session:
-        results = await asyncio.gather(
-            _fetch_stablecoin_flow(session),
-            _fetch_tvl_trend(session),
-            _fetch_fear_greed(session),
-            _fetch_coingecko_global(session),
-            return_exceptions=True,
-        )
+    # Lock prevents concurrent cache misses from hitting APIs in parallel
+    async with _flow_fetch_lock:
+        # Re-check cache after acquiring lock (another coroutine may have filled it)
+        cached = _flow_cache.get(cache_key)
+        if cached is not None:
+            cached_data, cached_at = cached
+            if time.monotonic() - cached_at < CACHE_TTL_SECONDS:
+                logger.debug("Flow cache hit (post-lock) for %s", coin_id)
+                return cached_data.get("pressure_score", 0.0), cached_data
 
-    source_pressures: dict[str, float] = {}
-    source_metrics: dict[str, dict[str, Any]] = {}
-    source_names = ["stablecoin_flow", "tvl_trend", "fear_greed", "global_market"]
+        # Fetch all sources concurrently
+        async with aiohttp.ClientSession() as session:
+            results = await asyncio.gather(
+                _fetch_stablecoin_flow(session),
+                _fetch_tvl_trend(session),
+                _fetch_fear_greed(session),
+                _fetch_coingecko_global(session),
+                return_exceptions=True,
+            )
 
-    for name, result in zip(source_names, results):
-        if isinstance(result, Exception):
-            logger.warning("Flow source %s failed: %s", name, result)
-            continue
-        if result is None:
-            continue
-        pressure, metrics = result
-        source_pressures[name] = pressure
-        source_metrics[name] = metrics
+        source_pressures: dict[str, float] = {}
+        source_metrics: dict[str, dict[str, Any]] = {}
+        source_names = ["stablecoin_flow", "tvl_trend", "fear_greed", "global_market"]
 
-    if not source_pressures:
-        metrics = {
-            "data_source": "none",
+        for name, result in zip(source_names, results):
+            if isinstance(result, Exception):
+                logger.warning("Flow source %s failed: %s", name, result)
+                continue
+            if result is None:
+                continue
+            pressure, metrics = result
+            source_pressures[name] = pressure
+            source_metrics[name] = metrics
+
+        if not source_pressures:
+            empty_metrics = {
+                "data_source": "none",
+                "asset": coin_id,
+                "pressure_score": 0.0,
+                "sources_available": 0,
+                "error": "no_data_available",
+            }
+            return 0.0, empty_metrics
+
+        # Weighted composite pressure
+        total_weight = 0.0
+        weighted_sum = 0.0
+        for name, p in source_pressures.items():
+            w = _SOURCE_WEIGHTS.get(name, 0.2)
+            weighted_sum += p * w
+            total_weight += w
+
+        composite_pressure = weighted_sum / total_weight if total_weight > 0 else 0.0
+        composite_pressure = max(-1.0, min(1.0, composite_pressure))
+
+        # Agreement metric: how much do sources agree in direction?
+        # If all sources point the same way, agreement = 1.0
+        signs = [1 if p > 0.05 else (-1 if p < -0.05 else 0) for p in source_pressures.values()]
+        non_neutral = [s for s in signs if s != 0]
+        if non_neutral:
+            agreement = abs(sum(non_neutral)) / len(non_neutral)
+        else:
+            agreement = 0.0
+
+        # Build composite raw_data
+        stablecoin = source_metrics.get("stablecoin_flow", {})
+        composite_metrics = {
+            "data_source": "composite",
             "asset": coin_id,
-            "pressure_score": 0.0,
-            "sources_available": 0,
-            "error": "no_data_available",
+            "pressure_score": composite_pressure,
+            "sources_available": len(source_pressures),
+            "source_agreement": round(agreement, 2),
+            "source_pressures": {k: round(v, 3) for k, v in source_pressures.items()},
+            # Preserve top-level fields for backward compat with aggregator formatter
+            "total_stablecoin_supply": stablecoin.get("total_supply", 0),
+            "weekly_change_pct": stablecoin.get("weekly_change_pct", 0.0),
+            "monthly_change_pct": stablecoin.get("monthly_change_pct", 0.0),
+            "stablecoins_tracked": stablecoin.get("stablecoins_tracked", 0),
+            # New source details
+            "fear_greed_value": source_metrics.get("fear_greed", {}).get("value"),
+            "fear_greed_label": source_metrics.get("fear_greed", {}).get("label"),
+            "tvl_weekly_change_pct": source_metrics.get("tvl_trend", {}).get("weekly_tvl_change_pct"),
+            "current_tvl": source_metrics.get("tvl_trend", {}).get("current_tvl"),
+            "market_cap_change_24h_pct": source_metrics.get("global_market", {}).get("market_cap_change_24h_pct"),
+            "btc_dominance": source_metrics.get("global_market", {}).get("btc_dominance"),
+            "total_market_cap": source_metrics.get("global_market", {}).get("total_market_cap"),
         }
-        return 0.0, metrics
 
-    # Weighted composite pressure
-    total_weight = 0.0
-    weighted_sum = 0.0
-    for name, p in source_pressures.items():
-        w = _SOURCE_WEIGHTS.get(name, 0.2)
-        weighted_sum += p * w
-        total_weight += w
-
-    composite_pressure = weighted_sum / total_weight if total_weight > 0 else 0.0
-    composite_pressure = max(-1.0, min(1.0, composite_pressure))
-
-    # Agreement metric: how much do sources agree in direction?
-    # If all sources point the same way, agreement = 1.0
-    signs = [1 if p > 0.05 else (-1 if p < -0.05 else 0) for p in source_pressures.values()]
-    non_neutral = [s for s in signs if s != 0]
-    if non_neutral:
-        agreement = abs(sum(non_neutral)) / len(non_neutral)
-    else:
-        agreement = 0.0
-
-    # Build composite raw_data
-    stablecoin = source_metrics.get("stablecoin_flow", {})
-    composite_metrics = {
-        "data_source": "composite",
-        "asset": coin_id,
-        "pressure_score": composite_pressure,
-        "sources_available": len(source_pressures),
-        "source_agreement": round(agreement, 2),
-        "source_pressures": {k: round(v, 3) for k, v in source_pressures.items()},
-        # Preserve top-level fields for backward compat with aggregator formatter
-        "total_stablecoin_supply": stablecoin.get("total_supply", 0),
-        "weekly_change_pct": stablecoin.get("weekly_change_pct", 0.0),
-        "monthly_change_pct": stablecoin.get("monthly_change_pct", 0.0),
-        "stablecoins_tracked": stablecoin.get("stablecoins_tracked", 0),
-        # New source details
-        "fear_greed_value": source_metrics.get("fear_greed", {}).get("value"),
-        "fear_greed_label": source_metrics.get("fear_greed", {}).get("label"),
-        "tvl_weekly_change_pct": source_metrics.get("tvl_trend", {}).get("weekly_tvl_change_pct"),
-        "current_tvl": source_metrics.get("tvl_trend", {}).get("current_tvl"),
-        "market_cap_change_24h_pct": source_metrics.get("global_market", {}).get("market_cap_change_24h_pct"),
-        "btc_dominance": source_metrics.get("global_market", {}).get("btc_dominance"),
-        "total_market_cap": source_metrics.get("global_market", {}).get("total_market_cap"),
-    }
-
-    _flow_cache[cache_key] = (composite_metrics, now)
-    return composite_pressure, composite_metrics
+        _flow_cache[cache_key] = (composite_metrics, time.monotonic())
+        return composite_pressure, composite_metrics
 
 
 class OnchainFlowProvider(SignalProvider):
