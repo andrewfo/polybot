@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 import aiohttp
 
-from core.db import get_daily_llm_cost, get_db, get_open_trades
+from core.db import get_daily_llm_cost, get_open_trades
 from monitoring.notifications import Notifier
 
 logger = logging.getLogger("polybot.health")
