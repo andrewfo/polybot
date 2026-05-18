@@ -525,6 +525,22 @@ def _select_volatility(
         return 0.80, "default_80pct"
 
 
+def _price_n_days_ago(prices: list[list[float]] | None, days: int) -> float | None:
+    """Find the price closest to N days ago using timestamps, not index math."""
+    if not prices or len(prices) < 2:
+        return None
+    latest_ts = prices[-1][0]
+    target_ts = latest_ts - days * 86400 * 1000
+    best = None
+    best_dist = float("inf")
+    for ts, price in prices:
+        dist = abs(ts - target_ts)
+        if dist < best_dist:
+            best_dist = dist
+            best = price
+    return best
+
+
 def _describe_trend(prices: list[list[float]]) -> str:
     """Describe the 30-day price trend in human-readable text."""
     if not prices or len(prices) < 2:
@@ -833,14 +849,17 @@ class CryptoResolutionProvider(SignalProvider):
         annual_vol, vol_source = _select_volatility(vol_est, deribit_iv, days_remaining)
 
         # Shrink drift to avoid noisy estimates dominating the probability
-        # For short-dated markets (<7d), 90-day drift is noise — use risk-neutral (drift=0)
+        # For short-dated markets, 90-day drift is noise — blend toward zero
         realized_drift = vol_est.realized_drift
         shrunk_drift: float | None = None
-        if days_remaining < 7:
-            shrunk_drift = 0.0
-            logger.debug("Short-dated market (<7d): defaulting drift to 0 for %s", coin_id)
-        elif realized_drift is not None:
-            shrunk_drift = _shrink_drift(realized_drift, vol_est.drift_stderr)
+        if realized_drift is not None:
+            base_shrunk = _shrink_drift(realized_drift, vol_est.drift_stderr)
+            if days_remaining < 14:
+                # Linearly fade drift from full at 14d to zero at 0d
+                drift_weight = max(0.0, days_remaining / 14.0)
+                shrunk_drift = base_shrunk * drift_weight
+            else:
+                shrunk_drift = base_shrunk
 
         # Determine resolution type: barrier ("will reach") vs terminal ("will be at")
         # Default to barrier for crypto markets since most are "Will X reach Y?"
@@ -901,26 +920,30 @@ class CryptoResolutionProvider(SignalProvider):
 
         # Reduce confidence when vol estimation is uncertain
         # (large gap between standard and EWM vol suggests regime change)
+        # Use a graduated penalty: crypto normally has 1.5-2x divergence,
+        # only penalize heavily for extreme divergence (>2.5x)
         if vol_est.annual_vol > 0 and vol_est.annual_vol_ewm > 0:
             vol_ratio = max(vol_est.annual_vol, vol_est.annual_vol_ewm) / \
                         min(vol_est.annual_vol, vol_est.annual_vol_ewm)
-            if vol_ratio > 1.5:
-                # Vol regime is unstable — reduce confidence
+            if vol_ratio > 2.5:
                 confidence = max(confidence - 0.10, 0.40)
                 logger.info(
-                    "Vol regime unstable for %s (ratio=%.1f), reducing confidence",
+                    "Vol regime very unstable for %s (ratio=%.1f), reducing confidence",
                     coin_id, vol_ratio,
                 )
+            elif vol_ratio > 1.8:
+                confidence = max(confidence - 0.05, 0.45)
 
-        # Reduce confidence for very extreme probabilities (model might be overconfident)
-        if model_prob < 0.05 or model_prob > 0.95:
-            confidence = min(confidence, 0.70)
+        # For near-the-money predictions (prob 0.3-0.7), the model is less
+        # decisive — small vol/drift errors swing the output a lot.
+        # For deep ITM/OTM (prob <0.1 or >0.9), the math is more certain.
+        if 0.35 < model_prob < 0.65:
+            confidence = max(confidence - 0.05, 0.45)
 
         # Reduce confidence when drift was heavily shrunk (uncertain trend)
         if realized_drift is not None and shrunk_drift is not None and realized_drift != 0:
             shrink_ratio = abs(shrunk_drift) / abs(realized_drift)
             if shrink_ratio < 0.3:
-                # Heavy shrinkage = very noisy drift estimate
                 confidence = max(confidence - 0.05, 0.40)
 
         # Build detailed reasoning
@@ -977,11 +1000,11 @@ class CryptoResolutionProvider(SignalProvider):
                 "change_24h": change_24h / 100 if change_24h else 0.0,
                 "trend": trend_description,
                 "distance_pct": distance_pct,
-                "price_7d_ago": chart_data[-8][1] if chart_data and len(chart_data) >= 8 else (chart_data[0][1] if chart_data else None),
+                "price_7d_ago": _price_n_days_ago(chart_data, 7),
                 "avg_interval_hours": vol_est.avg_interval_hours,
                 "price_history": [
                     {"date": datetime.fromtimestamp(pt[0] / 1000, tz=timezone.utc).strftime("%Y-%m-%d"), "price": round(pt[1], 2)}
-                    for pt in (chart_data or [])[::max(1, len(chart_data or [1]) // 60)]
+                    for pt in (chart_data or [])[::max(1, len(chart_data) // 60 if chart_data else 1)]
                 ],
             },
         )
