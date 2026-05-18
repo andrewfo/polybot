@@ -50,7 +50,9 @@ class TestFormatStatusMessage:
             daily_pnl=5.25,
             total_pnl=12.50,
             bot_running=True,
+            bot_paused=False,
             bot_phase="aggregation",
+            cycle_etas={"discovery": 600, "aggregation": 900, "position": 120},
         )
         assert "PAPER" in msg
         assert "RUNNING" in msg
@@ -73,7 +75,9 @@ class TestFormatStatusMessage:
             daily_pnl=0.0,
             total_pnl=0.0,
             bot_running=False,
+            bot_paused=False,
             bot_phase="idle",
+            cycle_etas={"discovery": None, "aggregation": None, "position": None},
         )
         assert "STOPPED" in msg
         assert "No open positions" in msg
@@ -91,7 +95,8 @@ class TestFormatStatusMessage:
             positions=positions,
             balance=_make_balance(),
             daily_pnl=0, total_pnl=0,
-            bot_running=True, bot_phase="idle",
+            bot_running=True, bot_paused=False, bot_phase="idle",
+            cycle_etas={"discovery": 0, "aggregation": 0, "position": 0},
         )
         # Question should be truncated to 50 chars
         assert "A" * 51 not in msg
