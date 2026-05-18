@@ -1414,6 +1414,8 @@ def get_report_history(limit: int = 20) -> list[dict[str, Any]]:
                 "timestamp": row[0],
                 "bias_mean": data.get("bias", {}).get("mean_bias", 0),
                 "bias_samples": data.get("bias", {}).get("sample_count", 0),
+                "total_decisions": data.get("edge_realization", {}).get("total_trades", 0),
+                "resolved_decisions": data.get("bias", {}).get("sample_count", 0),
                 "skip_total": data.get("skip_retro", {}).get("total_skipped", 0),
                 "skip_would_profit": data.get("skip_retro", {}).get("would_have_profited", 0),
                 "edge_efficiency": data.get("edge_realization", {}).get("edge_efficiency", 0),
@@ -1423,6 +1425,7 @@ def get_report_history(limit: int = 20) -> list[dict[str, Any]]:
                 "applied_overrides": data.get("applied_overrides", []),
                 "reverted_overrides": data.get("reverted_overrides", []),
                 "current_regime": data.get("current_regime", ""),
+                "data_sufficiency": data.get("data_sufficiency", {}),
             })
         return summaries
     except Exception as e:

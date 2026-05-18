@@ -8,6 +8,7 @@ import asyncio
 import collections
 import json
 import logging
+import math
 import os
 import time
 from contextlib import asynccontextmanager
@@ -1343,6 +1344,16 @@ def create_app() -> FastAPI:
     # Learning / continuous improvement endpoints
     # -----------------------------------------------------------------------
 
+    def _sanitize_json(obj: Any) -> Any:
+        """Replace inf/NaN floats with JSON-safe values (null)."""
+        if isinstance(obj, float) and (math.isinf(obj) or math.isnan(obj)):
+            return None
+        if isinstance(obj, dict):
+            return {k: _sanitize_json(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_sanitize_json(v) for v in obj]
+        return obj
+
     @app.get("/api/learning/report")
     async def learning_report():
         """Get the latest learning report with all analyses and recommendations."""
@@ -1352,7 +1363,7 @@ def create_app() -> FastAPI:
             if report is None:
                 return {"status": "no_data", "message": "No learning reports yet. Run a learning cycle first."}
             import dataclasses
-            return dataclasses.asdict(report)
+            return _sanitize_json(dataclasses.asdict(report))
         except Exception as e:
             return JSONResponse(status_code=500, content={"error": str(e)[:200]})
 
@@ -1372,12 +1383,12 @@ def create_app() -> FastAPI:
             from monitoring.learning import run_learning_cycle
             report = await run_learning_cycle()
             import dataclasses
-            return {
+            return _sanitize_json({
                 "status": "complete",
                 "recommendations": len(report.recommendations),
                 "data_sufficiency": report.data_sufficiency,
                 "report": dataclasses.asdict(report),
-            }
+            })
         except Exception as e:
             return JSONResponse(status_code=500, content={"error": str(e)[:200]})
 

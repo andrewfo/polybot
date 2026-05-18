@@ -846,8 +846,8 @@ export default function Learning() {
                       <td style={{ padding: '6px 10px', textAlign: 'right', color: colors.textSecondary }}>
                         {h.resolved_decisions ?? '--'}
                       </td>
-                      <td style={{ padding: '6px 10px', textAlign: 'right', color: (h.recommendations?.length ?? 0) > 0 ? colors.purple : colors.textDim }}>
-                        {h.recommendations?.length ?? 0}
+                      <td style={{ padding: '6px 10px', textAlign: 'right', color: (h.rec_count ?? 0) > 0 ? colors.purple : colors.textDim }}>
+                        {h.rec_count ?? 0}
                       </td>
                       <td style={{ padding: '6px 10px', textAlign: 'right', color: suffColor, fontWeight: 600, fontSize: 10 }}>
                         {suffLabel.toUpperCase()}

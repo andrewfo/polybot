@@ -240,6 +240,7 @@ export interface LearningReport {
   data_sufficiency?: string | Record<string, boolean>
   total_decisions?: number
   resolved_decisions?: number
+  rec_count?: number
   recommendations?: LearningRecommendation[]
   bias?: {
     mean_bias: number
