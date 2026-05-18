@@ -352,32 +352,61 @@ function PredictionMarketsDetail({ raw, consensusProb }: { raw: Record<string, u
 }
 
 function OnchainFlowDetail({ raw }: { raw: Record<string, unknown> }) {
-  const sources = (raw.sources || []) as Record<string, unknown>[]
-  const sentiment = raw.composite_sentiment as string | undefined
+  const pressure = raw.pressure_score as number | undefined
+  const sourcesAvailable = raw.sources_available as number | undefined
+  const agreement = raw.source_agreement as number | undefined
+  const sourcePressures = raw.source_pressures as Record<string, number> | undefined
+
+  // Determine sentiment from composite pressure
+  const sentiment = pressure != null
+    ? (pressure > 0.05 ? 'bullish' : pressure < -0.05 ? 'bearish' : 'neutral')
+    : undefined
   const sentimentColor = sentiment === 'bullish' ? colors.success
     : sentiment === 'bearish' ? colors.danger : colors.warning
 
+  const sourceLabels: Record<string, string> = {
+    stablecoin_flow: 'Stablecoin Flow',
+    tvl_trend: 'DeFi TVL',
+    fear_greed: 'Fear & Greed',
+    global_market: 'Global Market',
+  }
+
   return (
     <div>
-      {/* Composite Sentiment */}
-      {sentiment && (
+      {/* Composite Pressure */}
+      {pressure != null && (
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10,
+          display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap',
         }}>
-          <span style={{ fontSize: 10, color: colors.textDim, textTransform: 'uppercase' }}>Sentiment:</span>
+          <span style={{ fontSize: 10, color: colors.textDim, textTransform: 'uppercase' }}>Flow:</span>
           <span style={{
             fontSize: 14, fontWeight: 700, fontFamily: fonts.mono, color: sentimentColor,
             textTransform: 'uppercase',
           }}>
-            {sentiment}
+            {sentiment} ({pressure > 0 ? '+' : ''}{pressure.toFixed(3)})
           </span>
-          {raw.fear_greed_index != null && (
+          {sourcesAvailable != null && (
+            <span style={{ fontSize: 10, color: colors.textDim, fontFamily: fonts.mono }}>
+              {sourcesAvailable} source{sourcesAvailable !== 1 ? 's' : ''}
+            </span>
+          )}
+          {agreement != null && (
+            <span style={{
+              padding: '2px 8px', borderRadius: 10, fontSize: 10,
+              background: agreement >= 0.7 ? 'rgba(0,200,100,0.1)' : 'rgba(255,170,0,0.1)',
+              color: agreement >= 0.7 ? colors.success : colors.warning,
+              fontFamily: fonts.mono,
+            }}>
+              Agreement: {(agreement * 100).toFixed(0)}%
+            </span>
+          )}
+          {raw.fear_greed_value != null && (
             <span style={{
               padding: '2px 8px', borderRadius: 10, fontSize: 10,
               background: 'rgba(255,170,0,0.1)', color: colors.warning,
               fontFamily: fonts.mono,
             }}>
-              Fear/Greed: {String(raw.fear_greed_index)}
+              Fear/Greed: {String(raw.fear_greed_value)}
               {raw.fear_greed_label ? ` (${String(raw.fear_greed_label)})` : ''}
             </span>
           )}
@@ -386,61 +415,71 @@ function OnchainFlowDetail({ raw }: { raw: Record<string, unknown> }) {
 
       {/* Key Metrics Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 8, marginBottom: 10 }}>
-        {raw.total_stablecoin_mcap != null && (
-          <Stat label="Stablecoin MCap" value={`$${(Number(raw.total_stablecoin_mcap) / 1e9).toFixed(1)}B`} small />
+        {raw.total_stablecoin_supply != null && Number(raw.total_stablecoin_supply) > 0 && (
+          <Stat label="Stablecoin Supply" value={`$${(Number(raw.total_stablecoin_supply) / 1e9).toFixed(1)}B`} small />
         )}
-        {raw.stablecoin_change_7d != null && (
-          <Stat label="Stablecoin 7d" value={fmtPct(raw.stablecoin_change_7d)}
-            highlight={(raw.stablecoin_change_7d as number) > 0 ? colors.success : colors.danger} small />
+        {raw.weekly_change_pct != null && (
+          <Stat label="Stablecoin 7d" value={`${Number(raw.weekly_change_pct) > 0 ? '+' : ''}${Number(raw.weekly_change_pct).toFixed(2)}%`}
+            highlight={Number(raw.weekly_change_pct) > 0 ? colors.success : colors.danger} small />
         )}
-        {raw.total_tvl != null && (
-          <Stat label="DeFi TVL" value={`$${(Number(raw.total_tvl) / 1e9).toFixed(1)}B`} small />
+        {raw.monthly_change_pct != null && (
+          <Stat label="Stablecoin 30d" value={`${Number(raw.monthly_change_pct) > 0 ? '+' : ''}${Number(raw.monthly_change_pct).toFixed(2)}%`}
+            highlight={Number(raw.monthly_change_pct) > 0 ? colors.success : colors.danger} small />
         )}
-        {raw.tvl_change_7d != null && (
-          <Stat label="TVL 7d" value={fmtPct(raw.tvl_change_7d)}
-            highlight={(raw.tvl_change_7d as number) > 0 ? colors.success : colors.danger} small />
+        {raw.current_tvl != null && (
+          <Stat label="DeFi TVL" value={`$${(Number(raw.current_tvl) / 1e9).toFixed(1)}B`} small />
+        )}
+        {raw.tvl_weekly_change_pct != null && (
+          <Stat label="TVL 7d" value={`${Number(raw.tvl_weekly_change_pct) > 0 ? '+' : ''}${Number(raw.tvl_weekly_change_pct).toFixed(2)}%`}
+            highlight={Number(raw.tvl_weekly_change_pct) > 0 ? colors.success : colors.danger} small />
         )}
         {raw.btc_dominance != null && (
-          <Stat label="BTC Dominance" value={fmtPct(raw.btc_dominance)} small />
+          <Stat label="BTC Dominance" value={`${Number(raw.btc_dominance).toFixed(1)}%`} small />
         )}
         {raw.total_market_cap != null && (
           <Stat label="Total MCap" value={`$${(Number(raw.total_market_cap) / 1e12).toFixed(2)}T`} small />
         )}
+        {raw.market_cap_change_24h_pct != null && (
+          <Stat label="MCap 24h" value={`${Number(raw.market_cap_change_24h_pct) > 0 ? '+' : ''}${Number(raw.market_cap_change_24h_pct).toFixed(2)}%`}
+            highlight={Number(raw.market_cap_change_24h_pct) > 0 ? colors.success : colors.danger} small />
+        )}
       </div>
 
-      {/* Individual Source Signals */}
-      {sources.length > 0 && (
+      {/* Source Pressure Breakdown */}
+      {sourcePressures && Object.keys(sourcePressures).length > 0 && (
         <div>
           <div style={{ fontSize: 10, fontWeight: 600, color: colors.textMuted, marginBottom: 6, textTransform: 'uppercase' }}>
-            Data Sources ({sources.length})
+            Source Pressures ({Object.keys(sourcePressures).length})
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {sources.map((src, i) => {
-              const srcSentiment = src.sentiment as string | undefined
-              const srcColor = srcSentiment === 'bullish' ? colors.success
-                : srcSentiment === 'bearish' ? colors.danger : colors.warning
+            {Object.entries(sourcePressures).map(([name, p]) => {
+              const srcColor = p > 0.05 ? colors.success : p < -0.05 ? colors.danger : colors.warning
+              const barWidth = Math.abs(p) * 100
               return (
-                <div key={i} style={{
+                <div key={name} style={{
                   padding: '6px 8px', borderRadius: 6,
                   background: 'rgba(0,0,0,0.2)', fontSize: 11,
                   borderLeft: `3px solid ${srcColor}`,
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span style={{ fontWeight: 600, color: colors.textSecondary }}>
-                      {String(src.source || src.name || '?')}
+                      {sourceLabels[name] || name}
                     </span>
-                    {srcSentiment && (
-                      <span style={{ fontSize: 9, fontFamily: fonts.mono, color: srcColor, fontWeight: 600 }}>
-                        {srcSentiment.toUpperCase()}
-                      </span>
-                    )}
-                    {src.weight != null && (
-                      <span style={{ fontSize: 9, color: colors.textDim }}>wt: {String(src.weight)}</span>
-                    )}
+                    <span style={{ fontSize: 11, fontFamily: fonts.mono, color: srcColor, fontWeight: 600 }}>
+                      {p > 0 ? '+' : ''}{p.toFixed(3)}
+                    </span>
                   </div>
-                  {src.reasoning != null && (
-                    <div style={{ fontSize: 10, color: colors.textDim }}>{String(src.reasoning)}</div>
-                  )}
+                  <div style={{ marginTop: 4, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.05)', position: 'relative' }}>
+                    <div style={{
+                      position: 'absolute',
+                      left: p < 0 ? `${50 - barWidth / 2}%` : '50%',
+                      width: `${barWidth / 2}%`,
+                      height: '100%',
+                      borderRadius: 2,
+                      background: srcColor,
+                      opacity: 0.6,
+                    }} />
+                  </div>
                 </div>
               )
             })}
