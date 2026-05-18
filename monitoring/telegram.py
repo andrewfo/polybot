@@ -8,8 +8,11 @@ import logging
 import time
 from typing import Any
 
+import httpx
 from telegram import Update
+from telegram.error import NetworkError, TimedOut
 from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.request import HTTPXRequest
 
 from config.settings import (
     AGGREGATION_INTERVAL_MINUTES,
@@ -176,10 +179,41 @@ async def _status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             bot_phase=bot_phase,
             cycle_etas=cycle_etas,
         )
-        await update.message.reply_text(msg)
+        await _safe_reply(update, msg)
+    except (NetworkError, TimedOut, httpx.HTTPError) as e:
+        logger.warning("Telegram /status network error (will not reply): %s", e)
     except Exception as e:
         logger.error("Telegram /status failed: %s", e)
-        await update.message.reply_text(f"Error fetching status: {e}")
+        await _safe_reply(update, f"Error fetching status: {e}")
+
+
+async def _safe_reply(update: Update, text: str) -> None:
+    """reply_text that swallows transient network errors so the handler doesn't crash."""
+    try:
+        await update.message.reply_text(text)
+    except (NetworkError, TimedOut, httpx.HTTPError) as e:
+        logger.warning("Telegram reply failed (network): %s", e)
+
+
+async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log transient network errors as warnings; everything else as an error."""
+    err = context.error
+    if isinstance(err, (NetworkError, TimedOut, httpx.HTTPError)):
+        logger.warning("Telegram network error: %s", err)
+    else:
+        logger.error("Telegram handler error: %s", err, exc_info=err)
+
+
+def _build_request() -> HTTPXRequest:
+    """HTTPXRequest forcing IPv4 — avoids long hangs when AAAA records are unroutable."""
+    transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0")
+    return HTTPXRequest(
+        connect_timeout=15.0,
+        read_timeout=30.0,
+        write_timeout=30.0,
+        pool_timeout=5.0,
+        httpx_kwargs={"transport": transport},
+    )
 
 
 def create_telegram_app() -> Application | None:
@@ -188,8 +222,15 @@ def create_telegram_app() -> Application | None:
         logger.info("TELEGRAM_BOT_TOKEN not set — Telegram bot disabled")
         return None
 
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    app = (
+        Application.builder()
+        .token(TELEGRAM_BOT_TOKEN)
+        .request(_build_request())
+        .get_updates_request(_build_request())
+        .build()
+    )
     app.add_handler(CommandHandler("status", _status_command))
+    app.add_error_handler(_error_handler)
     logger.info("Telegram bot configured (chat_id filter: %s)",
                 TELEGRAM_CHAT_ID or "none")
     return app
