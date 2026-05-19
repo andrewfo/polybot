@@ -102,10 +102,15 @@ function StatValue({ value, label, color, size = 'md' }: {
   )
 }
 
-function StatusDot({ ok, pulse }: { ok: boolean; pulse?: boolean }) {
+function StatusDot({ ok, pulse, tone }: { ok: boolean; pulse?: boolean; tone?: 'ok' | 'warning' | 'danger' }) {
+  const resolvedTone: 'ok' | 'warning' | 'danger' = tone ?? (ok ? 'ok' : 'danger')
+  const dotColor =
+    resolvedTone === 'ok' ? colors.success
+    : resolvedTone === 'warning' ? colors.warning
+    : colors.danger
   return (
     <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-      {pulse && ok && (
+      {pulse && resolvedTone === 'ok' && (
         <span style={{
           position: 'absolute', width: 16, height: 16, borderRadius: '50%',
           background: colors.success, opacity: 0.2,
@@ -114,8 +119,8 @@ function StatusDot({ ok, pulse }: { ok: boolean; pulse?: boolean }) {
       )}
       <span style={{
         display: 'inline-block', width: 7, height: 7, borderRadius: '50%',
-        background: ok ? colors.success : colors.danger,
-        boxShadow: ok ? `0 0 8px ${colors.success}` : `0 0 6px ${colors.danger}`,
+        background: dotColor,
+        boxShadow: `0 0 ${resolvedTone === 'ok' ? 8 : 6}px ${dotColor}`,
         position: 'relative', zIndex: 1,
       }} />
     </span>
@@ -839,7 +844,10 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                             display: 'flex', alignItems: 'center', gap: 8, fontSize: 11,
                             fontFamily: fonts.body,
                           }}>
-                            <StatusDot ok={hc.status === 'ok'} />
+                            <StatusDot
+                              ok={hc.status === 'ok'}
+                              tone={hc.status === 'ok' ? 'ok' : hc.status === 'warning' ? 'warning' : 'danger'}
+                            />
                             {hc.check_name}
                           </span>
                           <span style={{

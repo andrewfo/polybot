@@ -173,6 +173,33 @@ async def _check_openrouter() -> HealthCheckResult:
         return HealthCheckResult("openrouter", "critical", f"OpenRouter unreachable: {e!s:.80}")
 
 
+async def _check_telegram() -> HealthCheckResult:
+    """Check Telegram Bot API reachability via getMe.
+
+    Returns 'warning' (not critical) if disabled or unreachable — Telegram
+    is an optional notification channel, not required for trading.
+    """
+    from config.settings import TELEGRAM_BOT_TOKEN
+    if not TELEGRAM_BOT_TOKEN:
+        return HealthCheckResult(
+            "telegram", "warning", "TELEGRAM_BOT_TOKEN not set (notifications disabled)",
+        )
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getMe",
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status == 200:
+                    return HealthCheckResult("telegram", "ok", "Telegram Bot API reachable")
+                return HealthCheckResult(
+                    "telegram", "warning",
+                    f"Telegram Bot API returned HTTP {resp.status}",
+                )
+    except Exception as e:
+        return HealthCheckResult("telegram", "warning", f"Telegram unreachable: {e!s:.80}")
+
+
 async def _check_coingecko() -> HealthCheckResult:
     """Check CoinGecko API reachability via /api/v3/ping."""
     try:
@@ -228,6 +255,7 @@ async def run_health_checks() -> list[HealthCheckResult]:
         _check_gamma_api(),
         _check_openrouter(),
         _check_coingecko(),
+        _check_telegram(),
     ]
     if not PAPER_TRADING:
         checks.append(_check_wallet_gas())

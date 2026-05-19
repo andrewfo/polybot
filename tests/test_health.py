@@ -309,12 +309,13 @@ class TestRunHealthChecks:
             patch("monitoring.health._check_gamma_api", return_value=ok_result),
             patch("monitoring.health._check_openrouter", return_value=ok_result),
             patch("monitoring.health._check_coingecko", return_value=ok_result),
+            patch("monitoring.health._check_telegram", return_value=ok_result),
             patch("monitoring.health._check_stale_orders", return_value=ok_result),
             patch("monitoring.health._check_cost_runaway", return_value=ok_result),
         ):
             results = await run_health_checks()
 
-        assert len(results) == 5
+        assert len(results) == 6
         assert all(r.status == "ok" for r in results)
 
     @pytest.mark.asyncio
@@ -327,6 +328,7 @@ class TestRunHealthChecks:
             patch("monitoring.health._check_gamma_api", return_value=ok_result),
             patch("monitoring.health._check_openrouter", return_value=ok_result),
             patch("monitoring.health._check_coingecko", return_value=ok_result),
+            patch("monitoring.health._check_telegram", return_value=ok_result),
             patch("monitoring.health._check_wallet_gas", return_value=ok_result),
             patch("monitoring.health._check_wallet_funds", return_value=ok_result),
             patch("monitoring.health._check_stale_orders", return_value=warn_result),
@@ -349,6 +351,7 @@ class TestRunHealthChecks:
             patch("monitoring.health._check_gamma_api", return_value=ok_result),
             patch("monitoring.health._check_openrouter", return_value=ok_result),
             patch("monitoring.health._check_coingecko", return_value=ok_result),
+            patch("monitoring.health._check_telegram", return_value=ok_result),
             patch("monitoring.health._check_wallet_gas", return_value=ok_result),
             patch("monitoring.health._check_wallet_funds", return_value=ok_result),
             patch("monitoring.health._check_stale_orders", return_value=ok_result),
@@ -374,6 +377,7 @@ class TestRunHealthChecks:
             patch("monitoring.health._check_gamma_api", return_value=ok_result),
             patch("monitoring.health._check_openrouter", return_value=ok_result),
             patch("monitoring.health._check_coingecko", return_value=ok_result),
+            patch("monitoring.health._check_telegram", return_value=ok_result),
             patch("monitoring.health._check_wallet_gas", return_value=ok_result),
             patch("monitoring.health._check_wallet_funds", return_value=ok_result),
             patch("monitoring.health._check_stale_orders", return_value=ok_result),
@@ -403,6 +407,7 @@ class TestRunHealthChecks:
                 _check_gamma_api=AsyncMock(return_value=ok_result),
                 _check_openrouter=AsyncMock(return_value=ok_result),
                 _check_coingecko=AsyncMock(return_value=ok_result),
+                _check_telegram=AsyncMock(return_value=ok_result),
                 _check_wallet_gas=AsyncMock(return_value=ok_result),
                 _check_wallet_funds=AsyncMock(return_value=ok_result),
                 _check_stale_orders=MagicMock(return_value=ok_result),
@@ -440,6 +445,7 @@ class TestRunHealthChecks:
             patch("monitoring.health._check_gamma_api", return_value=crit1),
             patch("monitoring.health._check_openrouter", return_value=ok_result),
             patch("monitoring.health._check_coingecko", return_value=ok_result),
+            patch("monitoring.health._check_telegram", return_value=ok_result),
             patch("monitoring.health._check_wallet_gas", return_value=ok_result),
             patch("monitoring.health._check_wallet_funds", return_value=ok_result),
             patch("monitoring.health._check_stale_orders", return_value=ok_result),
