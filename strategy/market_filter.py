@@ -113,6 +113,35 @@ def _is_non_crypto_anti_match(question: str) -> bool:
     return any(phrase in q_lower for phrase in NON_CRYPTO_ANTI_PHRASES)
 
 
+# Corporate / entity-action crypto markets that our signal stack cannot model.
+# These mention crypto but resolve on a specific company or person's decision
+# (treasury sales, acquisitions, executive statements), which neither CoinGecko
+# math nor prediction-market consensus can usefully forecast.
+UNMODELABLE_CRYPTO_PATTERNS = [
+    # Treasury sells / acquisitions by specific named entities
+    "microstrategy sell", "microstrategy sells", "strategy sells bitcoin",
+    "strategy sell any bitcoin", "saylor sell", "saylor sells",
+    "tesla sell", "tesla sells bitcoin", "tesla sells any bitcoin",
+    "el salvador sell", "el salvador sells",
+    "government sell", "government sells bitcoin", "us government sell",
+    "blackrock sell", "fidelity sell",
+    "mt. gox", "mt gox", "mtgox",
+    # Generic corporate treasury action phrasing
+    "sell any bitcoin", "sells any bitcoin",
+    "sell any of its bitcoin", "sells any of its bitcoin",
+    "buy any bitcoin", "buys any bitcoin",
+    # Executive / personnel events
+    "sec chair", "sec chairman", "cz released", "cz freed",
+    "sbf released", "sbf pardoned",
+]
+
+
+def _is_unmodelable_crypto(question: str) -> bool:
+    """Detect crypto markets that resolve on corporate/entity actions we can't model."""
+    q_lower = question.lower()
+    return any(phrase in q_lower for phrase in UNMODELABLE_CRYPTO_PATTERNS)
+
+
 def _is_crypto_keyword_match(question: str) -> bool:
     """Check if market question matches crypto keywords.
 
@@ -441,7 +470,18 @@ async def filter_markets(
     _log_filter_step("min_24h_volume", len(markets), len(filtered))
     markets = filtered
 
-    # 7. Not already at max position
+    # 7. Drop unmodelable crypto markets (corporate-action / entity-decision)
+    filtered = []
+    for m in markets:
+        q = m.get("question", "")
+        if _is_unmodelable_crypto(q):
+            logger.info("Dropping unmodelable crypto market: %s", q[:100])
+            continue
+        filtered.append(m)
+    _log_filter_step("unmodelable_crypto", len(markets), len(filtered))
+    markets = filtered
+
+    # 8. Not already at max position
     open_positions = db.get_open_positions()
     position_market_ids = {p["market_id"] for p in open_positions if p.get("size", 0) > 0}
     filtered = []
@@ -451,7 +491,7 @@ async def filter_markets(
             filtered.append(m)
     _log_filter_step("max_position", len(markets), len(filtered))
 
-    # 8. Sort by volume_24hr descending
+    # 9. Sort by volume_24hr descending
     filtered.sort(key=lambda m: _get_volume_24h(m), reverse=True)
 
     logger.info(
