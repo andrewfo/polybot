@@ -27,6 +27,7 @@ from config.settings import (
     CHEAP_MODEL,
     DEPTH_ANALYSIS_ENABLED,
     DISCOVERY_INTERVAL_MINUTES,
+    GAS_ANALYSIS_ENABLED,
     KELLY_FRACTION,
     MAX_ACCEPTABLE_SLIPPAGE,
     MAX_DAILY_LOSS_PCT,
@@ -39,6 +40,7 @@ from config.settings import (
     MIN_CONFIDENCE_BLEND,
     MIN_DEPTH_USD,
     MIN_EDGE_THRESHOLD,
+    MIN_EV_GAS_RATIO,
     MIN_MARKET_LIQUIDITY,
     PAPER_TRADING,
     POLYMARKET_FEE_RATE,
@@ -736,6 +738,38 @@ class BotEngine:
             except Exception as e:
                 logger.debug("Depth analysis failed for %s: %s", cid, e)
 
+        # Gas-cost analysis — block trades whose EV doesn't clear gas overhead
+        gas_data: dict[str, Any] = {}
+        if GAS_ANALYSIS_ENABLED:
+            try:
+                from strategy.gas import analyze_gas_cost
+                # Re-derive EV against the final (possibly depth-adjusted) bet size
+                ev_for_gas = decision.edge * decision.bet_size_usd
+                gas = await analyze_gas_cost(expected_value_usd=ev_for_gas)
+                gas_data = {
+                    "gas_price_gwei": gas.gas_price_gwei,
+                    "matic_usd": gas.matic_usd,
+                    "gas_units": gas.gas_units,
+                    "gas_cost_usd": gas.gas_cost_usd,
+                    "expected_value_usd": gas.expected_value_usd,
+                    "ev_to_gas_ratio": gas.ev_to_gas_ratio,
+                    "min_ev_gas_ratio": MIN_EV_GAS_RATIO,
+                    "passes_gate": gas.passes_gate,
+                    "skip_reason": gas.skip_reason,
+                }
+                decision.gas_cost_usd = gas.gas_cost_usd
+                decision.ev_to_gas_ratio = gas.ev_to_gas_ratio
+                if decision.should_trade and not gas.passes_gate:
+                    decision.should_trade = False
+                    decision.skip_reason = gas.skip_reason
+                    decision.gas_blocked = True
+                    logger.info(
+                        "GAS SKIP: %s | %s",
+                        decision.market_question[:50], gas.skip_reason,
+                    )
+            except Exception as e:
+                logger.debug("Gas analysis failed for %s: %s", cid, e)
+
         # Execute trade if decision says go
         exec_data: dict[str, Any] = {}
         if decision.should_trade:
@@ -817,6 +851,7 @@ class BotEngine:
             },
             "thresholds": skip_thresholds,
             "depth": depth_data,
+            "gas": gas_data,
             "execution": exec_data,
         })
 

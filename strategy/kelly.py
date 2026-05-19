@@ -45,6 +45,10 @@ class TradeDecision:
     depth_total_usd: float = 0.0      # Total ask-side depth in USD
     depth_slippage: float = 0.0       # Expected slippage at original bet size
     depth_adjusted: bool = False       # True if bet was reduced due to depth
+    # Gas analysis fields (populated after Kelly+depth by gas adjustment)
+    gas_cost_usd: float = 0.0          # Estimated round-trip gas cost in USD
+    ev_to_gas_ratio: float = 0.0       # expected_value / gas_cost_usd
+    gas_blocked: bool = False          # True if trade was blocked by gas gate
 
 
 def _get_existing_exposure(market_id: str) -> float:

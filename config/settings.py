@@ -76,6 +76,16 @@ MAX_ACCEPTABLE_SLIPPAGE = float(os.getenv("MAX_ACCEPTABLE_SLIPPAGE", "0.03"))  #
 MIN_DEPTH_USD = float(os.getenv("MIN_DEPTH_USD", "200"))  # Skip if total book depth < $50
 DEPTH_ANALYSIS_ENABLED = os.getenv("DEPTH_ANALYSIS_ENABLED", "true").lower() == "true"
 
+# --- Gas Cost Analysis ---
+# Round-trip gas budget (entry + exit) for a single trade cycle on Polygon
+GAS_UNITS_PER_TRADE_CYCLE = int(os.getenv("GAS_UNITS_PER_TRADE_CYCLE", "500000"))
+# Expected value must clear this multiple of round-trip gas cost
+MIN_EV_GAS_RATIO = float(os.getenv("MIN_EV_GAS_RATIO", "3.0"))
+# Fallbacks used when live fetches fail
+GAS_PRICE_FALLBACK_GWEI = float(os.getenv("GAS_PRICE_FALLBACK_GWEI", "50.0"))
+MATIC_USD_FALLBACK = float(os.getenv("MATIC_USD_FALLBACK", "0.50"))
+GAS_ANALYSIS_ENABLED = os.getenv("GAS_ANALYSIS_ENABLED", "true").lower() == "true"
+
 # --- Aggregation ---
 USE_LOG_ODDS_AVERAGING = os.getenv("USE_LOG_ODDS_AVERAGING", "true").lower() == "true"
 
