@@ -45,7 +45,10 @@ from config.settings import (
     PAPER_TRADING,
     POLYMARKET_FEE_RATE,
     POSITION_CHECK_INTERVAL_MINUTES,
+    STOP_LOSS_PCT,
+    TAKE_PROFIT_PCT,
     TEST_BANKROLL,
+    get_effective_param,
 )
 
 logger = logging.getLogger(__name__)
@@ -589,8 +592,15 @@ class BotEngine:
             "total_score": m.get("_score"),
         }
 
+        # Read effective params so learning overrides are reflected in the UI
+        eff_kelly_fraction = get_effective_param("KELLY_FRACTION", KELLY_FRACTION)
+        eff_min_edge = get_effective_param("MIN_EDGE_THRESHOLD", MIN_EDGE_THRESHOLD)
+        eff_min_conf_blend = get_effective_param("MIN_CONFIDENCE_BLEND", MIN_CONFIDENCE_BLEND)
+        eff_take_profit = get_effective_param("TAKE_PROFIT_PCT", TAKE_PROFIT_PCT)
+        eff_stop_loss = get_effective_param("STOP_LOSS_PCT", STOP_LOSS_PCT)
+
         skip_thresholds = {
-            "min_edge": MIN_EDGE_THRESHOLD,
+            "min_edge": eff_min_edge,
             "min_confidence": 0.25,
             "max_spread": MAX_SPREAD,
             "min_liquidity": MIN_MARKET_LIQUIDITY,
@@ -600,9 +610,11 @@ class BotEngine:
             "max_daily_loss": MAX_DAILY_LOSS_PCT,
             "max_divergence_low_conf": MAX_DIVERGENCE_LOW_CONFIDENCE,
             "max_divergence_any_conf": MAX_DIVERGENCE_ANY_CONFIDENCE,
-            "kelly_fraction": KELLY_FRACTION,
+            "kelly_fraction": eff_kelly_fraction,
             "fee_rate": POLYMARKET_FEE_RATE,
-            "confidence_blend_floor": MIN_CONFIDENCE_BLEND,
+            "confidence_blend_floor": eff_min_conf_blend,
+            "take_profit_pct": eff_take_profit,
+            "stop_loss_pct": eff_stop_loss,
         }
 
         if result is None or result.skipped:
@@ -843,11 +855,11 @@ class BotEngine:
                 "should_trade": decision.should_trade,
                 "skip_reason": decision.skip_reason,
                 "fee_rate": POLYMARKET_FEE_RATE,
-                "kelly_fraction_multiplier": KELLY_FRACTION,
-                "min_edge_threshold": MIN_EDGE_THRESHOLD,
+                "kelly_fraction_multiplier": eff_kelly_fraction,
+                "min_edge_threshold": eff_min_edge,
                 "max_position_pct": MAX_POSITION_PCT,
                 "min_bankroll_reserve": MIN_BANKROLL_RESERVE,
-                "confidence_blend_floor": MIN_CONFIDENCE_BLEND,
+                "confidence_blend_floor": eff_min_conf_blend,
             },
             "thresholds": skip_thresholds,
             "depth": depth_data,
