@@ -30,7 +30,15 @@ class TestPressureToAdjustment:
         assert _pressure_to_adjustment(-5.0) == pytest.approx(-MAX_ADJUSTMENT)
 
     def test_half(self):
-        assert _pressure_to_adjustment(0.5) == pytest.approx(MAX_ADJUSTMENT / 2)
+        # tanh-shaped mapping: pressure=0.5 reaches a meaningful fraction of cap,
+        # not the linear midpoint. Endpoints (±1.0, 0) still hit cap / zero exactly.
+        result = _pressure_to_adjustment(0.5)
+        assert 0.4 * MAX_ADJUSTMENT < result < MAX_ADJUSTMENT
+
+    def test_monotonic_and_odd(self):
+        # Mapping must be strictly increasing and odd-symmetric around 0
+        assert _pressure_to_adjustment(0.2) < _pressure_to_adjustment(0.6)
+        assert _pressure_to_adjustment(-0.3) == pytest.approx(-_pressure_to_adjustment(0.3))
 
 
 # --- Provider integration tests ---
@@ -74,9 +82,9 @@ async def test_coin_detected_from_question():
     assert result.source == "onchain_flow"
 
 
-def test_max_adjustment_is_10pp():
-    """MAX_ADJUSTMENT should be 0.10 (10 percentage points) for multi-source."""
-    assert MAX_ADJUSTMENT == 0.10
+def test_max_adjustment_is_18pp():
+    """MAX_ADJUSTMENT is 0.18 — the prior 0.10 cap kept outputs stuck in [0.48, 0.52]."""
+    assert MAX_ADJUSTMENT == 0.18
 
 
 def test_aggregator_includes_onchain_flow():

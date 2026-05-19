@@ -20,6 +20,8 @@ No LLM calls — pure data pipeline.
 
 import asyncio
 import logging
+import math
+import statistics
 import time
 from collections.abc import Callable
 from typing import Any
@@ -40,6 +42,10 @@ DEFILLAMA_STABLECOINS_URL = "https://stablecoins.llama.fi/stablecoins?includePri
 DEFILLAMA_TVL_URL = "https://api.llama.fi/v2/historicalChainTvl"
 FEAR_GREED_URL = "https://api.alternative.me/fng/?limit=2"
 COINGECKO_GLOBAL_URL = "https://api.coingecko.com/api/v3/global"
+COINGECKO_COIN_CHART_URL = (
+    "https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
+    "?vs_currency=usd&days=14&interval=daily"
+)
 
 USER_AGENT = "polymarket-bot/1.0 (signal research)"
 
@@ -50,26 +56,34 @@ _CONFIDENCE_TIERS: dict[str, float] = {
 }
 _DEFAULT_CONFIDENCE = 0.30
 
-# Source weights in the composite pressure blend
+# Source weights — retained for backward compat with raw_data emission;
+# the composite blend below uses an agreement-weighted simple mean instead.
 _SOURCE_WEIGHTS: dict[str, float] = {
-    "stablecoin_flow": 0.35,  # Stablecoin mint/burn is the strongest signal
-    "tvl_trend": 0.25,        # DeFi TVL shows capital commitment
-    "fear_greed": 0.20,       # Sentiment composite — useful but noisy
-    "global_market": 0.20,    # CoinGecko market cap/volume trends
+    "stablecoin_flow": 0.25,
+    "tvl_trend": 0.20,
+    "fear_greed": 0.15,
+    "global_market": 0.15,
+    "coin_specific": 0.25,
 }
 
-# Maximum probability adjustment from flow signal (±10 pp with multi-source)
-MAX_ADJUSTMENT = 0.10
+# Maximum probability adjustment from flow signal (±18 pp with strong multi-source agreement)
+MAX_ADJUSTMENT = 0.18
+
+# tanh shaping constant — controls how quickly mid-range pressure reaches the cap.
+# Normalized so pressure=±1.0 maps exactly to ±MAX_ADJUSTMENT.
+_TANH_K = 2.0
+_TANH_NORM = math.tanh(_TANH_K)
 
 
 def _pressure_to_adjustment(pressure: float) -> float:
     """Convert pressure score [-1, +1] to probability adjustment.
 
-    A +1.0 pressure score adjusts by at most +MAX_ADJUSTMENT toward
-    the target outcome. Uses a linear mapping capped at ±MAX_ADJUSTMENT.
+    Uses a tanh-shaped mapping so weak pressure stays weak but moderate
+    pressure reaches a meaningful fraction of the cap. Normalized so that
+    pressure=±1.0 returns exactly ±MAX_ADJUSTMENT.
     """
     clamped = max(-1.0, min(1.0, pressure))
-    return clamped * MAX_ADJUSTMENT
+    return MAX_ADJUSTMENT * math.tanh(_TANH_K * clamped) / _TANH_NORM
 
 
 # ---------------------------------------------------------------------------
@@ -124,9 +138,10 @@ async def _fetch_stablecoin_flow(
     weekly_change_pct = (total_now - total_prev_week) / total_prev_week
     monthly_change_pct = (total_now - total_prev_month) / total_prev_month if total_prev_month > 0 else 0.0
 
-    # +2% weekly = strong bullish, -2% = strong bearish
-    weekly_pressure = max(-1.0, min(1.0, weekly_change_pct / 0.02))
-    monthly_pressure = max(-1.0, min(1.0, monthly_change_pct / 0.05))
+    # Real stablecoin supply variance is ~±0.5% weekly / ±1.5% monthly.
+    # Original ±2%/±5% normalizers made this source contribute ~0 in practice.
+    weekly_pressure = max(-1.0, min(1.0, weekly_change_pct / 0.005))
+    monthly_pressure = max(-1.0, min(1.0, monthly_change_pct / 0.015))
     pressure = weekly_pressure * 0.7 + monthly_pressure * 0.3
     pressure = max(-1.0, min(1.0, pressure))
 
@@ -284,6 +299,71 @@ async def _fetch_coingecko_global(
     return pressure, metrics
 
 
+async def _fetch_coin_specific(
+    session: aiohttp.ClientSession,
+    coin_id: str,
+) -> tuple[float, dict[str, Any]] | None:
+    """CoinGecko per-coin market chart — 7d price + volume momentum.
+
+    Breaks the all-markets-identical-signal problem by giving each coin
+    its own pressure component. Price weighted 0.7, volume weighted 0.3.
+    """
+    if not coin_id:
+        return None
+
+    url = COINGECKO_COIN_CHART_URL.format(coin_id=coin_id)
+
+    async def _attempt() -> dict[str, Any]:
+        async with session.get(
+            url,
+            headers={"User-Agent": USER_AGENT},
+            timeout=aiohttp.ClientTimeout(total=15),
+        ) as resp:
+            if resp.status != 200:
+                raise aiohttp.ClientResponseError(
+                    resp.request_info, resp.history, status=resp.status,
+                    message=f"HTTP {resp.status}",
+                )
+            return await resp.json()
+
+    data = await fetch_with_retry(_attempt, label=f"CoinGecko coin {coin_id}")
+    if not data:
+        return None
+
+    prices = data.get("prices", [])
+    volumes = data.get("total_volumes", [])
+    if len(prices) < 8 or len(volumes) < 8:
+        return None
+
+    # Last 7 daily points vs the prior 7
+    recent_price = prices[-1][1]
+    week_ago_price = prices[-8][1]
+    if week_ago_price <= 0:
+        return None
+    price_change_7d = (recent_price - week_ago_price) / week_ago_price
+
+    recent_vol = statistics.fmean([v[1] for v in volumes[-7:]])
+    prior_vol = statistics.fmean([v[1] for v in volumes[-14:-7]])
+    if prior_vol <= 0:
+        return None
+    vol_change_7d = (recent_vol - prior_vol) / prior_vol
+
+    # ±10% weekly price = full pressure; ±50% volume change = full pressure
+    price_pressure = max(-1.0, min(1.0, price_change_7d / 0.10))
+    vol_pressure = max(-1.0, min(1.0, vol_change_7d / 0.50))
+    pressure = price_pressure * 0.7 + vol_pressure * 0.3
+    pressure = max(-1.0, min(1.0, pressure))
+
+    metrics = {
+        "source": "coingecko_coin",
+        "pressure": pressure,
+        "coin_id": coin_id,
+        "price_change_7d_pct": round(price_change_7d * 100, 2),
+        "volume_change_7d_pct": round(vol_change_7d * 100, 2),
+    }
+    return pressure, metrics
+
+
 # ---------------------------------------------------------------------------
 # Composite flow data
 # ---------------------------------------------------------------------------
@@ -301,7 +381,7 @@ async def _fetch_flow_data(
     cache under a single key and use a lock to prevent concurrent fetches
     from stampeding rate-limited APIs (especially CoinGecko free tier).
     """
-    cache_key = "composite_global"
+    cache_key = f"composite::{coin_id}"
 
     now = time.monotonic()
     cached = _flow_cache.get(cache_key)
@@ -328,12 +408,15 @@ async def _fetch_flow_data(
                 _fetch_tvl_trend(session),
                 _fetch_fear_greed(session),
                 _fetch_coingecko_global(session),
+                _fetch_coin_specific(session, coin_id),
                 return_exceptions=True,
             )
 
         source_pressures: dict[str, float] = {}
         source_metrics: dict[str, dict[str, Any]] = {}
-        source_names = ["stablecoin_flow", "tvl_trend", "fear_greed", "global_market"]
+        source_names = [
+            "stablecoin_flow", "tvl_trend", "fear_greed", "global_market", "coin_specific",
+        ]
 
         for name, result in zip(source_names, results):
             if isinstance(result, Exception):
@@ -355,25 +438,20 @@ async def _fetch_flow_data(
             }
             return 0.0, empty_metrics
 
-        # Weighted composite pressure
-        total_weight = 0.0
-        weighted_sum = 0.0
-        for name, p in source_pressures.items():
-            w = _SOURCE_WEIGHTS.get(name, 0.2)
-            weighted_sum += p * w
-            total_weight += w
+        # Agreement-weighted simple mean. The prior fixed-weight blend let weak
+        # sources (stablecoin baseline ~0) drag strong sources (fear_greed,
+        # tvl) toward zero. Replace with: simple mean × agreement multiplier
+        # so coherent signals are amplified and split signals attenuated.
+        ps = list(source_pressures.values())
+        raw_mean = statistics.fmean(ps)
 
-        composite_pressure = weighted_sum / total_weight if total_weight > 0 else 0.0
-        composite_pressure = max(-1.0, min(1.0, composite_pressure))
-
-        # Agreement metric: how much do sources agree in direction?
-        # If all sources point the same way, agreement = 1.0
-        signs = [1 if p > 0.05 else (-1 if p < -0.05 else 0) for p in source_pressures.values()]
+        signs = [1 if p > 0.05 else (-1 if p < -0.05 else 0) for p in ps]
         non_neutral = [s for s in signs if s != 0]
-        if non_neutral:
-            agreement = abs(sum(non_neutral)) / len(non_neutral)
-        else:
-            agreement = 0.0
+        agreement = abs(sum(non_neutral)) / len(non_neutral) if non_neutral else 0.0
+
+        # 0.7x when sources split, 1.4x when fully aligned
+        composite_pressure = raw_mean * (0.7 + 0.7 * agreement)
+        composite_pressure = max(-1.0, min(1.0, composite_pressure))
 
         # Build composite raw_data
         stablecoin = source_metrics.get("stablecoin_flow", {})
@@ -397,6 +475,8 @@ async def _fetch_flow_data(
             "market_cap_change_24h_pct": source_metrics.get("global_market", {}).get("market_cap_change_24h_pct"),
             "btc_dominance": source_metrics.get("global_market", {}).get("btc_dominance"),
             "total_market_cap": source_metrics.get("global_market", {}).get("total_market_cap"),
+            "coin_price_change_7d_pct": source_metrics.get("coin_specific", {}).get("price_change_7d_pct"),
+            "coin_volume_change_7d_pct": source_metrics.get("coin_specific", {}).get("volume_change_7d_pct"),
         }
 
         _flow_cache[cache_key] = (composite_metrics, time.monotonic())
@@ -517,11 +597,16 @@ class OnchainFlowProvider(SignalProvider):
         sources_available = raw_metrics.get("sources_available", 1)
         agreement = raw_metrics.get("source_agreement", 0.0)
 
-        # More sources = more confidence (up to +40% boost at 4 sources)
-        source_bonus = (sources_available - 1) * 0.10  # +10% per extra source
+        # More sources = more confidence (up to +40% boost at 5 sources)
+        source_bonus = (sources_available - 1) * 0.08  # +8% per extra source
         # High agreement = more confidence (up to +15% boost)
         agreement_bonus = agreement * 0.15
-        confidence = min(0.65, base_confidence + source_bonus + agreement_bonus)
+        raw_conf = base_confidence + source_bonus + agreement_bonus
+        # Attenuate when the pressure magnitude is small — a near-zero signal
+        # should not be reported with high confidence even if 5 sources agree
+        # there is no movement. |p|>=0.5 keeps full confidence; |p|=0 halves it.
+        strength = min(1.0, abs(pressure) * 2.0)
+        confidence = min(0.80, raw_conf * (0.5 + 0.5 * strength))
 
         data_points = raw_metrics.get("stablecoins_tracked", 0) + sources_available
 
@@ -557,6 +642,10 @@ class OnchainFlowProvider(SignalProvider):
             parts.append(f"DeFi TVL: weekly={tvl_chg:+.1f}%.")
         if mcap_chg is not None:
             parts.append(f"Global mcap: 24h={mcap_chg:+.1f}%.")
+        coin_price = raw_metrics.get("coin_price_change_7d_pct")
+        coin_vol = raw_metrics.get("coin_volume_change_7d_pct")
+        if coin_price is not None:
+            parts.append(f"{coin_id} 7d: price={coin_price:+.1f}%, vol={coin_vol:+.1f}%.")
 
         reasoning = " ".join(parts)
 
