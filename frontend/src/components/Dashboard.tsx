@@ -600,6 +600,18 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
               color={totalPnl >= 0 ? colors.success : colors.danger}
               size="lg"
             />
+            {(() => {
+              const llmTotal = costData?.total_cost ?? 0
+              const net = totalPnl - llmTotal
+              return (
+                <StatValue
+                  value={`${net >= 0 ? '+' : ''}$${net.toFixed(2)}`}
+                  label={`Net of LLM Costs ($${llmTotal.toFixed(4)})`}
+                  color={net >= 0 ? colors.success : colors.danger}
+                  size="sm"
+                />
+              )
+            })()}
             <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
               <StatValue
                 value={`${((pnlData?.win_rate ?? 0) * 100).toFixed(0)}%`}

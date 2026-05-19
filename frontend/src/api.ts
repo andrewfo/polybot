@@ -58,6 +58,7 @@ export interface CostResponse {
   daily: number
   monthly: number
   total_calls: number
+  total_cost: number
   model_breakdown: ModelBreakdown[]
   task_breakdown: TaskBreakdown[]
 }

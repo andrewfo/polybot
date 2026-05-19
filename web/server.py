@@ -1242,10 +1242,19 @@ def create_app() -> FastAPI:
             except Exception:
                 pass
 
+            total_cost = 0.0
+            try:
+                row = db.execute("SELECT SUM(cost_usd) FROM llm_costs").fetchone()
+                if row and row[0] is not None:
+                    total_cost = float(row[0])
+            except Exception:
+                pass
+
             return {
                 "daily": daily,
                 "monthly": monthly,
                 "total_calls": total_calls,
+                "total_cost": total_cost,
                 "model_breakdown": model_breakdown,
                 "task_breakdown": task_breakdown,
             }
