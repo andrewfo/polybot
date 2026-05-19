@@ -38,6 +38,16 @@ class HealthCheckResult:
 # Track last known USDC balance for large-change detection
 _last_usdc_balance: float | None = None
 
+# Track consecutive critical failures per check — only auto-stop after N in a row.
+# A single transient network blip on gamma_api / openrouter must not stop the bot.
+CONSECUTIVE_CRITICAL_THRESHOLD = 3
+_consecutive_critical_counts: dict[str, int] = {}
+
+
+def reset_consecutive_critical_counts() -> None:
+    """Reset the consecutive-critical counters. Used by tests."""
+    _consecutive_critical_counts.clear()
+
 
 async def _check_gamma_api() -> HealthCheckResult:
     """Check Gamma API reachability with a simple market fetch."""
@@ -243,12 +253,18 @@ async def run_health_checks() -> list[HealthCheckResult]:
                 f"Health warning [{result.check_name}]: {result.message}",
                 level="warning",
             )
+            _consecutive_critical_counts.pop(result.check_name, None)
         elif result.status == "critical":
+            count = _consecutive_critical_counts.get(result.check_name, 0) + 1
+            _consecutive_critical_counts[result.check_name] = count
             await notifier.send(
-                f"Health CRITICAL [{result.check_name}]: {result.message}",
+                f"Health CRITICAL [{result.check_name}] ({count}/{CONSECUTIVE_CRITICAL_THRESHOLD}): {result.message}",
                 level="critical",
             )
-            critical_failures.append(f"{result.check_name}: {result.message}")
+            if count >= CONSECUTIVE_CRITICAL_THRESHOLD:
+                critical_failures.append(f"{result.check_name}: {result.message}")
+        else:  # ok
+            _consecutive_critical_counts.pop(result.check_name, None)
 
     ok_count = sum(1 for r in results if r.status == "ok")
     warn_count = sum(1 for r in results if r.status == "warning")
@@ -260,7 +276,8 @@ async def run_health_checks() -> list[HealthCheckResult]:
 
     if critical_failures:
         raise AutoStopError(
-            "Critical health check failure(s): " + "; ".join(critical_failures)
+            f"Critical health check failure(s) for {CONSECUTIVE_CRITICAL_THRESHOLD} consecutive cycles: "
+            + "; ".join(critical_failures)
         )
 
     return results

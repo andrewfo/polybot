@@ -337,10 +337,11 @@ class TestRunHealthChecks:
         assert any(r.status == "warning" for r in results)
 
     @pytest.mark.asyncio
-    async def test_critical_raises_auto_stop(self):
-        """Critical results should raise AutoStopError."""
-        from strategy.executor import AutoStopError
+    async def test_single_critical_does_not_raise(self):
+        """A single critical result must NOT raise — only consecutive failures do."""
+        from monitoring.health import reset_consecutive_critical_counts
 
+        reset_consecutive_critical_counts()
         ok_result = HealthCheckResult("test", "ok", "all good")
         crit_result = HealthCheckResult("cost_runaway", "critical", "cost too high")
 
@@ -353,14 +354,84 @@ class TestRunHealthChecks:
             patch("monitoring.health._check_stale_orders", return_value=ok_result),
             patch("monitoring.health._check_cost_runaway", return_value=crit_result),
         ):
+            results = await run_health_checks()
+            assert any(r.status == "critical" for r in results)
+
+    @pytest.mark.asyncio
+    async def test_critical_raises_after_consecutive_failures(self):
+        """Critical results should raise AutoStopError only after N consecutive failures."""
+        from monitoring.health import (
+            CONSECUTIVE_CRITICAL_THRESHOLD,
+            reset_consecutive_critical_counts,
+        )
+        from strategy.executor import AutoStopError
+
+        reset_consecutive_critical_counts()
+        ok_result = HealthCheckResult("test", "ok", "all good")
+        crit_result = HealthCheckResult("cost_runaway", "critical", "cost too high")
+
+        with (
+            patch("monitoring.health._check_gamma_api", return_value=ok_result),
+            patch("monitoring.health._check_openrouter", return_value=ok_result),
+            patch("monitoring.health._check_coingecko", return_value=ok_result),
+            patch("monitoring.health._check_wallet_gas", return_value=ok_result),
+            patch("monitoring.health._check_wallet_funds", return_value=ok_result),
+            patch("monitoring.health._check_stale_orders", return_value=ok_result),
+            patch("monitoring.health._check_cost_runaway", return_value=crit_result),
+        ):
+            for _ in range(CONSECUTIVE_CRITICAL_THRESHOLD - 1):
+                await run_health_checks()
             with pytest.raises(AutoStopError, match="cost_runaway"):
                 await run_health_checks()
 
     @pytest.mark.asyncio
+    async def test_ok_resets_consecutive_counter(self):
+        """An OK result must reset the consecutive-critical counter for that check."""
+        from monitoring.health import (
+            CONSECUTIVE_CRITICAL_THRESHOLD,
+            reset_consecutive_critical_counts,
+        )
+
+        reset_consecutive_critical_counts()
+        ok_result = HealthCheckResult("test", "ok", "all good")
+        crit_result = HealthCheckResult("cost_runaway", "critical", "cost too high")
+        ok_cost = HealthCheckResult("cost_runaway", "ok", "cost fine")
+
+        def _run(cost_result):
+            return patch.multiple(
+                "monitoring.health",
+                _check_gamma_api=AsyncMock(return_value=ok_result),
+                _check_openrouter=AsyncMock(return_value=ok_result),
+                _check_coingecko=AsyncMock(return_value=ok_result),
+                _check_wallet_gas=AsyncMock(return_value=ok_result),
+                _check_wallet_funds=AsyncMock(return_value=ok_result),
+                _check_stale_orders=MagicMock(return_value=ok_result),
+                _check_cost_runaway=MagicMock(return_value=cost_result),
+            )
+
+        # Accumulate criticals just below threshold
+        for _ in range(CONSECUTIVE_CRITICAL_THRESHOLD - 1):
+            with _run(crit_result):
+                await run_health_checks()
+
+        # One OK clears the counter
+        with _run(ok_cost):
+            await run_health_checks()
+
+        # Another critical should not raise (counter was reset)
+        with _run(crit_result):
+            await run_health_checks()
+
+    @pytest.mark.asyncio
     async def test_multiple_criticals_in_message(self):
         """All critical failures should be listed in the AutoStopError message."""
+        from monitoring.health import (
+            CONSECUTIVE_CRITICAL_THRESHOLD,
+            reset_consecutive_critical_counts,
+        )
         from strategy.executor import AutoStopError
 
+        reset_consecutive_critical_counts()
         ok_result = HealthCheckResult("test", "ok", "all good")
         crit1 = HealthCheckResult("gamma_api", "critical", "api down")
         crit2 = HealthCheckResult("cost_runaway", "critical", "cost too high")
@@ -374,6 +445,8 @@ class TestRunHealthChecks:
             patch("monitoring.health._check_stale_orders", return_value=ok_result),
             patch("monitoring.health._check_cost_runaway", return_value=crit2),
         ):
+            for _ in range(CONSECUTIVE_CRITICAL_THRESHOLD - 1):
+                await run_health_checks()
             with pytest.raises(AutoStopError) as exc_info:
                 await run_health_checks()
             assert "gamma_api" in str(exc_info.value)

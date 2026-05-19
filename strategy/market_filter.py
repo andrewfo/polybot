@@ -93,12 +93,36 @@ CRYPTO_BIGRAMS = [
 ]
 
 
+# Phrases that strongly indicate the market is NOT crypto despite ambiguous
+# names (e.g. "Gemini" = Google AI model AND a crypto exchange). Checked as
+# lowercased substrings.
+NON_CRYPTO_ANTI_PHRASES = [
+    "gemini 1", "gemini 2", "gemini 3", "gemini 4", "gemini 5",
+    "gemini pro", "gemini ultra", "gemini nano", "gemini ai",
+    "gemini release", "google gemini",
+    "gpt-4", "gpt-5", "gpt-6", "gpt 4", "gpt 5", "openai", "chatgpt",
+    "claude 3", "claude 4", "claude 5", "anthropic",
+    "llama 3", "llama 4", "meta ai",
+    "agi by", "agi achieved", "artificial general intelligence",
+]
+
+
+def _is_non_crypto_anti_match(question: str) -> bool:
+    """Veto crypto classification when question is clearly about AI products etc."""
+    q_lower = question.lower()
+    return any(phrase in q_lower for phrase in NON_CRYPTO_ANTI_PHRASES)
+
+
 def _is_crypto_keyword_match(question: str) -> bool:
     """Check if market question matches crypto keywords.
 
     Uses word-set intersection for single keywords and substring
-    matching for multi-word patterns.
+    matching for multi-word patterns. Returns False if the question
+    matches a non-crypto anti-phrase even if a crypto keyword is present.
     """
+    if _is_non_crypto_anti_match(question):
+        return False
+
     q_lower = question.lower()
     q_words = set(q_lower.split())
 
@@ -482,6 +506,14 @@ async def categorize_market(market: dict[str, Any], llm: LLMClient) -> str:
                     category, question[:80],
                 )
                 category = "other"
+
+            # Veto crypto classification for obvious AI-product questions
+            if category == "crypto" and _is_non_crypto_anti_match(question):
+                logger.info(
+                    "Vetoing crypto classification for '%s' (matches non-crypto anti-phrase)",
+                    question[:80],
+                )
+                category = "other"
         except Exception as e:
             logger.error("Failed to categorize market '%s': %s", question[:80], e)
             category = "other"
@@ -566,6 +598,13 @@ async def batch_categorize_markets(
 
         # Assign categories and cache
         for m, category in zip(batch, categories):
+            # Veto crypto classification for obvious non-crypto AI questions
+            if category == "crypto" and _is_non_crypto_anti_match(m.get("question", "")):
+                logger.info(
+                    "Vetoing crypto classification for '%s' (anti-phrase match)",
+                    m.get("question", "")[:80],
+                )
+                category = "other"
             m["_category"] = category
             condition_id = m.get("condition_id", "")
             if condition_id:
