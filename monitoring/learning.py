@@ -669,12 +669,21 @@ def compute_parameter_recommendations(
     Actual parameter changes require human review or explicit auto-apply.
     """
     from config.settings import (
-        KELLY_FRACTION,
-        MIN_EDGE_THRESHOLD,
-        MIN_CONFIDENCE_BLEND,
-        TAKE_PROFIT_PCT,
-        STOP_LOSS_PCT,
+        KELLY_FRACTION as _DEF_KELLY_FRACTION,
+        MIN_EDGE_THRESHOLD as _DEF_MIN_EDGE_THRESHOLD,
+        MIN_CONFIDENCE_BLEND as _DEF_MIN_CONFIDENCE_BLEND,
+        TAKE_PROFIT_PCT as _DEF_TAKE_PROFIT_PCT,
+        STOP_LOSS_PCT as _DEF_STOP_LOSS_PCT,
+        get_effective_param,
     )
+
+    # Use the effective (override-aware) value as the "current" baseline so we
+    # don't recommend a value that's already been applied via an active override.
+    KELLY_FRACTION = get_effective_param("KELLY_FRACTION", _DEF_KELLY_FRACTION)
+    MIN_EDGE_THRESHOLD = get_effective_param("MIN_EDGE_THRESHOLD", _DEF_MIN_EDGE_THRESHOLD)
+    MIN_CONFIDENCE_BLEND = get_effective_param("MIN_CONFIDENCE_BLEND", _DEF_MIN_CONFIDENCE_BLEND)
+    TAKE_PROFIT_PCT = get_effective_param("TAKE_PROFIT_PCT", _DEF_TAKE_PROFIT_PCT)
+    STOP_LOSS_PCT = get_effective_param("STOP_LOSS_PCT", _DEF_STOP_LOSS_PCT)
 
     recs: list[ParameterRecommendation] = []
 
@@ -811,7 +820,21 @@ def compute_parameter_recommendations(
                     sample_count=skip_retro.resolved_skipped,
                 ))
 
-    return recs
+    # Drop no-op recommendations where recommended == current effective value
+    # (e.g. when an active override already sits at the recommended value).
+    filtered: list[ParameterRecommendation] = []
+    for rec in recs:
+        if rec.parameter.startswith("SKIP_FILTER:"):
+            filtered.append(rec)
+            continue
+        if abs(rec.recommended_value - rec.current_value) < 1e-6:
+            logger.debug(
+                "Skip no-op recommendation: %s already at %.4f (active override)",
+                rec.parameter, rec.current_value,
+            )
+            continue
+        filtered.append(rec)
+    return filtered
 
 
 # ---------------------------------------------------------------------------
