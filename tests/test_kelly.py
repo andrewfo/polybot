@@ -428,15 +428,14 @@ class TestGasAwareKelly:
         else:
             assert d.bet_size_usd >= 200.0
 
-    def test_skip_reason_surfaces_net_edge_diagnostics(self) -> None:
-        """Net-edge skip reason includes edge, gas_drag, net components."""
+    def test_net_edge_skip_uses_stable_reason(self) -> None:
+        """Net-edge skip records a stable category label (numeric details go to logs/DB columns)."""
         d = self._kelly_with_gas(
             estimated_prob=0.53, market_price=0.50, confidence=0.4,
             available_bankroll=300.0, gas_cost_usd=0.40,
         )
         if not d.should_trade and "net edge" in d.skip_reason:
-            assert "gas_drag" in d.skip_reason
-            assert "net=" in d.skip_reason
+            assert d.skip_reason == "net edge below threshold after gas"
 
     def test_min_bet_usd_floor_enforced(self) -> None:
         """Bets below MIN_BET_USD ($5) skip even at zero gas."""

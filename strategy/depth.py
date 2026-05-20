@@ -219,13 +219,20 @@ async def analyze_depth(
     adjusted_bet = bet_size_usd
 
     if total_depth_usd < MIN_DEPTH_USD:
-        skip_reason = f"insufficient depth (${total_depth_usd:.0f} < ${MIN_DEPTH_USD:.0f})"
+        logger.info(
+            "Depth skip: insufficient depth $%.0f < $%.0f",
+            total_depth_usd, MIN_DEPTH_USD,
+        )
+        skip_reason = "insufficient depth"
         adjusted_bet = 0.0
     elif slippage > MAX_ACCEPTABLE_SLIPPAGE:
         # Find the max bet that keeps slippage acceptable
         max_at_slippage = find_max_fillable_at_slippage(levels, MAX_ACCEPTABLE_SLIPPAGE)
         if max_at_slippage < 1.0:
-            skip_reason = f"slippage too high ({slippage:.1%}) even for minimum bet"
+            logger.info(
+                "Depth skip: slippage too high %.1f%% even for minimum bet", slippage * 100,
+            )
+            skip_reason = "slippage too high"
             adjusted_bet = 0.0
         else:
             adjusted_bet = min(bet_size_usd, max_at_slippage)

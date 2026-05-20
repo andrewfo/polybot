@@ -1578,7 +1578,7 @@ def create_app() -> FastAPI:
             top_missed_reasons: dict[str, int] = {}
             for reason, info in report.by_skip_reason.items():
                 if isinstance(info, dict):
-                    top_missed_reasons[reason] = info.get("would_have_profited", info.get("count", 0))
+                    top_missed_reasons[reason] = info.get("profited", 0)
                 else:
                     top_missed_reasons[reason] = int(info)
 

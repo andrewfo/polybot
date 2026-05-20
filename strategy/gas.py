@@ -161,10 +161,11 @@ async def analyze_gas_cost(expected_value_usd: float) -> GasAnalysis:
     passes = ratio >= MIN_EV_GAS_RATIO
     skip_reason = ""
     if not passes:
-        skip_reason = (
-            f"EV ${expected_value_usd:.3f} < {MIN_EV_GAS_RATIO:.1f}× gas cost "
-            f"${gas_cost_usd:.3f} (gas={gas_gwei:.1f} gwei, MATIC=${matic_usd:.3f})"
+        logger.info(
+            "Gas skip: EV $%.3f < %.1fx gas cost $%.3f (gas=%.1f gwei, MATIC=$%.3f)",
+            expected_value_usd, MIN_EV_GAS_RATIO, gas_cost_usd, gas_gwei, matic_usd,
         )
+        skip_reason = "EV below required gas cost ratio"
 
     return GasAnalysis(
         gas_price_gwei=gas_gwei,

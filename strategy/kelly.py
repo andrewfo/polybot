@@ -141,7 +141,7 @@ def calculate_kelly(
         return _skip(
             market_id, token_id, market_question, side,
             estimated_prob, effective_prob, market_price, edge, confidence,
-            reason=f"lottery ticket (market_price={market_price:.3f}, too extreme)",
+            reason="lottery ticket (market price too extreme)",
         )
 
     # --- Safety check 1: edge below threshold ---
@@ -175,13 +175,15 @@ def calculate_kelly(
     )
     effective_floor = max(MIN_BET_USD, gas_adaptive_floor)
     if bet_size < effective_floor:
+        logger.info(
+            "Skip: bet too small (below floor) bet=$%.2f floor=$%.2f "
+            "MIN_BET_USD=$%.2f gas_floor=$%.2f",
+            bet_size, effective_floor, MIN_BET_USD, gas_adaptive_floor,
+        )
         return _skip(
             market_id, token_id, market_question, side,
             estimated_prob, effective_prob, market_price, edge, confidence,
-            reason=(
-                f"bet too small (${bet_size:.2f} < floor ${effective_floor:.2f}; "
-                f"MIN_BET_USD=${MIN_BET_USD:.2f}, gas_floor=${gas_adaptive_floor:.2f})"
-            ),
+            reason="bet too small (below floor)",
             full_kelly_f=full_kelly_f,
         )
 
@@ -203,7 +205,7 @@ def calculate_kelly(
             return _skip(
                 market_id, token_id, market_question, side,
                 estimated_prob, effective_prob, market_price, edge, confidence,
-                reason=f"bet too small after reserve (${bet_size:.2f} < floor ${effective_floor:.2f})",
+                reason="bet too small after reserve",
                 full_kelly_f=full_kelly_f,
             )
         logger.info(
@@ -232,7 +234,7 @@ def calculate_kelly(
                 return _skip(
                     market_id, token_id, market_question, side,
                     estimated_prob, effective_prob, market_price, edge, confidence,
-                    reason=f"bet too small after existing exposure (${bet_size:.2f} < floor ${effective_floor:.2f})",
+                    reason="bet too small after existing exposure",
                     full_kelly_f=full_kelly_f,
                 )
 
@@ -242,14 +244,15 @@ def calculate_kelly(
     gas_drag_pct = gas_cost_usd / bet_size if bet_size > 0 else 0.0
     net_edge = edge - gas_drag_pct
     if net_edge < eff_min_edge:
+        logger.info(
+            "Skip: net edge below threshold after gas | edge=%.3f gas_drag=%.3f "
+            "net=%.3f min=%.3f gas=$%.3f bet=$%.2f",
+            edge, gas_drag_pct, net_edge, eff_min_edge, gas_cost_usd, bet_size,
+        )
         return _skip(
             market_id, token_id, market_question, side,
             estimated_prob, effective_prob, market_price, edge, confidence,
-            reason=(
-                f"net edge below threshold after gas "
-                f"(edge={edge:.3f}, gas_drag={gas_drag_pct:.3f}, net={net_edge:.3f}, "
-                f"min={eff_min_edge:.3f}, gas=${gas_cost_usd:.3f}, bet=${bet_size:.2f})"
-            ),
+            reason="net edge below threshold after gas",
             full_kelly_f=full_kelly_f,
         )
 

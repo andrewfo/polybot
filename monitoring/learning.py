@@ -295,7 +295,12 @@ def analyze_skipped_markets() -> SkipRetroReport:
         for row in rows:
             reason = row[1] or "unknown"
             mkt_price = float(row[2]) if row[2] else 0.5
-            est_prob = float(row[3]) if row[3] else 0.5
+            # Distinguish "no estimate produced" (None) from a real 0.5 estimate.
+            # Skips that fire before the frontier (e.g. "no usable signals") have
+            # est_prob = None — counting them as 0.5 makes them silently always
+            # appear neither correct nor profitable.
+            has_estimate = row[3] is not None
+            est_prob = float(row[3]) if has_estimate else 0.5
             outcome = row[5]
             ts_str = row[6]
 
@@ -316,6 +321,7 @@ def analyze_skipped_markets() -> SkipRetroReport:
                     "total": 0, "resolved": 0, "correct": 0,
                     "profited": 0, "missed_edge_sum": 0.0,
                     "weighted_total": 0.0, "weighted_profited": 0.0,
+                    "unevaluable": 0,
                 }
             reason_stats[reason]["total"] += 1
             reason_stats[reason]["weighted_total"] += weight
@@ -324,6 +330,11 @@ def analyze_skipped_markets() -> SkipRetroReport:
                 actual = float(outcome)
                 report.resolved_skipped += 1
                 reason_stats[reason]["resolved"] += 1
+
+                # Pre-frontier skips have no estimate to evaluate against.
+                if not has_estimate:
+                    reason_stats[reason]["unevaluable"] += 1
+                    continue
 
                 # Would our estimate have been on the correct side?
                 est_side_correct = (est_prob > 0.5 and actual == 1.0) or (est_prob < 0.5 and actual == 0.0)
