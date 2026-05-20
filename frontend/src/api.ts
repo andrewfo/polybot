@@ -171,6 +171,8 @@ export interface PnlResponse {
   daily_llm_cost: number
   daily_net_pnl: number
   total_pnl: number
+  total_llm_cost: number
+  total_net_pnl: number
   trade_count: number
   win_rate: number
 }
@@ -178,6 +180,8 @@ export interface PnlResponse {
 export interface PaperBalance {
   starting_balance: number
   realized_pnl: number
+  realized_pnl_gross: number
+  llm_costs_total: number
   deployed_capital: number
   unrealized_pnl: number
   available_cash: number

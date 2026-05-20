@@ -671,18 +671,20 @@ def get_total_pnl() -> float:
 
 
 def get_paper_balance(starting_bankroll: float) -> dict[str, float]:
-    """Compute paper trading balance breakdown.
+    """Compute paper trading balance breakdown, net of LLM operating costs.
 
-    Returns dict with starting_balance, realized_pnl, deployed_capital,
-    unrealized_pnl, available_cash, total_value.
+    Returns dict with starting_balance, realized_pnl (net), realized_pnl_gross,
+    llm_costs_total, deployed_capital, unrealized_pnl, available_cash,
+    total_value, open_positions.
 
-    Realized PnL is summed from ``trades.pnl`` (populated by
-    ``close_position()``). Reading from positions undercounts because
-    ``upsert_position`` clears ``realized_pnl`` when a token is re-entered.
+    LLM costs are real spend and reduce the paper bankroll just like trading
+    losses do — otherwise the balance overstates profitability.
     """
     db = get_db()
 
-    realized_pnl = get_total_pnl()
+    realized_pnl_gross = get_total_pnl()
+    llm_costs_total = get_total_llm_cost()
+    realized_pnl = realized_pnl_gross - llm_costs_total
 
     positions = get_open_positions()
     deployed_capital = sum(p["size"] * p["avg_entry"] for p in positions)
@@ -692,6 +694,8 @@ def get_paper_balance(starting_bankroll: float) -> dict[str, float]:
     return {
         "starting_balance": starting_bankroll,
         "realized_pnl": realized_pnl,
+        "realized_pnl_gross": realized_pnl_gross,
+        "llm_costs_total": llm_costs_total,
         "deployed_capital": deployed_capital,
         "unrealized_pnl": unrealized_pnl,
         "available_cash": available_cash,
@@ -742,6 +746,15 @@ def get_monthly_llm_cost() -> float:
     rows = list(db.execute(
         "SELECT COALESCE(SUM(cost_usd), 0) as total FROM llm_costs WHERE timestamp LIKE ?",
         [f"{month}%"],
+    ).fetchall())
+    return float(rows[0][0]) if rows else 0.0
+
+
+def get_total_llm_cost() -> float:
+    """Return total all-time LLM spend (USD)."""
+    db = get_db()
+    rows = list(db.execute(
+        "SELECT COALESCE(SUM(cost_usd), 0) as total FROM llm_costs"
     ).fetchall())
     return float(rows[0][0]) if rows else 0.0
 

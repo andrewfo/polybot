@@ -1295,6 +1295,7 @@ def create_app() -> FastAPI:
                 get_daily_llm_cost,
                 get_daily_pnl,
                 get_db,
+                get_total_llm_cost,
                 get_total_pnl,
             )
             db = get_db()
@@ -1302,6 +1303,8 @@ def create_app() -> FastAPI:
             total = get_total_pnl()
             daily_llm_cost = get_daily_llm_cost()
             daily_net = daily - daily_llm_cost
+            total_llm_cost = get_total_llm_cost()
+            total_net = total - total_llm_cost
 
             # Bankroll snapshots for the chart
             snapshots: list[dict[str, Any]] = []
@@ -1344,6 +1347,8 @@ def create_app() -> FastAPI:
                 "daily_llm_cost": daily_llm_cost,
                 "daily_net_pnl": daily_net,
                 "total_pnl": total,
+                "total_llm_cost": total_llm_cost,
+                "total_net_pnl": total_net,
                 "trade_count": trade_count,
                 "win_rate": win_rate,
             }

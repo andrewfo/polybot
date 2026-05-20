@@ -524,7 +524,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <StatValue
                 value={`$${paperBal.total_value.toFixed(2)}`}
-                label="Total Value"
+                label={`Total Value (net of $${(paperBal.llm_costs_total ?? 0).toFixed(4)} LLM)`}
                 color={paperBal.total_value >= paperBal.starting_balance ? colors.success : colors.danger}
                 size="lg"
               />
@@ -605,15 +605,15 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
             <Card title="Today's P&L" accent={dailyNet >= 0 ? colors.success : colors.danger} index={2}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <StatValue
-                  value={`${dailyPnl >= 0 ? '+' : ''}$${dailyPnl.toFixed(2)}`}
-                  label="Realized (UTC)"
-                  color={dailyPnl >= 0 ? colors.success : colors.danger}
-                  size="lg"
-                />
-                <StatValue
                   value={`${dailyNet >= 0 ? '+' : ''}$${dailyNet.toFixed(2)}`}
                   label={`Net of LLM Costs ($${dailyLlmCost.toFixed(4)})`}
                   color={dailyNet >= 0 ? colors.success : colors.danger}
+                  size="lg"
+                />
+                <StatValue
+                  value={`${dailyPnl >= 0 ? '+' : ''}$${dailyPnl.toFixed(2)}`}
+                  label="Gross Realized (UTC)"
+                  color={dailyPnl >= 0 ? colors.success : colors.danger}
                   size="sm"
                 />
                 <div style={{ display: 'flex', gap: 16 }}>
@@ -635,26 +635,24 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
         })()}
 
         {/* Performance */}
-        <Card title="Performance" accent={colors.purple} index={3}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <StatValue
-              value={`${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`}
-              label="Total P&L"
-              color={totalPnl >= 0 ? colors.success : colors.danger}
-              size="lg"
-            />
-            {(() => {
-              const llmTotal = costData?.total_cost ?? 0
-              const net = totalPnl - llmTotal
-              return (
+        {(() => {
+          const llmTotal = pnlData?.total_llm_cost ?? costData?.total_cost ?? 0
+          const netTotal = pnlData?.total_net_pnl ?? (totalPnl - llmTotal)
+          return (
+            <Card title="Performance" accent={colors.purple} index={3}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <StatValue
-                  value={`${net >= 0 ? '+' : ''}$${net.toFixed(2)}`}
+                  value={`${netTotal >= 0 ? '+' : ''}$${netTotal.toFixed(2)}`}
                   label={`Net of LLM Costs ($${llmTotal.toFixed(4)})`}
-                  color={net >= 0 ? colors.success : colors.danger}
+                  color={netTotal >= 0 ? colors.success : colors.danger}
+                  size="lg"
+                />
+                <StatValue
+                  value={`${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`}
+                  label="Gross Total P&L"
+                  color={totalPnl >= 0 ? colors.success : colors.danger}
                   size="sm"
                 />
-              )
-            })()}
             <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
               {(() => {
                 const wr = pnlData?.win_rate ?? 0
@@ -699,6 +697,8 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
             </div>
           </div>
         </Card>
+          )
+        })()}
       </div>
 
       {/* Row 2: Cycle Timers + Session Stats */}
