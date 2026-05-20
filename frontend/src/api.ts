@@ -168,6 +168,8 @@ export interface PnlSnapshot {
 export interface PnlResponse {
   snapshots: PnlSnapshot[]
   daily_pnl: number
+  daily_llm_cost: number
+  daily_net_pnl: number
   total_pnl: number
   trade_count: number
   win_rate: number

@@ -567,29 +567,41 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
         </Card>
 
         {/* Daily P&L */}
-        <Card title="Today's P&L" accent={dailyPnl >= 0 ? colors.success : colors.danger} index={2}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <StatValue
-              value={`${dailyPnl >= 0 ? '+' : ''}$${dailyPnl.toFixed(2)}`}
-              label="Realized"
-              color={dailyPnl >= 0 ? colors.success : colors.danger}
-              size="lg"
-            />
-            <div style={{ display: 'flex', gap: 16 }}>
-              <StatValue
-                value={`${unrealizedPnl >= 0 ? '+' : ''}$${unrealizedPnl.toFixed(2)}`}
-                label="Unrealized"
-                color={unrealizedPnl >= 0 ? colors.success : colors.danger}
-                size="sm"
-              />
-              <StatValue
-                value={`${pnlData?.trade_count ?? 0}`}
-                label="Trades"
-                size="sm"
-              />
-            </div>
-          </div>
-        </Card>
+        {(() => {
+          const dailyLlmCost = pnlData?.daily_llm_cost ?? 0
+          const dailyNet = pnlData?.daily_net_pnl ?? (dailyPnl - dailyLlmCost)
+          return (
+            <Card title="Today's P&L" accent={dailyNet >= 0 ? colors.success : colors.danger} index={2}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <StatValue
+                  value={`${dailyPnl >= 0 ? '+' : ''}$${dailyPnl.toFixed(2)}`}
+                  label="Realized (UTC)"
+                  color={dailyPnl >= 0 ? colors.success : colors.danger}
+                  size="lg"
+                />
+                <StatValue
+                  value={`${dailyNet >= 0 ? '+' : ''}$${dailyNet.toFixed(2)}`}
+                  label={`Net of LLM Costs ($${dailyLlmCost.toFixed(4)})`}
+                  color={dailyNet >= 0 ? colors.success : colors.danger}
+                  size="sm"
+                />
+                <div style={{ display: 'flex', gap: 16 }}>
+                  <StatValue
+                    value={`${unrealizedPnl >= 0 ? '+' : ''}$${unrealizedPnl.toFixed(2)}`}
+                    label="Unrealized"
+                    color={unrealizedPnl >= 0 ? colors.success : colors.danger}
+                    size="sm"
+                  />
+                  <StatValue
+                    value={`${pnlData?.trade_count ?? 0}`}
+                    label="Trades"
+                    size="sm"
+                  />
+                </div>
+              </div>
+            </Card>
+          )
+        })()}
 
         {/* Performance */}
         <Card title="Performance" accent={colors.purple} index={3}>

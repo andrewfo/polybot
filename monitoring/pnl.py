@@ -66,7 +66,8 @@ def get_weekly_pnl() -> dict[str, float]:
     database = db.get_db()
     cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
     rows = list(database.execute(
-        "SELECT COALESCE(SUM(pnl), 0) FROM trades WHERE pnl IS NOT NULL AND timestamp >= ?",
+        "SELECT COALESCE(SUM(pnl), 0) FROM trades "
+        "WHERE pnl IS NOT NULL AND COALESCE(closed_at, timestamp) >= ?",
         [cutoff],
     ).fetchall())
     realized = float(rows[0][0]) if rows else 0.0

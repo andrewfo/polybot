@@ -54,6 +54,7 @@ def ensure_tables() -> None:
             "order_id": str,
             "placed_at": str,
             "market_question": str,
+            "closed_at": str,
         }, pk="id", if_not_exists=True)
         logger.info("Created trades table")
 
@@ -68,6 +69,9 @@ def ensure_tables() -> None:
         if "market_question" not in columns:
             db.execute("ALTER TABLE trades ADD COLUMN market_question TEXT")
             logger.info("Added market_question column to trades table")
+        if "closed_at" not in columns:
+            db.execute("ALTER TABLE trades ADD COLUMN closed_at TEXT")
+            logger.info("Added closed_at column to trades table")
 
     if "positions" not in db.table_names():
         db["positions"].create({
@@ -549,7 +553,10 @@ def close_position(
             [token_id],
         ).fetchall()
         if trade_rows:
-            db["trades"].update(trade_rows[0][0], {"pnl": realized_pnl})
+            db["trades"].update(trade_rows[0][0], {
+                "pnl": realized_pnl,
+                "closed_at": now,
+            })
     except Exception:
         pass
 
@@ -632,12 +639,17 @@ def snapshot_bankroll(
 
 
 def get_daily_pnl() -> float:
-    """Return realized P&L for today (UTC)."""
+    """Return realized P&L for trades closed today (UTC).
+
+    Uses ``closed_at`` so trades opened on a prior day but closed today are
+    correctly attributed to today. Falls back to the trade's entry
+    ``timestamp`` for legacy rows that pre-date the ``closed_at`` column.
+    """
     db = get_db()
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     rows = list(db.execute(
         "SELECT COALESCE(SUM(pnl), 0) as total FROM trades "
-        "WHERE pnl IS NOT NULL AND timestamp LIKE ?",
+        "WHERE pnl IS NOT NULL AND COALESCE(closed_at, timestamp) LIKE ?",
         [f"{today}%"],
     ).fetchall())
     return float(rows[0][0]) if rows else 0.0
