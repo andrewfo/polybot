@@ -79,12 +79,18 @@ DEPTH_ANALYSIS_ENABLED = os.getenv("DEPTH_ANALYSIS_ENABLED", "true").lower() == 
 # --- Gas Cost Analysis ---
 # Round-trip gas budget (entry + exit) for a single trade cycle on Polygon
 GAS_UNITS_PER_TRADE_CYCLE = int(os.getenv("GAS_UNITS_PER_TRADE_CYCLE", "500000"))
-# Expected value must clear this multiple of round-trip gas cost
-MIN_EV_GAS_RATIO = float(os.getenv("MIN_EV_GAS_RATIO", "3.0"))
+# Expected value must clear this multiple of round-trip gas cost.
+# Kelly now subtracts gas from the edge directly, so this is a belt-and-suspenders
+# sanity check for cases where depth adjustment shrinks the bet after Kelly.
+MIN_EV_GAS_RATIO = float(os.getenv("MIN_EV_GAS_RATIO", "1.5"))
 # Fallbacks used when live fetches fail
 GAS_PRICE_FALLBACK_GWEI = float(os.getenv("GAS_PRICE_FALLBACK_GWEI", "50.0"))
 MATIC_USD_FALLBACK = float(os.getenv("MATIC_USD_FALLBACK", "0.50"))
 GAS_ANALYSIS_ENABLED = os.getenv("GAS_ANALYSIS_ENABLED", "true").lower() == "true"
+# Minimum bet in USD — bets below this are skipped regardless of Kelly output
+MIN_BET_USD = float(os.getenv("MIN_BET_USD", "5.0"))
+# Gas may consume at most this fraction of a bet; floor rises when gas spikes
+MAX_GAS_DRAG_PCT = float(os.getenv("MAX_GAS_DRAG_PCT", "0.01"))
 
 # --- Aggregation ---
 USE_LOG_ODDS_AVERAGING = os.getenv("USE_LOG_ODDS_AVERAGING", "true").lower() == "true"

@@ -707,6 +707,17 @@ class BotEngine:
         # Normalize so compute_limit_price() and executor can find token IDs
         m["clobTokenIds"] = token_ids
 
+        # Pre-fetch round-trip gas cost so Kelly can subtract it from the edge.
+        # The estimate is cached for 5 minutes inside strategy.gas, so this is
+        # effectively a single network round-trip per aggregation batch.
+        gas_cost_for_kelly = 0.0
+        if GAS_ANALYSIS_ENABLED:
+            try:
+                from strategy.gas import estimate_round_trip_gas_cost_usd
+                gas_cost_for_kelly, _gwei, _matic = await estimate_round_trip_gas_cost_usd()
+            except Exception as e:
+                logger.debug("Gas cost pre-fetch failed for %s: %s", cid, e)
+
         decision = calculate_kelly(
             market_id=cid,
             token_id=token_id,
@@ -715,6 +726,7 @@ class BotEngine:
             market_price=market_price,
             confidence=result.confidence,
             available_bankroll=bankroll,
+            gas_cost_usd=gas_cost_for_kelly,
         )
 
         # Depth analysis (always run for UI visibility, adjust trade if needed)
@@ -1264,10 +1276,17 @@ def create_app() -> FastAPI:
     @app.get("/api/pnl")
     async def pnl():
         try:
-            from core.db import get_db, get_daily_pnl, get_total_pnl
+            from core.db import (
+                get_daily_llm_cost,
+                get_daily_pnl,
+                get_db,
+                get_total_pnl,
+            )
             db = get_db()
             daily = get_daily_pnl()
             total = get_total_pnl()
+            daily_llm_cost = get_daily_llm_cost()
+            daily_net = daily - daily_llm_cost
 
             # Bankroll snapshots for the chart
             snapshots: list[dict[str, Any]] = []
@@ -1306,6 +1325,8 @@ def create_app() -> FastAPI:
             return {
                 "snapshots": snapshots,
                 "daily_pnl": daily,
+                "daily_llm_cost": daily_llm_cost,
+                "daily_net_pnl": daily_net,
                 "total_pnl": total,
                 "trade_count": trade_count,
                 "win_rate": win_rate,

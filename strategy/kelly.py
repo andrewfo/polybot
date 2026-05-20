@@ -10,8 +10,10 @@ from dataclasses import dataclass
 
 from config.settings import (
     KELLY_FRACTION,
+    MAX_GAS_DRAG_PCT,
     MAX_POSITION_PCT,
     MIN_BANKROLL_RESERVE,
+    MIN_BET_USD,
     MIN_CONFIDENCE_BLEND,
     MIN_EDGE_THRESHOLD,
     POLYMARKET_FEE_RATE,
@@ -72,6 +74,7 @@ def calculate_kelly(
     market_price: float,
     confidence: float,
     available_bankroll: float,
+    gas_cost_usd: float = 0.0,
 ) -> TradeDecision:
     """Calculate Kelly-optimal bet size with safety checks.
 
@@ -164,12 +167,21 @@ def calculate_kelly(
     adjusted_f = full_kelly_f * eff_kelly_fraction
     bet_size = available_bankroll * adjusted_f
 
-    # --- Safety check 3: bet too small ---
-    if bet_size < 1.0:
+    # --- Safety check 3: bet below configured minimum or gas-adaptive floor ---
+    # Floor adapts to gas conditions: at high gas, a bigger bet is needed for
+    # gas to consume <= MAX_GAS_DRAG_PCT of the notional.
+    gas_adaptive_floor = (
+        gas_cost_usd / MAX_GAS_DRAG_PCT if gas_cost_usd > 0 and MAX_GAS_DRAG_PCT > 0 else 0.0
+    )
+    effective_floor = max(MIN_BET_USD, gas_adaptive_floor)
+    if bet_size < effective_floor:
         return _skip(
             market_id, token_id, market_question, side,
             estimated_prob, effective_prob, market_price, edge, confidence,
-            reason="bet too small (< $1)",
+            reason=(
+                f"bet too small (${bet_size:.2f} < floor ${effective_floor:.2f}; "
+                f"MIN_BET_USD=${MIN_BET_USD:.2f}, gas_floor=${gas_adaptive_floor:.2f})"
+            ),
             full_kelly_f=full_kelly_f,
         )
 
@@ -187,11 +199,11 @@ def calculate_kelly(
     effective_reserve = max(MIN_BANKROLL_RESERVE, available_bankroll * 0.05)
     if available_bankroll - bet_size < effective_reserve:
         bet_size = available_bankroll - effective_reserve
-        if bet_size < 1.0:
+        if bet_size < effective_floor:
             return _skip(
                 market_id, token_id, market_question, side,
                 estimated_prob, effective_prob, market_price, edge, confidence,
-                reason="bet too small after reserve (< $1)",
+                reason=f"bet too small after reserve (${bet_size:.2f} < floor ${effective_floor:.2f})",
                 full_kelly_f=full_kelly_f,
             )
         logger.info(
@@ -216,15 +228,32 @@ def calculate_kelly(
                 bet_size, remaining_room, existing_exposure,
             )
             bet_size = remaining_room
-            if bet_size < 1.0:
+            if bet_size < effective_floor:
                 return _skip(
                     market_id, token_id, market_question, side,
                     estimated_prob, effective_prob, market_price, edge, confidence,
-                    reason="bet too small after existing exposure (< $1)",
+                    reason=f"bet too small after existing exposure (${bet_size:.2f} < floor ${effective_floor:.2f})",
                     full_kelly_f=full_kelly_f,
                 )
 
-    expected_value = edge * bet_size
+    # --- Safety check 7: edge survives gas drag ---
+    # Subtract per-unit gas drag from edge; bet only if the net edge still
+    # clears the threshold. This makes gas a true cost, not a post-hoc gate.
+    gas_drag_pct = gas_cost_usd / bet_size if bet_size > 0 else 0.0
+    net_edge = edge - gas_drag_pct
+    if net_edge < eff_min_edge:
+        return _skip(
+            market_id, token_id, market_question, side,
+            estimated_prob, effective_prob, market_price, edge, confidence,
+            reason=(
+                f"net edge below threshold after gas "
+                f"(edge={edge:.3f}, gas_drag={gas_drag_pct:.3f}, net={net_edge:.3f}, "
+                f"min={eff_min_edge:.3f}, gas=${gas_cost_usd:.3f}, bet=${bet_size:.2f})"
+            ),
+            full_kelly_f=full_kelly_f,
+        )
+
+    expected_value = net_edge * bet_size
 
     decision = TradeDecision(
         market_id=market_id,
@@ -242,6 +271,7 @@ def calculate_kelly(
         confidence=confidence,
         should_trade=True,
         skip_reason="",
+        gas_cost_usd=gas_cost_usd,
     )
 
     logger.info(

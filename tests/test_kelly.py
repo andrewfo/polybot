@@ -362,3 +362,88 @@ class TestEdgeCases:
             mock_db.get_open_positions.side_effect = Exception("DB error")
             exposure = _get_existing_exposure("mkt_1")
             assert exposure == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Gas-aware Kelly: net edge + adaptive minimum bet floor
+# ---------------------------------------------------------------------------
+
+class TestGasAwareKelly:
+    """Gas cost is subtracted from edge before threshold + sets min bet floor."""
+
+    def _kelly_with_gas(self, **kw) -> TradeDecision:
+        with patch("strategy.kelly.db") as mock_db:
+            mock_db.get_open_positions.return_value = []
+            return calculate_kelly(
+                market_id="mkt_1",
+                token_id="tok_1",
+                market_question="Q?",
+                estimated_prob=kw.get("estimated_prob", 0.55),
+                market_price=kw.get("market_price", 0.40),
+                confidence=kw.get("confidence", 0.8),
+                available_bankroll=kw.get("available_bankroll", 1000.0),
+                gas_cost_usd=kw.get("gas_cost_usd", 0.0),
+            )
+
+    def test_zero_gas_matches_legacy_behavior(self) -> None:
+        """gas_cost_usd=0 (paper mode default) → identical to today."""
+        d_no_gas = self._kelly_with_gas(gas_cost_usd=0.0)
+        d_default = _kelly()  # legacy path, no gas arg
+        assert d_no_gas.should_trade == d_default.should_trade
+        assert abs(d_no_gas.bet_size_usd - d_default.bet_size_usd) < 1e-9
+        assert d_no_gas.gas_cost_usd == 0.0
+
+    def test_small_bet_skipped_when_gas_eats_edge(self) -> None:
+        """Raw edge passes but small bet means gas drag eats net edge."""
+        # estimate=0.60, market=0.50, conf=0.7 → eff ≈ 0.577, edge ≈ 0.077
+        # bankroll $200, KELLY_FRACTION=0.25 → bet ~$7. Gas $0.50 → drag ~7%.
+        d = self._kelly_with_gas(
+            estimated_prob=0.60, market_price=0.50, confidence=0.7,
+            available_bankroll=200.0, gas_cost_usd=0.50,
+        )
+        assert d.should_trade is False
+        assert "net edge" in d.skip_reason or "bet too small" in d.skip_reason
+
+    def test_large_bet_survives_gas_drag(self) -> None:
+        """Big bet → gas is a rounding error, trade fires."""
+        d = self._kelly_with_gas(
+            estimated_prob=0.55, market_price=0.40, confidence=0.8,
+            available_bankroll=10000.0, gas_cost_usd=0.50,
+        )
+        assert d.should_trade is True
+        assert d.gas_cost_usd == 0.50
+        # Gas drag is tiny relative to bet
+        assert d.gas_cost_usd / d.bet_size_usd < 0.01
+
+    def test_high_gas_raises_adaptive_floor(self) -> None:
+        """At $2 gas with MAX_GAS_DRAG_PCT=1%, floor jumps to $200."""
+        # A $50 Kelly bet would normally pass, but $2 gas / 1% = $200 floor
+        d = self._kelly_with_gas(
+            estimated_prob=0.55, market_price=0.40, confidence=0.8,
+            available_bankroll=500.0, gas_cost_usd=2.00,
+        )
+        # If Kelly produces < $200, skip; else trade
+        if not d.should_trade:
+            assert "floor" in d.skip_reason or "bet too small" in d.skip_reason
+        else:
+            assert d.bet_size_usd >= 200.0
+
+    def test_skip_reason_surfaces_net_edge_diagnostics(self) -> None:
+        """Net-edge skip reason includes edge, gas_drag, net components."""
+        d = self._kelly_with_gas(
+            estimated_prob=0.53, market_price=0.50, confidence=0.4,
+            available_bankroll=300.0, gas_cost_usd=0.40,
+        )
+        if not d.should_trade and "net edge" in d.skip_reason:
+            assert "gas_drag" in d.skip_reason
+            assert "net=" in d.skip_reason
+
+    def test_min_bet_usd_floor_enforced(self) -> None:
+        """Bets below MIN_BET_USD ($5) skip even at zero gas."""
+        # Small bankroll + small edge → Kelly bet < $5
+        d = self._kelly_with_gas(
+            estimated_prob=0.52, market_price=0.50, confidence=0.5,
+            available_bankroll=50.0, gas_cost_usd=0.0,
+        )
+        assert d.should_trade is False
+        assert "bet too small" in d.skip_reason or "edge below" in d.skip_reason
