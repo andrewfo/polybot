@@ -15,7 +15,11 @@ from monitoring import pnl
 
 @pytest.fixture
 def seed_trades():
-    """Insert sample trades."""
+    """Insert sample trades and matching closed positions.
+
+    Closed positions mirror the trades so that core.db.get_total_pnl /
+    get_daily_pnl (which read from positions) see the same realized P&L.
+    """
     database = db.get_db()
     now = datetime.now(timezone.utc)
     trades = [
@@ -31,6 +35,30 @@ def seed_trades():
     ]
     for t in trades:
         database["trades"].insert(t)
+
+    # Matching closed positions. last_updated controls daily attribution.
+    closed = [
+        ("tok1", "m1", "BUY_YES", 0.50, 20.0, 5.0, now.isoformat()),
+        ("tok2", "m2", "BUY_NO", 0.40, 30.0, -3.0, now.isoformat()),
+        ("tok3", "m3", "BUY_YES", 0.60, 10.0, 8.0, (now - timedelta(days=10)).isoformat()),
+    ]
+    for token_id, market_id, side, avg_entry, size, rpnl, last_updated in closed:
+        database["positions"].insert({
+            "token_id": token_id,
+            "market_id": market_id,
+            "market_question": "q",
+            "side": side,
+            "avg_entry": avg_entry,
+            "size": size,
+            "current_price": avg_entry,
+            "unrealized_pnl": rpnl,
+            "opened_at": last_updated,
+            "last_updated": last_updated,
+            "paper": 1,
+            "status": "closed",
+            "exit_price": avg_entry,
+            "realized_pnl": rpnl,
+        })
     return trades
 
 

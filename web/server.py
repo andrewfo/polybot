@@ -1323,12 +1323,13 @@ def create_app() -> FastAPI:
             except Exception:
                 pass
 
-            # Win rate from closed trades
+            # Win rate from closed positions (authoritative for paper trades)
             trade_count = 0
             win_count = 0
             try:
                 rows = list(db.execute(
-                    "SELECT pnl FROM trades WHERE pnl IS NOT NULL"
+                    "SELECT realized_pnl FROM positions "
+                    "WHERE status = 'closed' AND realized_pnl IS NOT NULL"
                 ).fetchall())
                 trade_count = len(rows)
                 win_count = sum(1 for r in rows if r[0] > 0)

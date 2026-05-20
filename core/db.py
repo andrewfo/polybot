@@ -639,27 +639,33 @@ def snapshot_bankroll(
 
 
 def get_daily_pnl() -> float:
-    """Return realized P&L for trades closed today (UTC).
+    """Return realized P&L for positions closed today (UTC).
 
-    Uses ``closed_at`` so trades opened on a prior day but closed today are
-    correctly attributed to today. Falls back to the trade's entry
-    ``timestamp`` for legacy rows that pre-date the ``closed_at`` column.
+    Reads from ``positions.realized_pnl`` (authoritative for paper trades —
+    ``trades.pnl`` is not reliably populated). Uses ``last_updated`` as the
+    close timestamp since it is set by ``close_position()``.
     """
     db = get_db()
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     rows = list(db.execute(
-        "SELECT COALESCE(SUM(pnl), 0) as total FROM trades "
-        "WHERE pnl IS NOT NULL AND COALESCE(closed_at, timestamp) LIKE ?",
+        "SELECT COALESCE(SUM(realized_pnl), 0) as total FROM positions "
+        "WHERE status = 'closed' AND realized_pnl IS NOT NULL "
+        "AND last_updated LIKE ?",
         [f"{today}%"],
     ).fetchall())
     return float(rows[0][0]) if rows else 0.0
 
 
 def get_total_pnl() -> float:
-    """Return total realized P&L across all time."""
+    """Return total realized P&L across all time.
+
+    Reads from ``positions.realized_pnl`` (authoritative for paper trades) so
+    the Performance card agrees with ``get_paper_balance()``.
+    """
     db = get_db()
     rows = list(db.execute(
-        "SELECT COALESCE(SUM(pnl), 0) as total FROM trades WHERE pnl IS NOT NULL"
+        "SELECT COALESCE(SUM(realized_pnl), 0) as total FROM positions "
+        "WHERE status = 'closed' AND realized_pnl IS NOT NULL"
     ).fetchall())
     return float(rows[0][0]) if rows else 0.0
 

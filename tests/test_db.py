@@ -135,17 +135,17 @@ class TestBankrollHelpers:
         assert rows[0]["total_value"] == 1000.0
 
     def test_get_daily_pnl(self) -> None:
-        from core.db import record_trade, update_trade_status, get_daily_pnl
-        record_trade("t1", "m1", "tok1", "BUY", 0.50, 10.0)
-        update_trade_status("t1", "FILLED", fill_price=0.50, pnl=5.0)
-        record_trade("t2", "m1", "tok1", "BUY", 0.60, 5.0)
-        update_trade_status("t2", "FILLED", fill_price=0.60, pnl=-2.0)
+        from core.db import upsert_position, close_position, get_daily_pnl
+        upsert_position("tok1", "m1", "q", "BUY_YES", 0.50, 10.0, 0.50, paper=True)
+        close_position("tok1", exit_price=1.0, realized_pnl=5.0)
+        upsert_position("tok2", "m1", "q", "BUY_YES", 0.60, 5.0, 0.60, paper=True)
+        close_position("tok2", exit_price=0.20, realized_pnl=-2.0)
         assert get_daily_pnl() == pytest.approx(3.0)
 
     def test_get_total_pnl(self) -> None:
-        from core.db import record_trade, update_trade_status, get_total_pnl
-        record_trade("t1", "m1", "tok1", "BUY", 0.50, 10.0)
-        update_trade_status("t1", "FILLED", fill_price=0.50, pnl=5.0)
+        from core.db import upsert_position, close_position, get_total_pnl
+        upsert_position("tok1", "m1", "q", "BUY_YES", 0.50, 10.0, 0.50, paper=True)
+        close_position("tok1", exit_price=1.0, realized_pnl=5.0)
         assert get_total_pnl() == pytest.approx(5.0)
 
 
