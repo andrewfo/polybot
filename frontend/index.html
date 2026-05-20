@@ -41,21 +41,24 @@
       }
 
       /* ---- Liquid aurora background ---- */
-      /* Layer 1: slow-flowing colored aurora blobs (mix-blend-mode for color bleed) */
+      /* Base void layer so transparent app root still has dark surface */
+      html { background: var(--bg-void); }
+
+      /* Layer 1: slow-flowing colored aurora blobs */
       body::before {
         content: '';
         position: fixed;
-        inset: 0;
-        z-index: 0;
+        inset: -10%;
+        z-index: -2;
         pointer-events: none;
         background:
-          radial-gradient(60vmax 50vmax at 12% 8%,  rgba(0, 229, 255, 0.22) 0%, transparent 55%),
-          radial-gradient(55vmax 45vmax at 88% 18%, rgba(0, 112, 255, 0.20) 0%, transparent 55%),
-          radial-gradient(50vmax 45vmax at 78% 92%, rgba(139, 92, 246, 0.18) 0%, transparent 55%),
-          radial-gradient(45vmax 40vmax at 18% 86%, rgba(0, 255, 170, 0.10) 0%, transparent 55%),
-          radial-gradient(40vmax 35vmax at 50% 50%, rgba(255, 51, 130, 0.06) 0%, transparent 60%);
-        filter: blur(40px) saturate(160%);
-        animation: auroraDrift 28s ease-in-out infinite alternate;
+          radial-gradient(60vmax 50vmax at 12% 8%,  rgba(0, 229, 255, 0.55) 0%, transparent 55%),
+          radial-gradient(55vmax 45vmax at 88% 18%, rgba(0, 112, 255, 0.50) 0%, transparent 55%),
+          radial-gradient(50vmax 45vmax at 78% 92%, rgba(139, 92, 246, 0.45) 0%, transparent 55%),
+          radial-gradient(45vmax 40vmax at 18% 86%, rgba(0, 255, 170, 0.28) 0%, transparent 55%),
+          radial-gradient(40vmax 35vmax at 50% 50%, rgba(255, 51, 130, 0.20) 0%, transparent 60%);
+        filter: blur(60px) saturate(180%);
+        animation: auroraDrift 24s ease-in-out infinite alternate;
         will-change: transform, filter;
       }
 
@@ -64,7 +67,7 @@
         content: '';
         position: fixed;
         inset: 0;
-        z-index: 0;
+        z-index: -1;
         pointer-events: none;
         background-image:
           linear-gradient(rgba(0, 229, 255, 0.025) 1px, transparent 1px),
@@ -207,6 +210,43 @@
       @keyframes borderRotate {
         0% { --angle: 0deg; }
         100% { --angle: 360deg; }
+      }
+
+      @keyframes twinkle {
+        0%, 100% { opacity: 0; transform: scale(0.6); }
+        50%      { opacity: 1; transform: scale(1.3); }
+      }
+
+      @keyframes tabSwoop {
+        from { opacity: 0; transform: translateY(20px) scale(0.985); filter: blur(8px); }
+        to   { opacity: 1; transform: translateY(0)    scale(1);     filter: blur(0); }
+      }
+
+      @keyframes floatY {
+        0%, 100% { transform: translateY(0); }
+        50%      { transform: translateY(-6px); }
+      }
+
+      @keyframes hueCycle {
+        0%   { filter: hue-rotate(0deg); }
+        100% { filter: hue-rotate(360deg); }
+      }
+
+      @keyframes gradientFlow {
+        0%, 100% { background-position: 0% 50%; }
+        50%      { background-position: 100% 50%; }
+      }
+
+      /* Card lift on hover */
+      .liquid-glass { transition: transform 0.35s cubic-bezier(0.2,0.8,0.2,1), box-shadow 0.35s ease, border-color 0.35s ease; }
+      .liquid-glass:hover {
+        transform: translateY(-3px);
+        border-color: rgba(0, 229, 255, 0.22);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.16),
+          inset 0 -1px 0 rgba(0, 0, 0, 0.35),
+          0 22px 60px rgba(0, 0, 0, 0.55),
+          0 0 30px rgba(0, 229, 255, 0.18);
       }
 
       @keyframes glitchSlice {

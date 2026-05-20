@@ -90,7 +90,7 @@ function AmbientBackground() {
     <div style={{
       position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
       pointerEvents: 'none', zIndex: 0, overflow: 'hidden',
-      filter: 'blur(8px)',
+      filter: 'blur(2px)',
     }}>
       {/* Cyan plasma — top-right */}
       <div style={{
@@ -129,9 +129,66 @@ function AmbientBackground() {
       {/* Void vignette so cards still pop */}
       <div style={{
         position: 'absolute', inset: 0,
-        background: 'radial-gradient(ellipse at center, transparent 0%, rgba(3,5,9,0.55) 90%)',
+        background: 'radial-gradient(ellipse at center, transparent 0%, rgba(3,5,9,0.40) 92%)',
       }} />
     </div>
+  )
+}
+
+/* Drifting starfield — tiny twinkling specks */
+function Starfield() {
+  const stars = Array.from({ length: 60 }, (_, i) => {
+    const seed = (i * 9301 + 49297) % 233280
+    const left = (seed / 233280) * 100
+    const top = ((seed * 7) % 233280) / 233280 * 100
+    const size = 1 + (i % 3)
+    const dur = 3 + (i % 7)
+    const delay = (i % 9) * 0.4
+    return (
+      <div key={i} style={{
+        position: 'absolute',
+        left: `${left}%`, top: `${top}%`,
+        width: size, height: size,
+        borderRadius: '50%',
+        background: i % 5 === 0 ? '#00e5ff' : '#e4eaf6',
+        boxShadow: i % 5 === 0 ? '0 0 6px #00e5ff' : '0 0 4px rgba(255,255,255,0.6)',
+        opacity: 0,
+        animation: `twinkle ${dur}s ease-in-out ${delay}s infinite`,
+      }} />
+    )
+  })
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, pointerEvents: 'none',
+      zIndex: 0, overflow: 'hidden',
+    }}>
+      {stars}
+    </div>
+  )
+}
+
+/* Cursor-following soft glow */
+function CursorGlow() {
+  const ref = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (ref.current) {
+        ref.current.style.transform = `translate(${e.clientX - 200}px, ${e.clientY - 200}px)`
+      }
+    }
+    window.addEventListener('mousemove', onMove)
+    return () => window.removeEventListener('mousemove', onMove)
+  }, [])
+  return (
+    <div ref={ref} style={{
+      position: 'fixed', top: 0, left: 0,
+      width: 400, height: 400, pointerEvents: 'none',
+      zIndex: 0,
+      background: 'radial-gradient(circle, rgba(0,229,255,0.10) 0%, rgba(0,229,255,0.04) 35%, transparent 70%)',
+      mixBlendMode: 'screen',
+      transition: 'transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1)',
+      willChange: 'transform',
+    }} />
   )
 }
 
@@ -172,12 +229,14 @@ export default function App() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: colors.bgVoid,
+      background: 'transparent',
       color: colors.textPrimary,
       fontFamily: fonts.body,
       position: 'relative',
     }}>
       <AmbientBackground />
+      <Starfield />
+      <CursorGlow />
 
       <div style={{ position: 'relative', zIndex: 1 }}>
         {/* Micro ticker bar */}
@@ -271,11 +330,11 @@ export default function App() {
 
         <TabBar active={activeTab} onChange={setActiveTab} />
 
-        <main style={{
+        <main key={activeTab} style={{
           padding: '20px 28px',
           maxWidth: 1440,
           margin: '0 auto',
-          animation: 'fadeInUp 0.3s ease forwards',
+          animation: 'tabSwoop 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) forwards',
         }}>
           {activeTab === 'dashboard' && <Dashboard wsBotStatus={wsBotStatus} wsDiscovery={lastDiscovery} wsBatchProgress={batchProgress} />}
           {activeTab === 'markets' && <Markets />}
