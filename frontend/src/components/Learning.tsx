@@ -176,6 +176,93 @@ function RecommendationRow({ rec, onRevert }: { rec: LearningRecommendation; onR
   )
 }
 
+function biasColorFor(bias: number): string {
+  const a = Math.abs(bias)
+  if (a < 0.05) return colors.success
+  if (a < 0.10) return colors.warning
+  return colors.danger
+}
+
+function ReliabilityDiagram({ buckets }: { buckets: CalibrationResponse['calibration_curve'] }) {
+  // Square plot; predicted (x) vs actual (y); diagonal = perfect calibration.
+  const W = 320, H = 320
+  const padL = 38, padR = 12, padT = 12, padB = 32
+  const innerW = W - padL - padR
+  const innerH = H - padT - padB
+  const x = (p: number) => padL + p * innerW
+  const y = (p: number) => padT + (1 - p) * innerH
+
+  const maxCount = Math.max(1, ...buckets.map(b => b.count))
+  const ticks = [0, 0.25, 0.5, 0.75, 1]
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block', maxWidth: 360, margin: '0 auto' }}>
+      {/* Plot frame */}
+      <rect x={padL} y={padT} width={innerW} height={innerH}
+        fill="rgba(0,0,0,0.25)" stroke={colors.border} strokeWidth={1} />
+
+      {/* Grid + ticks */}
+      {ticks.map(t => (
+        <g key={t}>
+          <line x1={x(t)} y1={padT} x2={x(t)} y2={padT + innerH}
+            stroke={colors.border} strokeWidth={0.5} />
+          <line x1={padL} y1={y(t)} x2={padL + innerW} y2={y(t)}
+            stroke={colors.border} strokeWidth={0.5} />
+          <text x={x(t)} y={H - padB + 14} textAnchor="middle"
+            fill={colors.textDim} fontSize={9} fontFamily={fonts.mono}>
+            {(t * 100).toFixed(0)}%
+          </text>
+          <text x={padL - 6} y={y(t) + 3} textAnchor="end"
+            fill={colors.textDim} fontSize={9} fontFamily={fonts.mono}>
+            {(t * 100).toFixed(0)}%
+          </text>
+        </g>
+      ))}
+
+      {/* Perfect-calibration diagonal */}
+      <line x1={x(0)} y1={y(0)} x2={x(1)} y2={y(1)}
+        stroke={colors.textMuted} strokeWidth={1} strokeDasharray="4 4" opacity={0.7} />
+
+      {/* Vertical gap lines + dots */}
+      {buckets.map(b => {
+        const cx = x(b.avg_estimated)
+        const cy = y(b.avg_actual)
+        const cyDiag = y(b.avg_estimated)
+        const r = 3 + 6 * Math.sqrt(b.count / maxCount)
+        const col = biasColorFor(b.bias)
+        return (
+          <g key={b.bucket}>
+            <line x1={cx} y1={cy} x2={cx} y2={cyDiag}
+              stroke={col} strokeWidth={1} opacity={0.45} />
+            <circle cx={cx} cy={cy} r={r}
+              fill={col} fillOpacity={0.35} stroke={col} strokeWidth={1.5}>
+              <title>{`${b.bucket}\npredicted ${(b.avg_estimated * 100).toFixed(1)}% → actual ${(b.avg_actual * 100).toFixed(1)}%\nbias ${b.bias > 0 ? '+' : ''}${(b.bias * 100).toFixed(1)}%, n=${b.count}`}</title>
+            </circle>
+          </g>
+        )
+      })}
+
+      {/* Connecting line through buckets in order */}
+      {buckets.length > 1 && (
+        <polyline
+          points={buckets.map(b => `${x(b.avg_estimated)},${y(b.avg_actual)}`).join(' ')}
+          fill="none" stroke={colors.accent} strokeWidth={1.2} opacity={0.5} />
+      )}
+
+      {/* Axis labels */}
+      <text x={padL + innerW / 2} y={H - 4} textAnchor="middle"
+        fill={colors.textMuted} fontSize={10} fontFamily={fonts.mono}>
+        Predicted probability
+      </text>
+      <text x={10} y={padT + innerH / 2} textAnchor="middle"
+        fill={colors.textMuted} fontSize={10} fontFamily={fonts.mono}
+        transform={`rotate(-90 10 ${padT + innerH / 2})`}>
+        Actual frequency
+      </text>
+    </svg>
+  )
+}
+
 function CalibrationChart({ data }: { data: CalibrationResponse }) {
   if (data.sample_count === 0) {
     return (
@@ -186,117 +273,144 @@ function CalibrationChart({ data }: { data: CalibrationResponse }) {
   }
 
   const buckets = data.calibration_curve || []
-  const maxCount = Math.max(1, ...buckets.map(b => b.count))
+  const biasPct = data.mean_bias * 100
+  const errPct = data.abs_mean_error * 100
+  const biasDirection = data.mean_bias > 0.005
+    ? 'overestimates YES'
+    : data.mean_bias < -0.005 ? 'underestimates YES' : 'unbiased'
+  const errVerdict = errPct < 10 ? 'good' : errPct < 20 ? 'fair' : 'poor'
 
   return (
     <div>
+      {/* Plain-language explainer */}
+      <div style={{
+        padding: '8px 10px', borderRadius: 6, marginBottom: 12,
+        background: 'rgba(0,0,0,0.2)', border: `1px solid ${colors.border}`,
+        fontSize: 10, color: colors.textSecondary, lineHeight: 1.45,
+      }}>
+        How close are the frontier's predicted probabilities to what actually happened?
+        Each dot is a probability bucket — perfectly calibrated dots land on the dashed
+        diagonal. Above = under-confident, below = over-confident. Dot size = sample count.
+      </div>
+
       {/* Summary stats */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
         {[
-          { value: `${data.mean_bias > 0 ? '+' : ''}${(data.mean_bias * 100).toFixed(1)}%`, label: 'Mean Bias', color: data.mean_bias > 0.05 ? colors.warning : colors.success },
-          { value: `${(data.abs_mean_error * 100).toFixed(1)}%`, label: 'Abs Error', color: colors.textPrimary },
-          { value: `${data.sample_count}`, label: 'Samples', color: colors.textPrimary },
-        ].map((stat, i) => (
+          {
+            value: `${biasPct > 0 ? '+' : ''}${biasPct.toFixed(1)}%`,
+            label: 'Mean Bias',
+            sub: biasDirection,
+            color: Math.abs(data.mean_bias) < 0.05 ? colors.success
+              : Math.abs(data.mean_bias) < 0.10 ? colors.warning : colors.danger,
+          },
+          {
+            value: `${errPct.toFixed(1)}%`,
+            label: 'Abs Error',
+            sub: `avg miss — ${errVerdict}`,
+            color: errPct < 10 ? colors.success : errPct < 20 ? colors.warning : colors.danger,
+          },
+          {
+            value: `${data.sample_count}`,
+            label: 'Resolved',
+            sub: 'markets scored',
+            color: colors.textPrimary,
+          },
+        ].map((stat) => (
           <div key={stat.label} style={{
-            flex: 1, padding: '10px 12px', borderRadius: 8,
-            background: `${stat.color}06`,
-            border: `1px solid ${stat.color}12`,
+            flex: 1, padding: '8px 10px', borderRadius: 8,
+            background: `${stat.color}06`, border: `1px solid ${stat.color}18`,
             textAlign: 'center',
           }}>
             <div style={{
-              fontSize: 22, fontWeight: 700, fontFamily: fonts.mono, color: stat.color,
+              fontSize: 20, fontWeight: 700, fontFamily: fonts.mono, color: stat.color,
               textShadow: `0 0 16px ${stat.color}25`,
             }}>
               {stat.value}
             </div>
-            <div style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 3 }}>
+            <div style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>
               {stat.label}
+            </div>
+            <div style={{ fontSize: 9, color: colors.textMuted, marginTop: 2, fontStyle: 'italic' }}>
+              {stat.sub}
             </div>
           </div>
         ))}
       </div>
 
-      {/* Calibration curve — estimated vs actual */}
+      {/* Reliability diagram */}
       {buckets.length > 0 && (
         <div>
           <div style={{
             fontSize: 9, color: colors.textDim, fontFamily: fonts.mono,
-            textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8,
+            textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6,
           }}>
-            Calibration Curve (estimated vs actual)
+            Reliability Diagram
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            {buckets.map((b, i) => {
-              const biasColor = Math.abs(b.bias) < 0.05 ? colors.success
-                : Math.abs(b.bias) < 0.1 ? colors.warning : colors.danger
-              return (
-                <div key={b.bucket} style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '4px 0',
-                  ...animDelay(i),
-                }}>
-                  <span style={{
-                    width: 70, fontSize: 10, fontFamily: fonts.mono,
-                    color: colors.textMuted, textAlign: 'right',
-                  }}>
-                    {b.bucket}
-                  </span>
-                  <div style={{ flex: 2, position: 'relative', height: 14, display: 'flex', alignItems: 'center' }}>
-                    {/* Background track */}
-                    <div style={{
-                      position: 'absolute', left: 0, right: 0, height: 6, borderRadius: 3,
-                      background: 'rgba(255,255,255,0.03)',
-                    }} />
-                    {/* Estimated bar */}
-                    <div style={{
-                      position: 'absolute', left: 0, height: 6, borderRadius: 3,
-                      width: `${b.avg_estimated * 100}%`,
-                      background: colors.accent, opacity: 0.45,
-                    }} />
-                    {/* Actual bar */}
-                    <div style={{
-                      position: 'absolute', left: 0, height: 6, borderRadius: 3,
-                      width: `${b.avg_actual * 100}%`,
-                      background: colors.success, opacity: 0.65,
-                      boxShadow: `0 0 6px ${colors.success}20`,
-                    }} />
-                    {/* Estimated marker */}
-                    <div style={{
-                      position: 'absolute',
-                      left: `${b.avg_estimated * 100}%`,
-                      top: 0, width: 2, height: 14, borderRadius: 1,
-                      background: colors.accent,
-                      transform: 'translateX(-1px)',
-                    }} />
-                  </div>
-                  <span style={{
-                    width: 50, fontSize: 10, fontFamily: fonts.mono,
-                    color: biasColor, fontWeight: 600, textAlign: 'right',
-                  }}>
-                    {b.bias > 0 ? '+' : ''}{(b.bias * 100).toFixed(1)}%
-                  </span>
-                  <span style={{
-                    width: 30, fontSize: 9, fontFamily: fonts.mono,
-                    color: colors.textDim, textAlign: 'right',
-                  }}>
-                    n={b.count}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
+          <ReliabilityDiagram buckets={buckets} />
           <div style={{
-            display: 'flex', gap: 16, marginTop: 6, fontSize: 9, color: colors.textDim,
+            display: 'flex', gap: 14, justifyContent: 'center',
+            fontSize: 9, color: colors.textDim, fontFamily: fonts.mono, marginTop: 4,
           }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ width: 12, height: 4, background: colors.accent, opacity: 0.5, borderRadius: 2 }} />
-              Estimated
+              <span style={{ width: 14, borderTop: `1px dashed ${colors.textMuted}` }} />
+              Perfect
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span style={{ width: 12, height: 4, background: colors.success, opacity: 0.7, borderRadius: 2 }} />
-              Actual
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: colors.success, opacity: 0.5 }} />
+              |bias| &lt; 5%
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: colors.warning, opacity: 0.5 }} />
+              &lt; 10%
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: colors.danger, opacity: 0.5 }} />
+              ≥ 10%
             </span>
           </div>
+        </div>
+      )}
+
+      {/* Per-bucket detail table */}
+      {buckets.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{
+            fontSize: 9, color: colors.textDim, fontFamily: fonts.mono,
+            textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4,
+          }}>
+            Per-bucket detail
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10, fontFamily: fonts.mono }}>
+            <thead>
+              <tr style={{ color: colors.textDim }}>
+                <th style={{ textAlign: 'left', padding: '3px 6px', fontWeight: 500 }}>Bucket</th>
+                <th style={{ textAlign: 'right', padding: '3px 6px', fontWeight: 500 }}>Predicted</th>
+                <th style={{ textAlign: 'right', padding: '3px 6px', fontWeight: 500 }}>Actual</th>
+                <th style={{ textAlign: 'right', padding: '3px 6px', fontWeight: 500 }}>Bias</th>
+                <th style={{ textAlign: 'right', padding: '3px 6px', fontWeight: 500 }}>n</th>
+              </tr>
+            </thead>
+            <tbody>
+              {buckets.map(b => {
+                const col = biasColorFor(b.bias)
+                return (
+                  <tr key={b.bucket} style={{ borderTop: `1px solid ${colors.border}` }}>
+                    <td style={{ padding: '3px 6px', color: colors.textMuted }}>{b.bucket}</td>
+                    <td style={{ padding: '3px 6px', textAlign: 'right', color: colors.textSecondary }}>
+                      {(b.avg_estimated * 100).toFixed(1)}%
+                    </td>
+                    <td style={{ padding: '3px 6px', textAlign: 'right', color: colors.textSecondary }}>
+                      {(b.avg_actual * 100).toFixed(1)}%
+                    </td>
+                    <td style={{ padding: '3px 6px', textAlign: 'right', color: col, fontWeight: 600 }}>
+                      {b.bias > 0 ? '+' : ''}{(b.bias * 100).toFixed(1)}%
+                    </td>
+                    <td style={{ padding: '3px 6px', textAlign: 'right', color: colors.textDim }}>{b.count}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -308,19 +422,21 @@ function CalibrationChart({ data }: { data: CalibrationResponse }) {
             textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6,
           }}>
             Bias by Confidence Band
+            <span style={{ marginLeft: 6, textTransform: 'none', letterSpacing: 0, color: colors.textMuted, fontStyle: 'italic' }}>
+              (does the model err more when it's confident?)
+            </span>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {Object.entries(data.bias_by_confidence).map(([band, info]) => {
-              const biasColor = Math.abs(info.mean_bias) < 0.05 ? colors.success
-                : Math.abs(info.mean_bias) < 0.1 ? colors.warning : colors.danger
+              const col = biasColorFor(info.mean_bias)
               return (
                 <div key={band} style={{
                   padding: '6px 10px', borderRadius: 6,
                   background: 'rgba(0,0,0,0.2)', border: `1px solid ${colors.border}`,
-                  textAlign: 'center',
+                  textAlign: 'center', minWidth: 70,
                 }}>
                   <div style={{ fontSize: 9, color: colors.textDim, marginBottom: 2 }}>{band}</div>
-                  <div style={{ fontSize: 14, fontWeight: 600, fontFamily: fonts.mono, color: biasColor }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, fontFamily: fonts.mono, color: col }}>
                     {info.mean_bias > 0 ? '+' : ''}{(info.mean_bias * 100).toFixed(1)}%
                   </div>
                   <div style={{ fontSize: 8, color: colors.textDim }}>n={info.count}</div>
