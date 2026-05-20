@@ -84,65 +84,14 @@ function useWebSocket() {
   return { botStatus, lastDiscovery, batchProgress }
 }
 
-/* Floating ambient orbs — liquid metaball drift */
-function AmbientBackground() {
-  return (
-    <div style={{
-      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-      pointerEvents: 'none', zIndex: 0, overflow: 'hidden',
-      filter: 'blur(2px)',
-    }}>
-      {/* Cyan plasma — top-right */}
-      <div style={{
-        position: 'absolute', top: '-18%', right: '-10%',
-        width: 780, height: 780, borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(0,229,255,0.22) 0%, rgba(0,112,255,0.10) 35%, transparent 70%)',
-        animation: 'orbFloat 22s ease-in-out infinite',
-        mixBlendMode: 'screen',
-      }} />
-      {/* Violet plasma — bottom-left */}
-      <div style={{
-        position: 'absolute', bottom: '-12%', left: '-8%',
-        width: 720, height: 720, borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(139,92,246,0.18) 0%, rgba(0,112,255,0.08) 40%, transparent 72%)',
-        animation: 'orbFloat 30s ease-in-out infinite reverse',
-        mixBlendMode: 'screen',
-      }} />
-      {/* Mint plasma — drifting center */}
-      <div style={{
-        position: 'absolute', top: '38%', left: '42%',
-        width: 520, height: 520, borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(0,255,170,0.10) 0%, rgba(0,229,255,0.05) 45%, transparent 70%)',
-        animation: 'orbFloat 36s ease-in-out infinite',
-        animationDelay: '-12s',
-        mixBlendMode: 'screen',
-      }} />
-      {/* Magenta whisper — wandering */}
-      <div style={{
-        position: 'absolute', top: '60%', right: '15%',
-        width: 440, height: 440, borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(255,51,130,0.08) 0%, transparent 65%)',
-        animation: 'orbFloat 40s ease-in-out infinite reverse',
-        animationDelay: '-6s',
-        mixBlendMode: 'screen',
-      }} />
-      {/* Void vignette so cards still pop */}
-      <div style={{
-        position: 'absolute', inset: 0,
-        background: 'radial-gradient(ellipse at center, transparent 0%, rgba(3,5,9,0.40) 92%)',
-      }} />
-    </div>
-  )
-}
-
-/* Drifting starfield — tiny twinkling specks */
+/* Drifting starfield — sparse white specks against the void */
 function Starfield() {
-  const stars = Array.from({ length: 60 }, (_, i) => {
+  const stars = Array.from({ length: 40 }, (_, i) => {
     const seed = (i * 9301 + 49297) % 233280
     const left = (seed / 233280) * 100
     const top = ((seed * 7) % 233280) / 233280 * 100
     const size = 1 + (i % 3)
-    const dur = 3 + (i % 7)
+    const dur = 4 + (i % 8)
     const delay = (i % 9) * 0.4
     return (
       <div key={i} style={{
@@ -150,8 +99,8 @@ function Starfield() {
         left: `${left}%`, top: `${top}%`,
         width: size, height: size,
         borderRadius: '50%',
-        background: i % 5 === 0 ? '#00e5ff' : '#e4eaf6',
-        boxShadow: i % 5 === 0 ? '0 0 6px #00e5ff' : '0 0 4px rgba(255,255,255,0.6)',
+        background: '#ffffff',
+        boxShadow: '0 0 4px rgba(255,255,255,0.55)',
         opacity: 0,
         animation: `twinkle ${dur}s ease-in-out ${delay}s infinite`,
       }} />
@@ -167,13 +116,13 @@ function Starfield() {
   )
 }
 
-/* Cursor-following soft glow */
+/* Cursor-following soft glow — white halo, no color */
 function CursorGlow() {
   const ref = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (ref.current) {
-        ref.current.style.transform = `translate(${e.clientX - 200}px, ${e.clientY - 200}px)`
+        ref.current.style.transform = `translate(${e.clientX - 220}px, ${e.clientY - 220}px)`
       }
     }
     window.addEventListener('mousemove', onMove)
@@ -182,12 +131,13 @@ function CursorGlow() {
   return (
     <div ref={ref} style={{
       position: 'fixed', top: 0, left: 0,
-      width: 400, height: 400, pointerEvents: 'none',
+      width: 440, height: 440, pointerEvents: 'none',
       zIndex: 0,
-      background: 'radial-gradient(circle, rgba(0,229,255,0.10) 0%, rgba(0,229,255,0.04) 35%, transparent 70%)',
+      background: 'radial-gradient(circle, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.025) 35%, transparent 70%)',
       mixBlendMode: 'screen',
       transition: 'transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1)',
       willChange: 'transform',
+      filter: 'blur(2px)',
     }} />
   )
 }
@@ -202,8 +152,10 @@ function TickerBar() {
 
   return (
     <div style={{
-      background: 'rgba(0, 229, 255, 0.02)',
+      background: 'rgba(255, 255, 255, 0.015)',
       borderBottom: `1px solid ${colors.border}`,
+      backdropFilter: 'blur(20px) saturate(140%)',
+      WebkitBackdropFilter: 'blur(20px) saturate(140%)',
       padding: '4px 28px',
       display: 'flex',
       alignItems: 'center',
@@ -234,7 +186,6 @@ export default function App() {
       fontFamily: fonts.body,
       position: 'relative',
     }}>
-      <AmbientBackground />
       <Starfield />
       <CursorGlow />
 
@@ -244,11 +195,11 @@ export default function App() {
 
         {/* Header — liquid glass */}
         <header style={{
-          background: 'linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0) 60%), rgba(6, 10, 20, 0.55)',
-          backdropFilter: 'blur(28px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(28px) saturate(180%)',
-          borderBottom: '1px solid rgba(255,255,255,0.08)',
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.10), 0 8px 24px rgba(0,0,0,0.35)',
+          background: 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0) 60%), rgba(4, 4, 6, 0.62)',
+          backdropFilter: 'blur(34px) saturate(140%)',
+          WebkitBackdropFilter: 'blur(34px) saturate(140%)',
+          borderBottom: '1px solid rgba(255,255,255,0.09)',
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.14), 0 12px 32px rgba(0,0,0,0.55)',
           padding: '12px 28px',
           display: 'flex',
           alignItems: 'center',

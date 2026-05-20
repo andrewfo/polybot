@@ -6,7 +6,7 @@ import AnalysisDetail from './AnalysisDetail'
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { bg: string; fg: string; glow?: boolean }> = {
     done: { bg: 'rgba(0,255,136,0.1)', fg: '#00ff88' },
-    processing: { bg: 'rgba(0,229,255,0.1)', fg: '#00e5ff', glow: true },
+    processing: { bg: 'rgba(255, 255, 255,0.1)', fg: '#ffffff', glow: true },
     error: { bg: 'rgba(255,51,102,0.1)', fg: '#ff3366' },
     skipped: { bg: 'rgba(85,102,136,0.1)', fg: '#556688' },
     waiting: { bg: 'rgba(51,68,102,0.1)', fg: '#334466' },
@@ -135,7 +135,7 @@ export default function Analysis() {
             color: aggLoading ? colors.textMuted : '#000',
             cursor: aggLoading ? 'wait' : 'pointer',
             fontSize: 11, fontWeight: 600,
-            boxShadow: aggLoading ? 'none' : '0 2px 12px rgba(0,229,255,0.2)',
+            boxShadow: aggLoading ? 'none' : '0 2px 12px rgba(255, 255, 255,0.2)',
             transition: 'all 0.3s',
             opacity: !aggQuestion.trim() ? 0.5 : 1,
             letterSpacing: '0.06em',
@@ -167,7 +167,7 @@ export default function Analysis() {
           onClick={handleSignalTest}
           style={{
             padding: '8px 20px', borderRadius: 4, border: `1px solid ${colors.border}`,
-            background: sigTestLoading ? colors.bgSecondary : 'rgba(139,92,246,0.1)',
+            background: sigTestLoading ? colors.bgSecondary : 'rgba(190, 190, 190,0.1)',
             color: sigTestLoading ? colors.textMuted : colors.purple,
             cursor: sigTestLoading ? 'wait' : 'pointer',
             fontSize: 11, fontWeight: 600, fontFamily: fonts.mono,
@@ -249,12 +249,12 @@ export default function Analysis() {
                     padding: '12px 14px',
                     borderBottom: `1px solid ${colors.border}`,
                     cursor: 'pointer',
-                    background: selectedId === e.condition_id ? 'rgba(0, 229, 255, 0.04)' : 'transparent',
+                    background: selectedId === e.condition_id ? 'rgba(255, 255, 255, 0.04)' : 'transparent',
                     transition: 'all 0.2s',
                     borderLeft: selectedId === e.condition_id ? `2px solid ${colors.accent}` : '2px solid transparent',
                   }}
                   onMouseEnter={e2 => {
-                    if (selectedId !== e.condition_id) e2.currentTarget.style.background = 'rgba(0, 229, 255, 0.02)'
+                    if (selectedId !== e.condition_id) e2.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)'
                   }}
                   onMouseLeave={e2 => {
                     if (selectedId !== e.condition_id) e2.currentTarget.style.background = 'transparent'

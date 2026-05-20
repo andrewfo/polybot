@@ -21,7 +21,7 @@ export default function CashDeployedArea({ snapshots }: { snapshots: PnlSnapshot
         minHeight: 140, color: colors.textDim, fontSize: 11,
         fontFamily: fonts.mono,
         border: `1px dashed ${colors.border}`, borderRadius: 6,
-        background: `linear-gradient(135deg, rgba(139, 92, 246, 0.02) 0%, rgba(0, 112, 255, 0.01) 100%)`,
+        background: `linear-gradient(135deg, rgba(190, 190, 190, 0.02) 0%, rgba(200, 200, 200, 0.01) 100%)`,
       }}>
         Need more data for allocation view
       </div>
@@ -46,7 +46,7 @@ export default function CashDeployedArea({ snapshots }: { snapshots: PnlSnapshot
               label: 'Cash',
               data: cashData,
               borderColor: colors.accent,
-              backgroundColor: 'rgba(0, 229, 255, 0.08)',
+              backgroundColor: 'rgba(255, 255, 255, 0.08)',
               fill: true,
               pointRadius: 0,
               pointHoverRadius: 4,

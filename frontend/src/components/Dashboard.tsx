@@ -471,7 +471,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                     cursor: actionLoading ? 'wait' : 'pointer',
                     fontSize: 11, fontWeight: 600,
                     transition: 'all 0.25s ease',
-                    boxShadow: displayStatus.running ? 'none' : `0 2px 16px rgba(0,229,255,0.3)`,
+                    boxShadow: displayStatus.running ? 'none' : `0 2px 16px rgba(255, 255, 255,0.3)`,
                     letterSpacing: '0.06em',
                     textTransform: 'uppercase',
                   }}
@@ -691,7 +691,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
           {displayStatus?.running && displayStatus.phase !== 'idle' && displayStatus.phase !== 'waiting' && (
             <div style={{
               marginTop: 10, padding: '6px 10px', borderRadius: 6,
-              background: 'rgba(0,229,255,0.04)',
+              background: 'rgba(255, 255, 255,0.04)',
               border: `1px solid ${colors.border}`,
               display: 'flex', alignItems: 'center', gap: 8,
             }}>
@@ -965,7 +965,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
           {positions.length === 0 ? (
             <div style={{
               padding: 40, textAlign: 'center', color: colors.textDim,
-              background: `linear-gradient(135deg, rgba(0, 229, 255, 0.02) 0%, rgba(0, 112, 255, 0.01) 100%)`,
+              background: `linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(200, 200, 200, 0.01) 100%)`,
               border: `1px dashed ${colors.borderLight}`,
               borderRadius: 10,
               position: 'relative', overflow: 'hidden',
@@ -1106,7 +1106,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
         {trades.length === 0 ? (
           <div style={{
             padding: 40, textAlign: 'center', color: colors.textDim,
-            background: `linear-gradient(135deg, rgba(139, 92, 246, 0.02) 0%, rgba(0, 112, 255, 0.01) 100%)`,
+            background: `linear-gradient(135deg, rgba(190, 190, 190, 0.02) 0%, rgba(200, 200, 200, 0.01) 100%)`,
             border: `1px dashed ${colors.borderLight}`,
             borderRadius: 10,
             position: 'relative', overflow: 'hidden',
@@ -1281,7 +1281,7 @@ function SignalAccuracyCard({ calibration, skipAnalysis }: {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
           <div style={{
             padding: '8px 6px', borderRadius: 6, textAlign: 'center',
-            background: 'rgba(139,92,246,0.06)', border: `1px solid rgba(139,92,246,0.1)`,
+            background: 'rgba(190, 190, 190,0.06)', border: `1px solid rgba(190, 190, 190,0.1)`,
           }}>
             <div style={{
               fontSize: 16, fontWeight: 700, fontFamily: fonts.mono,
@@ -1299,7 +1299,7 @@ function SignalAccuracyCard({ calibration, skipAnalysis }: {
           </div>
           <div style={{
             padding: '8px 6px', borderRadius: 6, textAlign: 'center',
-            background: 'rgba(0,229,255,0.04)', border: `1px solid ${colors.border}`,
+            background: 'rgba(255, 255, 255,0.04)', border: `1px solid ${colors.border}`,
           }}>
             <div style={{
               fontSize: 16, fontWeight: 700, fontFamily: fonts.mono,
@@ -1317,7 +1317,7 @@ function SignalAccuracyCard({ calibration, skipAnalysis }: {
           </div>
           <div style={{
             padding: '8px 6px', borderRadius: 6, textAlign: 'center',
-            background: 'rgba(0,229,255,0.04)', border: `1px solid ${colors.border}`,
+            background: 'rgba(255, 255, 255,0.04)', border: `1px solid ${colors.border}`,
           }}>
             <div style={{
               fontSize: 16, fontWeight: 700, fontFamily: fonts.mono,
@@ -1477,7 +1477,7 @@ function ActivityFeed({ events }: { events: ActivityEvent[] }) {
         textAlign: 'center', color: colors.textDim,
         fontSize: 11, fontFamily: fonts.mono,
         border: `1px dashed ${colors.border}`, borderRadius: 6,
-        background: `linear-gradient(135deg, rgba(0, 229, 255, 0.02) 0%, rgba(0, 112, 255, 0.01) 100%)`,
+        background: `linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(200, 200, 200, 0.01) 100%)`,
       }}>
         No pipeline activity yet
       </div>
@@ -1652,7 +1652,7 @@ function TradeDetailModal({ detail, loading, onClose }: {
             {/* Trade Info Grid */}
             <div style={{
               display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12,
-              background: 'rgba(0,229,255,0.02)', borderRadius: 8,
+              background: 'rgba(255, 255, 255,0.02)', borderRadius: 8,
               padding: 14, border: `1px solid ${colors.border}`,
             }}>
               <ModalStat label="Limit Price" value={`$${trade.price.toFixed(4)}`} />
@@ -1685,8 +1685,8 @@ function TradeDetailModal({ detail, loading, onClose }: {
                 </div>
                 <div style={{
                   display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12,
-                  background: 'rgba(139,92,246,0.03)', borderRadius: 8,
-                  padding: 14, border: `1px solid rgba(139,92,246,0.1)`,
+                  background: 'rgba(190, 190, 190,0.03)', borderRadius: 8,
+                  padding: 14, border: `1px solid rgba(190, 190, 190,0.1)`,
                 }}>
                   <ModalStat label="Estimated Prob" value={`${(fd.estimated_prob * 100).toFixed(1)}%`} color={colors.accent} />
                   <ModalStat label="Market Price" value={`${(fd.market_price * 100).toFixed(1)}%`} />
@@ -1750,7 +1750,7 @@ function TradeDetailModal({ detail, loading, onClose }: {
                   {signals.map((sig, si) => (
                     <div key={sig.id || si} style={{
                       padding: '10px 14px', borderRadius: 8,
-                      background: 'rgba(0,229,255,0.02)',
+                      background: 'rgba(255, 255, 255,0.02)',
                       border: `1px solid ${colors.border}`,
                     }}>
                       <div style={{
@@ -1857,7 +1857,7 @@ function Skeleton() {
       {[1, 2, 3].map(i => (
         <div key={i} style={{
           height: 12, borderRadius: 4,
-          background: `linear-gradient(90deg, ${colors.border} 0%, rgba(0,229,255,0.06) 50%, ${colors.border} 100%)`,
+          background: `linear-gradient(90deg, ${colors.border} 0%, rgba(255, 255, 255,0.06) 50%, ${colors.border} 100%)`,
           backgroundSize: '200% 100%',
           width: `${60 + i * 12}%`,
           animation: 'shimmer 2s ease-in-out infinite',

@@ -9,7 +9,7 @@ interface WeightEntry {
   weight: number
 }
 
-const barPalette = ['#00ff88', '#00e5ff', '#ffaa00', '#8b5cf6', '#06b6d4']
+const barPalette = ['#00ff88', '#ffffff', '#ffaa00', '#b8b8b8', '#06b6d4']
 
 export default function SignalWeights({ data }: { data: WeightEntry[] }) {
   if (data.length === 0) return null

@@ -735,7 +735,7 @@ export default function Trades() {
                     transition: 'all 0.15s ease',
                   }}
                   onMouseEnter={e => {
-                    if (!isSelected) e.currentTarget.style.background = 'rgba(0,229,255,0.02)'
+                    if (!isSelected) e.currentTarget.style.background = 'rgba(255, 255, 255,0.02)'
                   }}
                   onMouseLeave={e => {
                     if (!isSelected) e.currentTarget.style.background = 'transparent'

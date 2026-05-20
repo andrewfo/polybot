@@ -1,47 +1,47 @@
 export const colors = {
-  // Void & backgrounds
-  bgVoid: '#030509',
-  bgPrimary: '#060a14',
-  bgSecondary: '#080d1a',
-  bgCard: '#0a0f1e',
-  bgCardHover: '#0e1428',
-  bgGlass: 'rgba(10, 15, 30, 0.75)',
-  bgElevated: 'rgba(14, 20, 40, 0.9)',
+  // Void & backgrounds — pure black
+  bgVoid: '#000000',
+  bgPrimary: '#050505',
+  bgSecondary: '#0a0a0a',
+  bgCard: '#0c0c0c',
+  bgCardHover: '#141414',
+  bgGlass: 'rgba(8, 8, 10, 0.55)',
+  bgElevated: 'rgba(14, 14, 16, 0.78)',
 
-  // Text
-  textPrimary: '#e4eaf6',
-  textSecondary: '#8899bb',
-  textMuted: '#556688',
-  textDim: '#334466',
+  // Text — pearl to graphite
+  textPrimary: '#f2f2f2',
+  textSecondary: '#9a9a9a',
+  textMuted: '#666666',
+  textDim: '#3a3a3a',
 
-  // Accents
-  accent: '#00e5ff',
-  accentLight: '#66f0ff',
-  accentDim: 'rgba(0, 229, 255, 0.07)',
-  accentMid: 'rgba(0, 229, 255, 0.12)',
-  blue: '#0070ff',
-  purple: '#8b5cf6',
+  // Accent — white/silver only (no color)
+  accent: '#ffffff',
+  accentLight: '#ffffff',
+  accentDim: 'rgba(255, 255, 255, 0.06)',
+  accentMid: 'rgba(255, 255, 255, 0.12)',
+  blue: '#c8c8c8',
+  purple: '#a8a8a8',
 
-  // Semantic
-  success: '#00ff88',
-  successDim: 'rgba(0, 255, 136, 0.08)',
-  danger: '#ff3366',
-  dangerDim: 'rgba(255, 51, 102, 0.08)',
-  warning: '#ffaa00',
-  warningDim: 'rgba(255, 170, 0, 0.08)',
+  // Semantic — desaturated near-monochrome
+  success: '#cfeed3',
+  successDim: 'rgba(207, 238, 211, 0.08)',
+  danger: '#ff8898',
+  dangerDim: 'rgba(255, 136, 152, 0.08)',
+  warning: '#ffd28a',
+  warningDim: 'rgba(255, 210, 138, 0.08)',
 
-  // Borders
-  border: 'rgba(0, 229, 255, 0.06)',
-  borderLight: 'rgba(0, 229, 255, 0.12)',
-  borderHover: 'rgba(0, 229, 255, 0.2)',
+  // Borders — white at varying alphas
+  border: 'rgba(255, 255, 255, 0.06)',
+  borderLight: 'rgba(255, 255, 255, 0.12)',
+  borderHover: 'rgba(255, 255, 255, 0.22)',
 
-  // Gradients
-  gradientAccent: 'linear-gradient(135deg, #00e5ff 0%, #0070ff 100%)',
-  gradientAccentHover: 'linear-gradient(135deg, #33eeff 0%, #2288ff 100%)',
-  gradientSuccess: 'linear-gradient(135deg, #00ff88 0%, #00cc99 100%)',
-  gradientDanger: 'linear-gradient(135deg, #ff3366 0%, #ff6644 100%)',
-  gradientCard: 'linear-gradient(145deg, rgba(10, 15, 30, 0.95) 0%, rgba(6, 10, 20, 0.98) 100%)',
-  gradientMesh: 'radial-gradient(ellipse at 20% 50%, rgba(0, 229, 255, 0.03) 0%, transparent 50%), radial-gradient(ellipse at 80% 20%, rgba(0, 112, 255, 0.02) 0%, transparent 50%), radial-gradient(ellipse at 50% 80%, rgba(139, 92, 246, 0.02) 0%, transparent 50%)',
+  // Gradients — silver/pearl, no hue
+  gradientAccent: 'linear-gradient(135deg, #ffffff 0%, #9a9a9a 100%)',
+  gradientAccentHover: 'linear-gradient(135deg, #ffffff 0%, #c8c8c8 100%)',
+  gradientSuccess: 'linear-gradient(135deg, #e6f5e8 0%, #b8d4bc 100%)',
+  gradientDanger: 'linear-gradient(135deg, #ff8898 0%, #c66c78 100%)',
+  gradientCard: 'linear-gradient(145deg, rgba(12, 12, 14, 0.92) 0%, rgba(4, 4, 5, 0.96) 100%)',
+  gradientMesh: 'radial-gradient(ellipse at 20% 50%, rgba(255, 255, 255, 0.025) 0%, transparent 50%), radial-gradient(ellipse at 80% 20%, rgba(255, 255, 255, 0.018) 0%, transparent 50%), radial-gradient(ellipse at 50% 80%, rgba(255, 255, 255, 0.012) 0%, transparent 50%)',
 }
 
 export const fonts = {
@@ -52,21 +52,21 @@ export const fonts = {
 
 export const cardStyle: React.CSSProperties = {
   background:
-    'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.015) 40%, rgba(0,0,0,0.20) 100%), rgba(10, 18, 36, 0.42)',
-  border: '1px solid rgba(255, 255, 255, 0.08)',
-  borderRadius: 14,
+    'linear-gradient(135deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 38%, rgba(0,0,0,0.40) 100%), rgba(8, 8, 10, 0.55)',
+  border: '1px solid rgba(255, 255, 255, 0.09)',
+  borderRadius: 18,
   padding: 20,
-  backdropFilter: 'blur(28px) saturate(180%)',
-  WebkitBackdropFilter: 'blur(28px) saturate(180%)',
+  backdropFilter: 'blur(36px) saturate(140%)',
+  WebkitBackdropFilter: 'blur(36px) saturate(140%)',
   boxShadow:
-    'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.35), 0 12px 40px rgba(0,0,0,0.45), 0 2px 10px rgba(0,229,255,0.05)',
+    'inset 0 1px 0 rgba(255,255,255,0.14), inset 0 -1px 0 rgba(0,0,0,0.55), 0 18px 50px rgba(0,0,0,0.65), 0 2px 12px rgba(0,0,0,0.5)',
   transition: 'border-color 0.3s ease, box-shadow 0.3s ease, transform 0.25s ease',
   position: 'relative',
   overflow: 'hidden',
 }
 
 export const glowShadow = (color: string, intensity = 0.15) =>
-  `0 0 24px ${color}${Math.round(intensity * 255).toString(16).padStart(2, '0')}, 0 0 48px ${color}${Math.round(intensity * 0.5 * 255).toString(16).padStart(2, '0')}, 0 4px 16px rgba(0,0,0,0.4)`
+  `0 0 24px ${color}${Math.round(intensity * 255).toString(16).padStart(2, '0')}, 0 0 48px ${color}${Math.round(intensity * 0.5 * 255).toString(16).padStart(2, '0')}, 0 4px 16px rgba(0,0,0,0.55)`
 
 export const animDelay = (i: number) => ({
   animation: 'fadeInUp 0.4s ease forwards',

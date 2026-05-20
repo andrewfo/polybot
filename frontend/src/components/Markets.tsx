@@ -75,7 +75,7 @@ export default function Markets() {
           }}
           onMouseEnter={e => {
             e.currentTarget.style.borderColor = colors.accent
-            e.currentTarget.style.boxShadow = `0 0 8px rgba(0,229,255,0.15)`
+            e.currentTarget.style.boxShadow = `0 0 8px rgba(255, 255, 255,0.15)`
           }}
           onMouseLeave={e => {
             e.currentTarget.style.borderColor = colors.border
@@ -124,13 +124,13 @@ export default function Markets() {
                   onClick={() => setSelected(isSelected ? null : m)}
                   style={{
                     borderBottom: `1px solid ${colors.border}`,
-                    background: isSelected ? 'rgba(0, 229, 255, 0.04)' : 'transparent',
+                    background: isSelected ? 'rgba(255, 255, 255, 0.04)' : 'transparent',
                     cursor: 'pointer',
                     transition: 'all 0.2s',
                   }}
                   onMouseEnter={e => {
                     if (!isSelected) {
-                      e.currentTarget.style.background = 'rgba(0, 229, 255, 0.02)'
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)'
                       e.currentTarget.style.borderColor = colors.borderLight
                     }
                   }}

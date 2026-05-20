@@ -201,17 +201,17 @@ function CryptoSignalDetail({ raw }: { raw: Record<string, unknown> }) {
             </div>
             <div style={{
               padding: 8, borderRadius: 6, textAlign: 'center',
-              background: resType === 'terminal' ? '#8b5cf611' : 'transparent',
-              border: resType === 'terminal' ? '1px solid #8b5cf633' : `1px solid ${colors.border}`,
+              background: resType === 'terminal' ? '#b8b8b811' : 'transparent',
+              border: resType === 'terminal' ? '1px solid #b8b8b833' : `1px solid ${colors.border}`,
             }}>
               <div style={{ fontSize: 9, color: colors.textDim, marginBottom: 4 }}>TERMINAL (expiry)</div>
               <div style={{
                 fontSize: 20, fontWeight: 700, fontFamily: fonts.mono,
-                color: resType === 'terminal' ? '#8b5cf6' : colors.textMuted,
+                color: resType === 'terminal' ? '#b8b8b8' : colors.textMuted,
               }}>
                 {terminal != null ? (terminal * 100).toFixed(1) + '%' : '--'}
               </div>
-              {resType === 'terminal' && <div style={{ fontSize: 8, color: '#8b5cf6', marginTop: 2 }}>ACTIVE</div>}
+              {resType === 'terminal' && <div style={{ fontSize: 8, color: '#b8b8b8', marginTop: 2 }}>ACTIVE</div>}
             </div>
             <div style={{
               padding: 8, borderRadius: 6, textAlign: 'center',
@@ -538,7 +538,7 @@ function SignalCard({ signal, index }: { signal: Record<string, unknown>; index:
   const baseMultiplier = signal.base_multiplier as number | undefined
   const usable = signal.usable !== false && prob != null && (conf ?? 0) > 0
 
-  const palette = ['#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6', '#06b6d4']
+  const palette = ['#22c55e', '#3b82f6', '#f59e0b', '#b8b8b8', '#06b6d4']
   const cardColor = usable ? palette[index % palette.length] : colors.textDim
 
   return (
@@ -587,7 +587,7 @@ function SignalCard({ signal, index }: { signal: Record<string, unknown>; index:
             <span style={{ fontSize: 9, color: colors.textDim }}>{baseMultiplier}x base</span>
           )}
           {model !== 'none' && (
-            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 10, background: 'rgba(139,92,246,0.15)', color: '#8b5cf6' }}>
+            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 10, background: 'rgba(190, 190, 190,0.15)', color: '#b8b8b8' }}>
               {model}
             </span>
           )}
@@ -734,7 +734,7 @@ export default function AnalysisDetail({ conditionId }: { conditionId: string })
   const waterfallSteps = [
     { label: 'Market', value: marketPrice, color: colors.textMuted },
   ]
-  if (preliminary > 0) waterfallSteps.push({ label: 'Preliminary', value: preliminary, color: '#8b5cf6' })
+  if (preliminary > 0) waterfallSteps.push({ label: 'Preliminary', value: preliminary, color: '#b8b8b8' })
   waterfallSteps.push({ label: 'Frontier', value: estimate, color: colors.accent })
   waterfallSteps.push({ label: 'Blended', value: effective, color: colors.success })
 
@@ -742,7 +742,7 @@ export default function AnalysisDetail({ conditionId }: { conditionId: string })
   const probBars: { label: string; value: number; color: string }[] = [
     { label: 'Market', value: marketPrice, color: colors.textMuted },
   ]
-  if (preliminary > 0) probBars.push({ label: 'Preliminary', value: preliminary, color: '#8b5cf6' })
+  if (preliminary > 0) probBars.push({ label: 'Preliminary', value: preliminary, color: '#b8b8b8' })
   probBars.push({ label: 'Frontier', value: estimate, color: colors.accent })
   probBars.push({ label: 'Effective (blended)', value: effective, color: colors.success })
   const signalPalette = ['#22c55e', '#3b82f6', '#f59e0b']

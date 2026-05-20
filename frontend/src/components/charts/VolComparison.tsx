@@ -6,7 +6,7 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 
 const colorMap: Record<string, string> = {
   historical: '#8899bb',
-  ewm: '#00e5ff',
+  ewm: '#ffffff',
   short_term: '#ffaa00',
   deribit_iv: '#00ff88',
   selected: '#e4eaf6',

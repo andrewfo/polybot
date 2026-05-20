@@ -20,9 +20,11 @@ export default function TabBar({ active, onChange }: { active: Tab; onChange: (t
     <nav style={{
       display: 'flex',
       gap: 0,
-      background: 'rgba(6, 10, 20, 0.6)',
-      backdropFilter: 'blur(12px)',
-      borderBottom: `1px solid ${colors.border}`,
+      background: 'linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0) 80%), rgba(4, 4, 6, 0.55)',
+      backdropFilter: 'blur(24px) saturate(140%)',
+      WebkitBackdropFilter: 'blur(24px) saturate(140%)',
+      borderBottom: `1px solid rgba(255,255,255,0.07)`,
+      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 4px 18px rgba(0,0,0,0.45)',
       padding: '0 28px',
       position: 'relative',
     }}>
@@ -40,9 +42,9 @@ export default function TabBar({ active, onChange }: { active: Tab; onChange: (t
               border: 'none',
               borderBottom: `2px solid ${isActive ? colors.accent : 'transparent'}`,
               background: isActive
-                ? 'rgba(0, 229, 255, 0.05)'
+                ? 'rgba(255, 255, 255, 0.06)'
                 : isHovered
-                  ? 'rgba(0, 229, 255, 0.02)'
+                  ? 'rgba(255, 255, 255, 0.03)'
                   : 'transparent',
               color: isActive ? colors.accent : isHovered ? colors.textSecondary : colors.textMuted,
               cursor: 'pointer',
@@ -78,7 +80,7 @@ export default function TabBar({ active, onChange }: { active: Tab; onChange: (t
                 bottom: -1, left: '10%', right: '10%',
                 height: 2,
                 background: colors.accent,
-                boxShadow: `0 0 12px ${colors.accent}, 0 0 24px rgba(0, 229, 255, 0.3)`,
+                boxShadow: `0 0 12px ${colors.accent}, 0 0 24px rgba(255, 255, 255, 0.30)`,
                 borderRadius: 1,
               }} />
             )}

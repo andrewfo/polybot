@@ -4,7 +4,7 @@ import { api, LogEntry } from '../api'
 
 const levelColors: Record<string, string> = {
   DEBUG: colors.textDim,
-  INFO: '#00e5ff',
+  INFO: '#ffffff',
   WARNING: '#ffaa00',
   ERROR: '#ff3366',
   CRITICAL: '#ff3366',
@@ -12,7 +12,7 @@ const levelColors: Record<string, string> = {
 
 const levelBg: Record<string, string> = {
   DEBUG: 'transparent',
-  INFO: 'rgba(0,229,255,0.03)',
+  INFO: 'rgba(255, 255, 255,0.03)',
   WARNING: 'rgba(255,170,0,0.03)',
   ERROR: 'rgba(255,51,102,0.05)',
   CRITICAL: 'rgba(255,51,102,0.08)',
@@ -74,7 +74,7 @@ export default function Logs() {
         <button onClick={refresh} style={selectStyle}
           onMouseEnter={e => {
             e.currentTarget.style.borderColor = colors.accent
-            e.currentTarget.style.boxShadow = '0 0 8px rgba(0,229,255,0.15)'
+            e.currentTarget.style.boxShadow = '0 0 8px rgba(255, 255, 255,0.15)'
           }}
           onMouseLeave={e => {
             e.currentTarget.style.borderColor = colors.border
@@ -113,7 +113,7 @@ export default function Logs() {
         <div style={{
           position: 'absolute', left: 0, right: 0,
           height: 4,
-          background: 'linear-gradient(180deg, rgba(0,229,255,0.03) 0%, transparent 100%)',
+          background: 'linear-gradient(180deg, rgba(255, 255, 255,0.03) 0%, transparent 100%)',
           animation: 'scanline 8s linear infinite',
           pointerEvents: 'none',
           zIndex: 1,
@@ -134,14 +134,14 @@ export default function Logs() {
               key={i}
               style={{
                 padding: '4px 12px',
-                borderBottom: `1px solid rgba(0, 229, 255, 0.02)`,
+                borderBottom: `1px solid rgba(255, 255, 255, 0.02)`,
                 display: 'flex',
                 gap: 8,
                 background: levelBg[entry.level] || 'transparent',
                 transition: 'background 0.15s',
               }}
               onMouseEnter={e => {
-                e.currentTarget.style.background = 'rgba(0, 229, 255, 0.03)'
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'
               }}
               onMouseLeave={e => {
                 e.currentTarget.style.background = levelBg[entry.level] || 'transparent'

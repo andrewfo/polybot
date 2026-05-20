@@ -79,7 +79,7 @@ function Skeleton() {
       {[1, 2, 3].map(i => (
         <div key={i} style={{
           height: 12, borderRadius: 4,
-          background: `linear-gradient(90deg, ${colors.border} 0%, rgba(0,229,255,0.06) 50%, ${colors.border} 100%)`,
+          background: `linear-gradient(90deg, ${colors.border} 0%, rgba(255, 255, 255,0.06) 50%, ${colors.border} 100%)`,
           backgroundSize: '200% 100%',
           width: `${60 + i * 12}%`,
           animation: 'shimmer 2s ease-in-out infinite',
@@ -111,14 +111,14 @@ function RecommendationRow({ rec, onRevert }: { rec: LearningRecommendation; onR
   return (
     <div style={{
       padding: '12px 14px', borderRadius: 8,
-      background: rec.auto_applied ? 'rgba(0,255,136,0.03)' : 'rgba(0,229,255,0.02)',
+      background: rec.auto_applied ? 'rgba(0,255,136,0.03)' : 'rgba(255, 255, 255,0.02)',
       border: `1px solid ${rec.auto_applied ? 'rgba(0,255,136,0.1)' : colors.border}`,
       borderLeft: `3px solid ${accentColor}`,
       marginBottom: 8,
       transition: 'background 0.25s ease, border-color 0.25s ease',
     }}
-      onMouseEnter={e => { e.currentTarget.style.background = rec.auto_applied ? 'rgba(0,255,136,0.05)' : 'rgba(0,229,255,0.04)' }}
-      onMouseLeave={e => { e.currentTarget.style.background = rec.auto_applied ? 'rgba(0,255,136,0.03)' : 'rgba(0,229,255,0.02)' }}>
+      onMouseEnter={e => { e.currentTarget.style.background = rec.auto_applied ? 'rgba(0,255,136,0.05)' : 'rgba(255, 255, 255,0.04)' }}
+      onMouseLeave={e => { e.currentTarget.style.background = rec.auto_applied ? 'rgba(0,255,136,0.03)' : 'rgba(255, 255, 255,0.02)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{
@@ -478,14 +478,14 @@ function OverridesTable({ overrides, onRevert }: {
           <div key={o.parameter} style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             padding: '10px 14px', borderRadius: 8,
-            background: 'rgba(0,229,255,0.02)',
+            background: 'rgba(255, 255, 255,0.02)',
             border: `1px solid ${colors.border}`,
             borderLeft: `3px solid ${colors.warning}`,
             transition: 'background 0.25s ease',
             ...animDelay(i),
           }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(0,229,255,0.04)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,229,255,0.02)' }}>
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255, 255, 255,0.04)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255, 255, 255,0.02)' }}>
             <div style={{ flex: 1 }}>
               <div style={{
                 fontSize: 12, fontWeight: 600, fontFamily: fonts.mono,
@@ -723,7 +723,7 @@ export default function Learning() {
       <div style={{
         ...cardStyle, padding: '16px 24px',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        background: `linear-gradient(135deg, rgba(10, 15, 30, 0.95) 0%, rgba(0, 229, 255, 0.02) 100%)`,
+        background: `linear-gradient(135deg, rgba(10, 15, 30, 0.95) 0%, rgba(255, 255, 255, 0.02) 100%)`,
         borderBottom: `1px solid ${colors.borderLight}`,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
@@ -781,12 +781,12 @@ export default function Learning() {
               color: runLoading ? colors.textMuted : '#000',
               cursor: runLoading ? 'wait' : 'pointer',
               fontSize: 11, fontWeight: 700,
-              boxShadow: runLoading ? 'none' : '0 2px 16px rgba(0,229,255,0.25)',
+              boxShadow: runLoading ? 'none' : '0 2px 16px rgba(255, 255, 255,0.25)',
               letterSpacing: '0.06em', textTransform: 'uppercase',
               transition: 'all 0.25s ease',
             }}
-            onMouseEnter={e => { if (!runLoading) { e.currentTarget.style.transform = 'scale(1.03)'; e.currentTarget.style.boxShadow = '0 4px 24px rgba(0,229,255,0.35)' } }}
-            onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = runLoading ? 'none' : '0 2px 16px rgba(0,229,255,0.25)' }}
+            onMouseEnter={e => { if (!runLoading) { e.currentTarget.style.transform = 'scale(1.03)'; e.currentTarget.style.boxShadow = '0 4px 24px rgba(255, 255, 255,0.35)' } }}
+            onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = runLoading ? 'none' : '0 2px 16px rgba(255, 255, 255,0.25)' }}
           >
             {runLoading ? 'Running...' : 'Run Learning Cycle'}
           </button>
@@ -950,7 +950,7 @@ export default function Learning() {
                       borderBottom: `1px solid ${colors.border}`,
                       transition: 'background 0.2s ease',
                     }}
-                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(0,229,255,0.02)' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255, 255, 255,0.02)' }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
                     >
                       <td style={{ padding: '6px 10px', color: colors.textMuted, fontSize: 10 }}>

@@ -25,7 +25,7 @@ function TableCard({ table, isActive, onClick, index }: {
       onClick={onClick}
       style={{
         ...animDelay(index),
-        background: isActive ? 'rgba(0, 229, 255, 0.08)' : colors.gradientCard,
+        background: isActive ? 'rgba(255, 255, 255, 0.08)' : colors.gradientCard,
         border: `1px solid ${isActive ? colors.borderHover : colors.border}`,
         borderRadius: 8,
         padding: '10px 14px',
@@ -50,7 +50,7 @@ function TableCard({ table, isActive, onClick, index }: {
         fontFamily: fonts.mono,
         fontSize: 10,
         color: colors.textMuted,
-        background: 'rgba(0, 229, 255, 0.05)',
+        background: 'rgba(255, 255, 255, 0.05)',
         padding: '2px 8px',
         borderRadius: 10,
       }}>
@@ -103,7 +103,7 @@ function DataTable({ data, columns }: { data: Record<string, unknown>[]; columns
           {data.map((row, i) => (
             <tr key={i} style={{
               borderBottom: `1px solid ${colors.border}`,
-              background: i % 2 === 0 ? 'transparent' : 'rgba(0, 229, 255, 0.015)',
+              background: i % 2 === 0 ? 'transparent' : 'rgba(255, 255, 255, 0.015)',
             }}>
               {columns.map(col => (
                 <td key={col} style={{
@@ -250,7 +250,7 @@ export default function Database() {
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              background: 'rgba(0, 229, 255, 0.02)',
+              background: 'rgba(255, 255, 255, 0.02)',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <span style={{
@@ -317,7 +317,7 @@ function PagButton({ label, disabled, onClick }: { label: string; disabled: bool
       onClick={onClick}
       disabled={disabled}
       style={{
-        background: disabled ? 'transparent' : 'rgba(0, 229, 255, 0.06)',
+        background: disabled ? 'transparent' : 'rgba(255, 255, 255, 0.06)',
         border: `1px solid ${disabled ? colors.border : colors.borderLight}`,
         borderRadius: 4,
         padding: '4px 10px',

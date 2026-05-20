@@ -20,7 +20,7 @@ interface SignalData {
   effective_weight: number
 }
 
-const palette = ['#00ff88', '#00e5ff', '#ffaa00', '#8b5cf6', '#06b6d4']
+const palette = ['#00ff88', '#ffffff', '#ffaa00', '#b8b8b8', '#06b6d4']
 
 export default function SignalRadar({ signals, marketPrice }: { signals: SignalData[]; marketPrice: number }) {
   const usable = signals.filter(s => s.probability != null && s.confidence > 0)

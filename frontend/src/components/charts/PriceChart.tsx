@@ -30,7 +30,7 @@ export default function PriceChart({ data, target }: { data: PricePoint[]; targe
               label: 'Price',
               data: data.map(d => d.price),
               borderColor: colors.accent,
-              backgroundColor: 'rgba(0, 229, 255, 0.08)',
+              backgroundColor: 'rgba(255, 255, 255, 0.08)',
               fill: true,
               pointRadius: 0,
               pointHoverRadius: 4,

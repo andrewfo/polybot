@@ -14,9 +14,9 @@ interface MatchedMarket {
 }
 
 const platformColors: Record<string, string> = {
-  manifold: '#8b5cf6',
+  manifold: '#b8b8b8',
   kalshi: '#ffaa00',
-  polymarket: '#00e5ff',
+  polymarket: '#ffffff',
 }
 
 export default function CrossPlatformBars({
