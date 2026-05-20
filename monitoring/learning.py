@@ -623,14 +623,15 @@ def analyze_cost_effectiveness() -> CostEffectivenessReport:
             else:
                 report.cheap_cost += cost
 
-        # Trade counts
+        # Trade counts — sourced from trades.pnl (positions.realized_pnl is
+        # cleared on reopen, so it would undercount).
         trade_count_rows = list(d.execute(
-            "SELECT COUNT(*) FROM positions WHERE status = 'closed'"
+            "SELECT COUNT(*) FROM trades WHERE pnl IS NOT NULL"
         ).fetchall())
         total_trades = int(trade_count_rows[0][0]) if trade_count_rows else 0
 
         profitable_rows = list(d.execute(
-            "SELECT COUNT(*) FROM positions WHERE status = 'closed' AND unrealized_pnl > 0"
+            "SELECT COUNT(*) FROM trades WHERE pnl IS NOT NULL AND pnl > 0"
         ).fetchall())
         profitable_trades = int(profitable_rows[0][0]) if profitable_rows else 0
 
@@ -1128,18 +1129,16 @@ def _record_change_snapshot(
 
 
 def _compute_window_metrics(start_iso: str, end_iso: str) -> dict[str, float]:
-    """Compute win_rate, edge_efficiency, profit_factor for positions closed in [start, end]."""
+    """Compute win_rate, edge_efficiency, profit_factor for trades closed in [start, end]."""
     d = db.get_db()
     try:
         rows = list(d.execute(
             """
-            SELECT COALESCE(p.realized_pnl, p.unrealized_pnl) as rpnl,
-                   fd.edge, fd.bet_size_usd
-            FROM positions p
-            LEFT JOIN frontier_decisions fd ON p.market_id = fd.market_id AND fd.should_trade = 1
-            WHERE p.status = 'closed'
-                  AND p.last_updated >= ? AND p.last_updated < ?
-                  AND COALESCE(p.realized_pnl, p.unrealized_pnl) IS NOT NULL
+            SELECT t.pnl as rpnl, fd.edge, fd.bet_size_usd
+            FROM trades t
+            LEFT JOIN frontier_decisions fd ON t.market_id = fd.market_id AND fd.should_trade = 1
+            WHERE t.pnl IS NOT NULL
+                  AND t.closed_at >= ? AND t.closed_at < ?
             """,
             [start_iso, end_iso],
         ).fetchall())

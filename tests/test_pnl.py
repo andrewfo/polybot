@@ -25,13 +25,16 @@ def seed_trades():
     trades = [
         {"id": "t1", "market_id": "m1", "token_id": "tok1", "side": "BUY_YES",
          "price": 0.50, "size": 20, "timestamp": now.isoformat(),
-         "status": "FILLED", "fill_price": 0.50, "pnl": 5.0, "paper": 1},
+         "status": "FILLED", "fill_price": 0.50, "pnl": 5.0, "paper": 1,
+         "closed_at": now.isoformat()},
         {"id": "t2", "market_id": "m2", "token_id": "tok2", "side": "BUY_NO",
          "price": 0.40, "size": 30, "timestamp": now.isoformat(),
-         "status": "FILLED", "fill_price": 0.40, "pnl": -3.0, "paper": 1},
+         "status": "FILLED", "fill_price": 0.40, "pnl": -3.0, "paper": 1,
+         "closed_at": now.isoformat()},
         {"id": "t3", "market_id": "m3", "token_id": "tok3", "side": "BUY_YES",
          "price": 0.60, "size": 10, "timestamp": (now - timedelta(days=10)).isoformat(),
-         "status": "FILLED", "fill_price": 0.60, "pnl": 8.0, "paper": 1},
+         "status": "FILLED", "fill_price": 0.60, "pnl": 8.0, "paper": 1,
+         "closed_at": (now - timedelta(days=10)).isoformat()},
     ]
     for t in trades:
         database["trades"].insert(t)

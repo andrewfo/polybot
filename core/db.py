@@ -639,18 +639,17 @@ def snapshot_bankroll(
 
 
 def get_daily_pnl() -> float:
-    """Return realized P&L for positions closed today (UTC).
+    """Return realized P&L for trades closed today (UTC).
 
-    Reads from ``positions.realized_pnl`` (authoritative for paper trades —
-    ``trades.pnl`` is not reliably populated). Uses ``last_updated`` as the
-    close timestamp since it is set by ``close_position()``.
+    Reads from ``trades.pnl`` (set by ``close_position()`` on the matching
+    FILLED buy trade). This preserves the full history across reopen cycles —
+    ``positions.realized_pnl`` is overwritten when a token's position reopens.
     """
     db = get_db()
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     rows = list(db.execute(
-        "SELECT COALESCE(SUM(realized_pnl), 0) as total FROM positions "
-        "WHERE status = 'closed' AND realized_pnl IS NOT NULL "
-        "AND last_updated LIKE ?",
+        "SELECT COALESCE(SUM(pnl), 0) as total FROM trades "
+        "WHERE pnl IS NOT NULL AND closed_at LIKE ?",
         [f"{today}%"],
     ).fetchall())
     return float(rows[0][0]) if rows else 0.0
@@ -659,13 +658,14 @@ def get_daily_pnl() -> float:
 def get_total_pnl() -> float:
     """Return total realized P&L across all time.
 
-    Reads from ``positions.realized_pnl`` (authoritative for paper trades) so
-    the Performance card agrees with ``get_paper_balance()``.
+    Sums ``trades.pnl`` over every closed trade. ``positions.realized_pnl`` is
+    not authoritative because ``upsert_position`` resets it to NULL whenever a
+    token is re-entered after a previous close.
     """
     db = get_db()
     rows = list(db.execute(
-        "SELECT COALESCE(SUM(realized_pnl), 0) as total FROM positions "
-        "WHERE status = 'closed' AND realized_pnl IS NOT NULL"
+        "SELECT COALESCE(SUM(pnl), 0) as total FROM trades "
+        "WHERE pnl IS NOT NULL"
     ).fetchall())
     return float(rows[0][0]) if rows else 0.0
 
@@ -676,18 +676,13 @@ def get_paper_balance(starting_bankroll: float) -> dict[str, float]:
     Returns dict with starting_balance, realized_pnl, deployed_capital,
     unrealized_pnl, available_cash, total_value.
 
-    Realized PnL comes from closed positions (where close_position() stores it).
-    This is the authoritative source for paper trades — trades.pnl is not
-    reliably set for paper trades.
+    Realized PnL is summed from ``trades.pnl`` (populated by
+    ``close_position()``). Reading from positions undercounts because
+    ``upsert_position`` clears ``realized_pnl`` when a token is re-entered.
     """
     db = get_db()
 
-    # Realized PnL from closed positions (authoritative for paper trades)
-    closed_rows = list(db.execute(
-        "SELECT COALESCE(SUM(realized_pnl), 0) FROM positions "
-        "WHERE status = 'closed' AND realized_pnl IS NOT NULL"
-    ).fetchall())
-    realized_pnl = float(closed_rows[0][0]) if closed_rows else 0.0
+    realized_pnl = get_total_pnl()
 
     positions = get_open_positions()
     deployed_capital = sum(p["size"] * p["avg_entry"] for p in positions)

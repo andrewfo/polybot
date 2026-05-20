@@ -1323,13 +1323,13 @@ def create_app() -> FastAPI:
             except Exception:
                 pass
 
-            # Win rate from closed positions (authoritative for paper trades)
+            # Win rate from closed trades — positions.realized_pnl is reset on
+            # reopen, so trades.pnl is the only complete history.
             trade_count = 0
             win_count = 0
             try:
                 rows = list(db.execute(
-                    "SELECT realized_pnl FROM positions "
-                    "WHERE status = 'closed' AND realized_pnl IS NOT NULL"
+                    "SELECT pnl FROM trades WHERE pnl IS NOT NULL"
                 ).fetchall())
                 trade_count = len(rows)
                 win_count = sum(1 for r in rows if r[0] > 0)
