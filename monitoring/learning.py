@@ -1282,7 +1282,7 @@ async def update_skipped_resolutions() -> int:
                 try:
                     async with session.get(
                         "https://gamma-api.polymarket.com/markets",
-                        params={"id": gamma_id},
+                        params={"id": gamma_id, "closed": "true"},
                     ) as resp:
                         if resp.status != 200:
                             continue

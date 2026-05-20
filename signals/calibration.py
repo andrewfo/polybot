@@ -313,7 +313,7 @@ async def check_and_record_resolutions() -> int:
                 try:
                     async with session.get(
                         GAMMA_MARKET_URL,
-                        params={"id": gamma_id},
+                        params={"id": gamma_id, "closed": "true"},
                     ) as resp:
                         if resp.status != 200:
                             continue
@@ -377,6 +377,8 @@ async def _batch_resolve_closed(
                     "closed": "true",
                     "limit": "100",
                     "offset": str(page * 100),
+                    "order": "closedTime",
+                    "ascending": "false",
                 },
             ) as resp:
                 if resp.status != 200:
