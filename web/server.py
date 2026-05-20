@@ -1112,7 +1112,7 @@ def create_app() -> FastAPI:
         if _session_holder["session"]:
             await _session_holder["session"].close()
 
-    app = FastAPI(title="Polymarket Bot", lifespan=lifespan)
+    app = FastAPI(title="Polybot", lifespan=lifespan)
 
     # CORS for dev mode (Vite on :5173)
     app.add_middleware(

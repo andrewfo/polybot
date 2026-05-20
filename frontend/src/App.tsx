@@ -213,7 +213,7 @@ function TickerBar() {
       color: colors.textMuted,
       letterSpacing: '0.05em',
     }}>
-      <span>CRYPTO AI SLAVE 3000 v1.0</span>
+      <span>POLYBOT v1.0</span>
       <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
         <span>{time.toISOString().slice(0, 19).replace('T', ' ')} UTC</span>
         <span style={{ color: colors.accent, animation: 'textGlow 3s ease-in-out infinite' }}>ACTIVE</span>
@@ -286,13 +286,13 @@ export default function App() {
                 WebkitBackgroundClip: 'text',
                 WebkitTextFillColor: 'transparent',
               }}>
-                Crypto AI Slave 3000
+                Polybot
               </span>
               <span style={{
                 color: colors.textDim, fontSize: 11, marginLeft: 12,
                 fontFamily: fonts.mono, letterSpacing: '0.04em',
               }}>
-                CRYPTO AI SLAVE 3000
+                POLYBOT
               </span>
             </div>
           </div>
