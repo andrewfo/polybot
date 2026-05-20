@@ -51,11 +51,15 @@ export const fonts = {
 }
 
 export const cardStyle: React.CSSProperties = {
-  background: colors.gradientCard,
-  border: `1px solid ${colors.border}`,
-  borderRadius: 10,
+  background:
+    'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.015) 40%, rgba(0,0,0,0.20) 100%), rgba(10, 18, 36, 0.42)',
+  border: '1px solid rgba(255, 255, 255, 0.08)',
+  borderRadius: 14,
   padding: 20,
-  backdropFilter: 'blur(16px)',
+  backdropFilter: 'blur(28px) saturate(180%)',
+  WebkitBackdropFilter: 'blur(28px) saturate(180%)',
+  boxShadow:
+    'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.35), 0 12px 40px rgba(0,0,0,0.45), 0 2px 10px rgba(0,229,255,0.05)',
   transition: 'border-color 0.3s ease, box-shadow 0.3s ease, transform 0.25s ease',
   position: 'relative',
   overflow: 'hidden',

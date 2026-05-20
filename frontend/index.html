@@ -37,25 +37,110 @@
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
         overflow-x: hidden;
+        position: relative;
       }
 
-      /* Animated grid background */
+      /* ---- Liquid aurora background ---- */
+      /* Layer 1: slow-flowing colored aurora blobs (mix-blend-mode for color bleed) */
       body::before {
         content: '';
         position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background-image:
-          linear-gradient(rgba(0, 229, 255, 0.015) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(0, 229, 255, 0.015) 1px, transparent 1px);
-        background-size: 60px 60px;
-        animation: gridShift 20s linear infinite;
-        pointer-events: none;
+        inset: 0;
         z-index: 0;
+        pointer-events: none;
+        background:
+          radial-gradient(60vmax 50vmax at 12% 8%,  rgba(0, 229, 255, 0.22) 0%, transparent 55%),
+          radial-gradient(55vmax 45vmax at 88% 18%, rgba(0, 112, 255, 0.20) 0%, transparent 55%),
+          radial-gradient(50vmax 45vmax at 78% 92%, rgba(139, 92, 246, 0.18) 0%, transparent 55%),
+          radial-gradient(45vmax 40vmax at 18% 86%, rgba(0, 255, 170, 0.10) 0%, transparent 55%),
+          radial-gradient(40vmax 35vmax at 50% 50%, rgba(255, 51, 130, 0.06) 0%, transparent 60%);
+        filter: blur(40px) saturate(160%);
+        animation: auroraDrift 28s ease-in-out infinite alternate;
+        will-change: transform, filter;
+      }
+
+      /* Layer 2: subtle grain + faint grid weave for texture */
+      body::after {
+        content: '';
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        background-image:
+          linear-gradient(rgba(0, 229, 255, 0.025) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(0, 229, 255, 0.025) 1px, transparent 1px),
+          url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.5 0'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.35'/></svg>");
+        background-size: 80px 80px, 80px 80px, 180px 180px;
+        animation: gridShift 30s linear infinite;
+        mix-blend-mode: overlay;
+        opacity: 0.55;
       }
 
       @keyframes gridShift {
-        0% { background-position: 0 0; }
-        100% { background-position: 60px 60px; }
+        0%   { background-position: 0 0, 0 0, 0 0; }
+        100% { background-position: 80px 80px, 80px 80px, 180px 180px; }
+      }
+
+      @keyframes auroraDrift {
+        0%   { transform: translate3d(0, 0, 0) scale(1);     filter: blur(40px) saturate(160%) hue-rotate(0deg); }
+        25%  { transform: translate3d(-3%, 2%, 0) scale(1.08); filter: blur(48px) saturate(180%) hue-rotate(-12deg); }
+        50%  { transform: translate3d(2%, -2%, 0) scale(1.04); filter: blur(56px) saturate(170%) hue-rotate(8deg); }
+        75%  { transform: translate3d(4%, 3%, 0) scale(1.1);   filter: blur(44px) saturate(190%) hue-rotate(18deg); }
+        100% { transform: translate3d(-2%, -3%, 0) scale(1.02); filter: blur(40px) saturate(160%) hue-rotate(-6deg); }
+      }
+
+      /* ---- Liquid glass utility ---- */
+      .liquid-glass {
+        position: relative;
+        background:
+          linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.015) 40%, rgba(0,0,0,0.18) 100%),
+          rgba(10, 18, 36, 0.42);
+        backdrop-filter: blur(28px) saturate(180%);
+        -webkit-backdrop-filter: blur(28px) saturate(180%);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 14px;
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.12),
+          inset 0 -1px 0 rgba(0, 0, 0, 0.35),
+          0 12px 40px rgba(0, 0, 0, 0.45),
+          0 2px 10px rgba(0, 229, 255, 0.05);
+        overflow: hidden;
+      }
+      /* Specular highlight sheen at the top edge */
+      .liquid-glass::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0) 22%);
+        pointer-events: none;
+        z-index: 0;
+      }
+      /* Slow-moving diagonal shine */
+      .liquid-glass::after {
+        content: '';
+        position: absolute;
+        top: -50%; left: -50%;
+        width: 200%; height: 200%;
+        background: linear-gradient(115deg,
+          transparent 38%,
+          rgba(0, 229, 255, 0.07) 47%,
+          rgba(255, 255, 255, 0.10) 50%,
+          rgba(0, 229, 255, 0.07) 53%,
+          transparent 62%);
+        transform: translateX(-30%);
+        animation: liquidShine 9s ease-in-out infinite;
+        pointer-events: none;
+        z-index: 0;
+        mix-blend-mode: screen;
+      }
+      .liquid-glass > * { position: relative; z-index: 1; }
+
+      @keyframes liquidShine {
+        0%, 100% { transform: translateX(-35%) translateY(-10%); opacity: 0.0; }
+        45%      { opacity: 0.9; }
+        50%      { transform: translateX(35%) translateY(10%); opacity: 0.9; }
+        55%      { opacity: 0.0; }
       }
 
       /* Scrollbars */

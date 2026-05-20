@@ -84,39 +84,52 @@ function useWebSocket() {
   return { botStatus, lastDiscovery, batchProgress }
 }
 
-/* Floating ambient orbs */
+/* Floating ambient orbs — liquid metaball drift */
 function AmbientBackground() {
   return (
     <div style={{
       position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
       pointerEvents: 'none', zIndex: 0, overflow: 'hidden',
+      filter: 'blur(8px)',
     }}>
-      {/* Cyan orb top-right */}
+      {/* Cyan plasma — top-right */}
       <div style={{
-        position: 'absolute', top: '-15%', right: '-8%',
-        width: 700, height: 700, borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(0,229,255,0.04) 0%, rgba(0,112,255,0.02) 40%, transparent 70%)',
-        animation: 'orbFloat 25s ease-in-out infinite',
+        position: 'absolute', top: '-18%', right: '-10%',
+        width: 780, height: 780, borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(0,229,255,0.22) 0%, rgba(0,112,255,0.10) 35%, transparent 70%)',
+        animation: 'orbFloat 22s ease-in-out infinite',
+        mixBlendMode: 'screen',
       }} />
-      {/* Purple orb bottom-left */}
+      {/* Violet plasma — bottom-left */}
       <div style={{
-        position: 'absolute', bottom: '-10%', left: '-5%',
-        width: 600, height: 600, borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(139,92,246,0.03) 0%, rgba(0,112,255,0.01) 40%, transparent 70%)',
+        position: 'absolute', bottom: '-12%', left: '-8%',
+        width: 720, height: 720, borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(139,92,246,0.18) 0%, rgba(0,112,255,0.08) 40%, transparent 72%)',
         animation: 'orbFloat 30s ease-in-out infinite reverse',
+        mixBlendMode: 'screen',
       }} />
-      {/* Green orb center-bottom */}
+      {/* Mint plasma — drifting center */}
       <div style={{
-        position: 'absolute', bottom: '20%', right: '30%',
-        width: 400, height: 400, borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(0,255,136,0.015) 0%, transparent 60%)',
-        animation: 'orbFloat 35s ease-in-out infinite',
-        animationDelay: '-10s',
+        position: 'absolute', top: '38%', left: '42%',
+        width: 520, height: 520, borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(0,255,170,0.10) 0%, rgba(0,229,255,0.05) 45%, transparent 70%)',
+        animation: 'orbFloat 36s ease-in-out infinite',
+        animationDelay: '-12s',
+        mixBlendMode: 'screen',
       }} />
-      {/* Gradient mesh overlay */}
+      {/* Magenta whisper — wandering */}
+      <div style={{
+        position: 'absolute', top: '60%', right: '15%',
+        width: 440, height: 440, borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(255,51,130,0.08) 0%, transparent 65%)',
+        animation: 'orbFloat 40s ease-in-out infinite reverse',
+        animationDelay: '-6s',
+        mixBlendMode: 'screen',
+      }} />
+      {/* Void vignette so cards still pop */}
       <div style={{
         position: 'absolute', inset: 0,
-        background: colors.gradientMesh,
+        background: 'radial-gradient(ellipse at center, transparent 0%, rgba(3,5,9,0.55) 90%)',
       }} />
     </div>
   )
@@ -170,11 +183,13 @@ export default function App() {
         {/* Micro ticker bar */}
         <TickerBar />
 
-        {/* Header */}
+        {/* Header — liquid glass */}
         <header style={{
-          background: 'rgba(6, 10, 20, 0.85)',
-          backdropFilter: 'blur(20px)',
-          borderBottom: `1px solid ${colors.border}`,
+          background: 'linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0) 60%), rgba(6, 10, 20, 0.55)',
+          backdropFilter: 'blur(28px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(28px) saturate(180%)',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.10), 0 8px 24px rgba(0,0,0,0.35)',
           padding: '12px 28px',
           display: 'flex',
           alignItems: 'center',
