@@ -16,18 +16,18 @@
         --bg-primary: #050505;
         --bg-card: #0a0a0a;
         --bg-card-hover: #111111;
-        --cyan: #ffffff;
-        --cyan-dim: rgba(255, 255, 255, 0.05);
-        --cyan-glow: rgba(255, 255, 255, 0.22);
-        --blue: #c8c8c8;
-        --neon-green: #d8ffd8;
-        --hot-red: #ff8898;
-        --amber: #ffd28a;
+        --cyan: #39ff14;
+        --cyan-dim: rgba(57, 255, 20, 0.10);
+        --cyan-glow: rgba(57, 255, 20, 0.45);
+        --blue: #39ff14;
+        --neon-green: #39ff14;
+        --hot-red: #ff2d55;
+        --amber: #ffcc00;
         --text-primary: #f2f2f2;
         --text-secondary: #999999;
         --text-muted: #666666;
-        --border: rgba(255, 255, 255, 0.06);
-        --border-hover: rgba(255, 255, 255, 0.18);
+        --border: rgba(57, 255, 20, 0.16);
+        --border-hover: rgba(57, 255, 20, 0.55);
       }
 
       body {
@@ -43,35 +43,8 @@
       /* ---- Pure black void ---- */
       html { background: #000000; }
 
-      /* Layer 1: barely-there silver glow pools — no color, just light */
-      body::before {
-        content: '';
-        position: fixed;
-        inset: -10%;
-        z-index: -2;
-        pointer-events: none;
-        background:
-          radial-gradient(55vmax 45vmax at 18% 12%, rgba(255, 255, 255, 0.045) 0%, transparent 60%),
-          radial-gradient(50vmax 40vmax at 82% 88%, rgba(255, 255, 255, 0.035) 0%, transparent 60%),
-          radial-gradient(40vmax 30vmax at 60% 40%, rgba(255, 255, 255, 0.020) 0%, transparent 65%);
-        filter: blur(40px);
-        animation: slowDrift 40s ease-in-out infinite alternate;
-        will-change: transform;
-      }
-
-      /* Layer 2: fine grain — adds physical texture to the void */
-      body::after {
-        content: '';
-        position: fixed;
-        inset: 0;
-        z-index: -1;
-        pointer-events: none;
-        background-image:
-          url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.45 0'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.4'/></svg>");
-        background-size: 220px 220px;
-        opacity: 0.25;
-        mix-blend-mode: overlay;
-      }
+      /* Pure black void — no glow pools, no grain */
+      body::before, body::after { content: none; display: none; }
 
       @keyframes slowDrift {
         0%   { transform: translate3d(0, 0, 0) scale(1); }
@@ -83,18 +56,18 @@
       .liquid-glass {
         position: relative;
         background:
-          linear-gradient(135deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 38%, rgba(0,0,0,0.40) 100%),
-          rgba(8, 8, 10, 0.55);
-        backdrop-filter: blur(36px) saturate(140%);
-        -webkit-backdrop-filter: blur(36px) saturate(140%);
-        border: 1px solid rgba(255, 255, 255, 0.09);
+          linear-gradient(135deg, rgba(57,255,20,0.05) 0%, rgba(255,204,0,0.02) 45%, rgba(0,0,0,0.55) 100%),
+          rgba(0, 0, 0, 0.72);
+        backdrop-filter: blur(28px) saturate(160%);
+        -webkit-backdrop-filter: blur(28px) saturate(160%);
+        border: 1px solid rgba(57, 255, 20, 0.22);
         border-radius: 18px;
         box-shadow:
-          inset 0 1px 0 rgba(255, 255, 255, 0.14),
-          inset 0 -1px 0 rgba(0, 0, 0, 0.55),
-          inset 0 0 0 1px rgba(255, 255, 255, 0.015),
-          0 18px 50px rgba(0, 0, 0, 0.65),
-          0 2px 12px rgba(0, 0, 0, 0.5);
+          inset 0 1px 0 rgba(57, 255, 20, 0.18),
+          inset 0 -1px 0 rgba(0, 0, 0, 0.65),
+          0 0 0 1px rgba(255, 204, 0, 0.05),
+          0 18px 50px rgba(0, 0, 0, 0.85),
+          0 0 24px rgba(57, 255, 20, 0.08);
         overflow: hidden;
       }
       /* Top-edge specular highlight — the meniscus of glass */
@@ -139,9 +112,9 @@
       /* Scrollbars */
       ::-webkit-scrollbar { width: 4px; height: 4px; }
       ::-webkit-scrollbar-track { background: transparent; }
-      ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 2px; }
-      ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28); }
-      ::selection { background: rgba(255, 255, 255, 0.20); color: #fff; }
+      ::-webkit-scrollbar-thumb { background: rgba(57, 255, 20, 0.35); border-radius: 2px; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(57, 255, 20, 0.7); }
+      ::selection { background: rgba(57, 255, 20, 0.35); color: #000; }
 
       /* Global animations */
       @keyframes fadeInUp {
@@ -175,8 +148,8 @@
       }
 
       @keyframes textGlow {
-        0%, 100% { text-shadow: 0 0 8px rgba(255, 255, 255, 0.3); }
-        50% { text-shadow: 0 0 16px rgba(255, 255, 255, 0.6), 0 0 32px rgba(255, 255, 255, 0.18); }
+        0%, 100% { text-shadow: 0 0 8px rgba(57, 255, 20, 0.45); }
+        50% { text-shadow: 0 0 16px rgba(57, 255, 20, 0.85), 0 0 32px rgba(255, 204, 0, 0.35); }
       }
 
       @keyframes orbFloat {
@@ -231,12 +204,13 @@
       .liquid-glass { transition: transform 0.35s cubic-bezier(0.2,0.8,0.2,1), box-shadow 0.35s ease, border-color 0.35s ease; }
       .liquid-glass:hover {
         transform: translateY(-3px);
-        border-color: rgba(255, 255, 255, 0.22);
+        border-color: rgba(57, 255, 20, 0.65);
         box-shadow:
-          inset 0 1px 0 rgba(255, 255, 255, 0.20),
-          inset 0 -1px 0 rgba(0, 0, 0, 0.55),
-          0 28px 72px rgba(0, 0, 0, 0.70),
-          0 0 36px rgba(255, 255, 255, 0.10);
+          inset 0 1px 0 rgba(57, 255, 20, 0.30),
+          inset 0 -1px 0 rgba(0, 0, 0, 0.65),
+          0 28px 72px rgba(0, 0, 0, 0.80),
+          0 0 36px rgba(57, 255, 20, 0.30),
+          0 0 64px rgba(255, 204, 0, 0.10);
       }
 
       @keyframes glitchSlice {
@@ -250,8 +224,8 @@
       /* Focus styles */
       input:focus, select:focus {
         outline: none;
-        border-color: rgba(255,255,255,0.45) !important;
-        box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.10), 0 0 20px rgba(255, 255, 255, 0.06);
+        border-color: rgba(57, 255, 20, 0.7) !important;
+        box-shadow: 0 0 0 2px rgba(57, 255, 20, 0.22), 0 0 20px rgba(255, 204, 0, 0.15);
       }
 
       /* Button hover glow */

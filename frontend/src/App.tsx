@@ -84,39 +84,7 @@ function useWebSocket() {
   return { botStatus, lastDiscovery, batchProgress }
 }
 
-/* Drifting starfield — sparse white specks against the void */
-function Starfield() {
-  const stars = Array.from({ length: 40 }, (_, i) => {
-    const seed = (i * 9301 + 49297) % 233280
-    const left = (seed / 233280) * 100
-    const top = ((seed * 7) % 233280) / 233280 * 100
-    const size = 1 + (i % 3)
-    const dur = 4 + (i % 8)
-    const delay = (i % 9) * 0.4
-    return (
-      <div key={i} style={{
-        position: 'absolute',
-        left: `${left}%`, top: `${top}%`,
-        width: size, height: size,
-        borderRadius: '50%',
-        background: '#ffffff',
-        boxShadow: '0 0 4px rgba(255,255,255,0.55)',
-        opacity: 0,
-        animation: `twinkle ${dur}s ease-in-out ${delay}s infinite`,
-      }} />
-    )
-  })
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, pointerEvents: 'none',
-      zIndex: 0, overflow: 'hidden',
-    }}>
-      {stars}
-    </div>
-  )
-}
-
-/* Cursor-following soft glow — white halo, no color */
+/* Cursor-following neon halo — profit-green tint */
 function CursorGlow() {
   const ref = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
@@ -133,7 +101,7 @@ function CursorGlow() {
       position: 'fixed', top: 0, left: 0,
       width: 440, height: 440, pointerEvents: 'none',
       zIndex: 0,
-      background: 'radial-gradient(circle, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.025) 35%, transparent 70%)',
+      background: 'radial-gradient(circle, rgba(57,255,20,0.10) 0%, rgba(255,204,0,0.04) 40%, transparent 70%)',
       mixBlendMode: 'screen',
       transition: 'transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1)',
       willChange: 'transform',
@@ -186,7 +154,6 @@ export default function App() {
       fontFamily: fonts.body,
       position: 'relative',
     }}>
-      <Starfield />
       <CursorGlow />
 
       <div style={{ position: 'relative', zIndex: 1 }}>
@@ -212,11 +179,11 @@ export default function App() {
             {/* Animated logo */}
             <div style={{
               width: 36, height: 36, borderRadius: 8,
-              background: colors.gradientAccent,
+              background: 'linear-gradient(135deg, #39ff14 0%, #ffcc00 55%, #ff2d55 100%)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 16, fontWeight: 800, color: '#000',
               fontFamily: fonts.display,
-              boxShadow: glowShadowCSS(colors.accent, 0.25),
+              boxShadow: '0 0 20px rgba(57,255,20,0.55), 0 0 36px rgba(255,204,0,0.25)',
               position: 'relative',
               overflow: 'hidden',
             }}>
@@ -233,9 +200,11 @@ export default function App() {
               <span style={{
                 fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em',
                 fontFamily: fonts.display,
-                background: colors.gradientAccent,
+                background: 'linear-gradient(90deg, #39ff14 0%, #ffcc00 50%, #ff2d55 100%)',
                 WebkitBackgroundClip: 'text',
                 WebkitTextFillColor: 'transparent',
+                textShadow: '0 0 24px rgba(57,255,20,0.35)',
+                filter: 'drop-shadow(0 0 10px rgba(57,255,20,0.35))',
               }}>
                 Polybot
               </span>

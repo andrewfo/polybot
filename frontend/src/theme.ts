@@ -14,32 +14,32 @@ export const colors = {
   textMuted: '#666666',
   textDim: '#3a3a3a',
 
-  // Accent — white/silver only (no color)
-  accent: '#ffffff',
-  accentLight: '#ffffff',
-  accentDim: 'rgba(255, 255, 255, 0.06)',
-  accentMid: 'rgba(255, 255, 255, 0.12)',
-  blue: '#c8c8c8',
-  purple: '#a8a8a8',
+  // Accent — neon profit green
+  accent: '#39ff14',
+  accentLight: '#7fff5e',
+  accentDim: 'rgba(57, 255, 20, 0.08)',
+  accentMid: 'rgba(57, 255, 20, 0.18)',
+  blue: '#39ff14',
+  purple: '#ffcc00',
 
-  // Semantic — desaturated near-monochrome
-  success: '#cfeed3',
-  successDim: 'rgba(207, 238, 211, 0.08)',
-  danger: '#ff8898',
-  dangerDim: 'rgba(255, 136, 152, 0.08)',
-  warning: '#ffd28a',
-  warningDim: 'rgba(255, 210, 138, 0.08)',
+  // Semantic — neon profit palette
+  success: '#39ff14',
+  successDim: 'rgba(57, 255, 20, 0.10)',
+  danger: '#ff2d55',
+  dangerDim: 'rgba(255, 45, 85, 0.10)',
+  warning: '#ffcc00',
+  warningDim: 'rgba(255, 204, 0, 0.10)',
 
-  // Borders — white at varying alphas
-  border: 'rgba(255, 255, 255, 0.06)',
-  borderLight: 'rgba(255, 255, 255, 0.12)',
-  borderHover: 'rgba(255, 255, 255, 0.22)',
+  // Borders — neon green at varying alphas
+  border: 'rgba(57, 255, 20, 0.14)',
+  borderLight: 'rgba(255, 204, 0, 0.22)',
+  borderHover: 'rgba(57, 255, 20, 0.55)',
 
-  // Gradients — silver/pearl, no hue
-  gradientAccent: 'linear-gradient(135deg, #ffffff 0%, #9a9a9a 100%)',
-  gradientAccentHover: 'linear-gradient(135deg, #ffffff 0%, #c8c8c8 100%)',
-  gradientSuccess: 'linear-gradient(135deg, #e6f5e8 0%, #b8d4bc 100%)',
-  gradientDanger: 'linear-gradient(135deg, #ff8898 0%, #c66c78 100%)',
+  // Gradients — neon profit
+  gradientAccent: 'linear-gradient(135deg, #39ff14 0%, #ffcc00 100%)',
+  gradientAccentHover: 'linear-gradient(135deg, #7fff5e 0%, #ffcc00 100%)',
+  gradientSuccess: 'linear-gradient(135deg, #39ff14 0%, #00b86b 100%)',
+  gradientDanger: 'linear-gradient(135deg, #ff2d55 0%, #b81444 100%)',
   gradientCard: 'linear-gradient(145deg, rgba(12, 12, 14, 0.92) 0%, rgba(4, 4, 5, 0.96) 100%)',
   gradientMesh: 'radial-gradient(ellipse at 20% 50%, rgba(255, 255, 255, 0.025) 0%, transparent 50%), radial-gradient(ellipse at 80% 20%, rgba(255, 255, 255, 0.018) 0%, transparent 50%), radial-gradient(ellipse at 50% 80%, rgba(255, 255, 255, 0.012) 0%, transparent 50%)',
 }
@@ -52,14 +52,14 @@ export const fonts = {
 
 export const cardStyle: React.CSSProperties = {
   background:
-    'linear-gradient(135deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 38%, rgba(0,0,0,0.40) 100%), rgba(8, 8, 10, 0.55)',
-  border: '1px solid rgba(255, 255, 255, 0.09)',
+    'linear-gradient(135deg, rgba(57,255,20,0.05) 0%, rgba(255,204,0,0.02) 45%, rgba(0,0,0,0.55) 100%), rgba(0, 0, 0, 0.72)',
+  border: '1px solid rgba(57, 255, 20, 0.22)',
   borderRadius: 18,
   padding: 20,
-  backdropFilter: 'blur(36px) saturate(140%)',
-  WebkitBackdropFilter: 'blur(36px) saturate(140%)',
+  backdropFilter: 'blur(28px) saturate(160%)',
+  WebkitBackdropFilter: 'blur(28px) saturate(160%)',
   boxShadow:
-    'inset 0 1px 0 rgba(255,255,255,0.14), inset 0 -1px 0 rgba(0,0,0,0.55), 0 18px 50px rgba(0,0,0,0.65), 0 2px 12px rgba(0,0,0,0.5)',
+    'inset 0 1px 0 rgba(57,255,20,0.18), inset 0 -1px 0 rgba(0,0,0,0.65), 0 18px 50px rgba(0,0,0,0.85), 0 0 24px rgba(57,255,20,0.08)',
   transition: 'border-color 0.3s ease, box-shadow 0.3s ease, transform 0.25s ease',
   position: 'relative',
   overflow: 'hidden',
