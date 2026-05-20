@@ -770,15 +770,35 @@ export default function Trades() {
                     const ep = t.fill_price ?? t.price
                     const cost = t.size * ep
                     const maxGain = t.size - cost
+                    const cp = t.current_price
+                    const upnl = t.unrealized_pnl
+                    const liveOpen = cp != null && upnl != null
+                    const liveColor = liveOpen
+                      ? (upnl > 0 ? colors.success : upnl < 0 ? colors.danger : colors.textMuted)
+                      : colors.textDim
+                    const livePct = liveOpen && ep > 0 ? ((cp - ep) / ep) * 100 : 0
                     return (
                       <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 11, fontWeight: 600, color: colors.textPrimary, fontFamily: fonts.mono }}>
                           {fmtUsd(cost)}
                         </span>
                         <span style={{ fontSize: 9, color: colors.textDim, fontFamily: fonts.mono }}>
-                          @ {fmt(ep, 3)}
+                          {fmt(ep, 3)}
+                          {liveOpen && (
+                            <>
+                              <span style={{ margin: '0 4px', color: liveColor }}>→</span>
+                              <span style={{ color: liveColor, fontWeight: 600 }}>{fmt(cp, 3)}</span>
+                            </>
+                          )}
                         </span>
-                        {ep > 0 && ep < 1 && (
+                        {liveOpen ? (
+                          <span style={{ fontSize: 10, color: liveColor, fontFamily: fonts.mono, fontWeight: 600 }}>
+                            {upnl >= 0 ? '+' : ''}{fmtUsd(upnl)}
+                            <span style={{ color: colors.textDim, fontSize: 9, marginLeft: 3 }}>
+                              ({livePct >= 0 ? '+' : ''}{livePct.toFixed(1)}%)
+                            </span>
+                          </span>
+                        ) : ep > 0 && ep < 1 && (
                           <span style={{ fontSize: 10, color: colors.success, fontFamily: fonts.mono }}>
                             +{fmtUsd(maxGain)}
                             <span style={{ color: colors.textDim, fontSize: 9, marginLeft: 3 }}>
@@ -786,7 +806,7 @@ export default function Trades() {
                             </span>
                           </span>
                         )}
-                        {/* Mini price bar */}
+                        {/* Mini price bar with entry + current markers */}
                         <div style={{
                           flex: 1, minWidth: 60, height: 4,
                           background: 'rgba(255,255,255,0.04)', borderRadius: 2,
@@ -797,6 +817,13 @@ export default function Trades() {
                             background: t.side.toUpperCase().includes('YES') ? colors.success : colors.danger,
                             opacity: 0.5,
                           }} />
+                          {liveOpen && (
+                            <div style={{
+                              position: 'absolute', left: `${cp * 100}%`, top: -1, bottom: -1,
+                              width: 2, background: liveColor,
+                              boxShadow: `0 0 4px ${liveColor}`,
+                            }} />
+                          )}
                         </div>
                       </div>
                     )

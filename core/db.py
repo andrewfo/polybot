@@ -378,6 +378,20 @@ def _enrich_trades_with_resolution(trades: list[dict[str, Any]]) -> list[dict[st
     for trade in trades:
         pos = positions_by_token.get(trade.get("token_id", ""))
         trade["resolution_status"] = _compute_resolution_status(trade, pos)
+        # Surface live position state so the frontend can show entry→current and
+        # the running win/loss amount without a second round-trip.
+        if pos and (pos.get("status") or "open") != "closed":
+            entry = trade.get("fill_price") or trade.get("price") or 0
+            current = pos.get("current_price")
+            size = pos.get("size") or trade.get("size") or 0
+            trade["current_price"] = current
+            if current is not None and entry > 0:
+                trade["unrealized_pnl"] = (current - entry) * size
+            else:
+                trade["unrealized_pnl"] = None
+        else:
+            trade["current_price"] = None
+            trade["unrealized_pnl"] = None
     return trades
 
 

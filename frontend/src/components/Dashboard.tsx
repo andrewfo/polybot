@@ -1034,7 +1034,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
               <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: '0 3px', fontSize: 12 }}>
                 <thead>
                   <tr>
-                    {['Market', 'Side', 'Size', 'Entry', 'Current', 'Cost', 'Max Gain', 'P&L', 'Opened'].map(h => (
+                    {['Market', 'Side', 'Size', 'Entry → Current', 'Cost', 'Max Gain', 'P&L', 'Opened'].map(h => (
                       <th key={h} style={{
                         padding: '8px 12px', textAlign: h === 'Market' || h === 'Side' || h === 'Opened' ? 'left' : 'right',
                         color: colors.textDim, fontWeight: 500, fontSize: 10,
@@ -1099,11 +1099,10 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                         <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
                           {p.size.toFixed(1)}
                         </td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
-                          ${p.avg_entry.toFixed(3)}
-                        </td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
-                          ${p.current_price.toFixed(3)}
+                        <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary, whiteSpace: 'nowrap' }}>
+                          <span>${p.avg_entry.toFixed(3)}</span>
+                          <span style={{ margin: '0 6px', color: pnlColor, fontWeight: 600 }}>→</span>
+                          <span style={{ color: pnlColor, fontWeight: 600 }}>${p.current_price.toFixed(3)}</span>
                         </td>
                         <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: fonts.mono, fontSize: 11, color: colors.textSecondary }}>
                           ${cost.toFixed(2)}
@@ -1123,14 +1122,21 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                           fontFamily: fonts.mono, fontSize: 11,
                         }}>
                           <span style={{
+                            display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end',
                             padding: '3px 8px', borderRadius: 4,
                             background: pnlBg, color: pnlColor, fontWeight: 600,
                             border: `1px solid ${pnlColor}15`,
                             textShadow: `0 0 10px ${pnlColor}30`,
+                            lineHeight: 1.2,
                           }}>
-                            {p.unrealized_pnl >= 0 ? '+' : ''}${p.unrealized_pnl.toFixed(2)}
-                            <span style={{ opacity: 0.7, fontSize: 9, marginLeft: 4 }}>
-                              {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(1)}%
+                            <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', opacity: 0.85 }}>
+                              {Math.abs(p.unrealized_pnl) < 0.01 ? 'FLAT' : p.unrealized_pnl > 0 ? 'WINNING' : 'LOSING'}
+                            </span>
+                            <span>
+                              {p.unrealized_pnl >= 0 ? '+' : ''}${p.unrealized_pnl.toFixed(2)}
+                              <span style={{ opacity: 0.7, fontSize: 9, marginLeft: 4 }}>
+                                {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(1)}%
+                              </span>
                             </span>
                           </span>
                         </td>
