@@ -79,16 +79,47 @@ function Card({ title, children, accent, style, index = 0 }: {
   )
 }
 
+function extractNumeric(v: string): number | null {
+  const m = v.replace(/,/g, '').match(/-?\d+(\.\d+)?/)
+  if (!m) return null
+  const n = parseFloat(m[0])
+  return Number.isFinite(n) ? n : null
+}
+
 function StatValue({ value, label, color, size = 'md' }: {
   value: string; label: string; color?: string; size?: 'sm' | 'md' | 'lg'
 }) {
   const fontSize = size === 'lg' ? 28 : size === 'md' ? 20 : 15
+  const prevRef = useRef<number | null>(null)
+  const [flash, setFlash] = useState<'up' | 'down' | 'neutral' | null>(null)
+  const numeric = extractNumeric(value)
+
+  useEffect(() => {
+    if (numeric == null) { prevRef.current = null; return }
+    const prev = prevRef.current
+    if (prev != null && numeric !== prev) {
+      setFlash(numeric > prev ? 'up' : 'down')
+      const id = setTimeout(() => setFlash(null), 900)
+      prevRef.current = numeric
+      return () => clearTimeout(id)
+    }
+    prevRef.current = numeric
+  }, [numeric])
+
+  const flashAnim =
+    flash === 'up' ? 'flashUp 0.9s ease-out'
+    : flash === 'down' ? 'flashDown 0.9s ease-out'
+    : flash === 'neutral' ? 'flashNeutral 0.9s ease-out'
+    : undefined
+
   return (
     <div>
       <div style={{
         fontSize, fontWeight: 600, color: color || colors.textPrimary,
         letterSpacing: '-0.02em', fontFamily: fonts.mono,
-        textShadow: color ? `0 0 20px ${color}33` : 'none',
+        textShadow: color ? `0 0 20px ${color}44` : 'none',
+        animation: flashAnim,
+        transition: 'color 0.3s ease',
       }}>
         {value}
       </div>
@@ -625,26 +656,37 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
               )
             })()}
             <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-              <StatValue
-                value={`${((pnlData?.win_rate ?? 0) * 100).toFixed(0)}%`}
-                label="Win Rate"
-                size="sm"
-              />
-              <div>
-                {/* Animated win rate bar */}
-                <div style={{
-                  width: 80, height: 4, background: 'rgba(255,51,102,0.15)', borderRadius: 2, overflow: 'hidden',
-                  position: 'relative',
-                }}>
+              {(() => {
+                const wr = pnlData?.win_rate ?? 0
+                const wrColor = wr >= 0.5 ? colors.success : wr >= 0.4 ? colors.warning : colors.danger
+                return (
+                  <StatValue
+                    value={`${(wr * 100).toFixed(0)}%`}
+                    label="Win Rate"
+                    color={wrColor}
+                    size="sm"
+                  />
+                )
+              })()}
+              {(() => {
+                const wr = pnlData?.win_rate ?? 0
+                const wrColor = wr >= 0.5 ? colors.success : wr >= 0.4 ? colors.warning : colors.danger
+                return (
+                <div>
+                  {/* Animated win rate bar */}
                   <div style={{
-                    height: '100%', borderRadius: 2,
-                    width: `${(pnlData?.win_rate ?? 0) * 100}%`,
-                    background: colors.gradientSuccess,
-                    transition: 'width 0.8s cubic-bezier(0.22, 1, 0.36, 1)',
-                    boxShadow: `0 0 8px ${colors.success}40`,
-                    transformOrigin: 'left',
-                  }} />
-                </div>
+                    width: 80, height: 4, background: `${wrColor}1a`, borderRadius: 2, overflow: 'hidden',
+                    position: 'relative',
+                  }}>
+                    <div style={{
+                      height: '100%', borderRadius: 2,
+                      width: `${wr * 100}%`,
+                      background: `linear-gradient(90deg, ${wrColor} 0%, ${wrColor}aa 100%)`,
+                      transition: 'width 0.8s cubic-bezier(0.22, 1, 0.36, 1), background 0.4s ease',
+                      boxShadow: `0 0 10px ${wrColor}88`,
+                      transformOrigin: 'left',
+                    }} />
+                  </div>
                 <div style={{
                   fontSize: 10, color: colors.textDim, marginTop: 3,
                   fontFamily: fonts.mono, letterSpacing: '0.04em',
@@ -652,6 +694,8 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                   of closed trades
                 </div>
               </div>
+                )
+              })()}
             </div>
           </div>
         </Card>
@@ -744,7 +788,10 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                 />
               </div>
               {/* Hit rate bar */}
-              {cycles.session_stats.markets_analyzed > 0 && (
+              {cycles.session_stats.markets_analyzed > 0 && (() => {
+                const hitRate = cycles.session_stats.trades_executed / cycles.session_stats.markets_analyzed
+                const hitColor = hitRate >= 0.15 ? colors.success : hitRate >= 0.05 ? colors.warning : colors.danger
+                return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                   <div style={{
                     display: 'flex', justifyContent: 'space-between',
@@ -752,24 +799,26 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                     textTransform: 'uppercase', letterSpacing: '0.06em',
                   }}>
                     <span>Trade Hit Rate</span>
-                    <span style={{ color: colors.textMuted }}>
-                      {((cycles.session_stats.trades_executed / cycles.session_stats.markets_analyzed) * 100).toFixed(0)}%
+                    <span style={{ color: hitColor, textShadow: `0 0 8px ${hitColor}66` }}>
+                      {(hitRate * 100).toFixed(0)}%
                     </span>
                   </div>
                   <div style={{
-                    width: '100%', height: 4, background: 'rgba(255,255,255,0.04)',
+                    width: '100%', height: 4, background: `${hitColor}14`,
                     borderRadius: 2, overflow: 'hidden',
                   }}>
                     <div style={{
                       height: '100%',
-                      width: `${(cycles.session_stats.trades_executed / cycles.session_stats.markets_analyzed) * 100}%`,
-                      background: colors.gradientSuccess,
-                      transition: 'width 0.8s cubic-bezier(0.22, 1, 0.36, 1)',
+                      width: `${hitRate * 100}%`,
+                      background: `linear-gradient(90deg, ${hitColor} 0%, ${hitColor}aa 100%)`,
+                      transition: 'width 0.8s cubic-bezier(0.22, 1, 0.36, 1), background 0.4s ease',
+                      boxShadow: `0 0 10px ${hitColor}88`,
                       borderRadius: 2,
                     }} />
                   </div>
                 </div>
-              )}
+                )
+              })()}
               {/* Funnel: discovered → analyzed → traded */}
               {cycles.session_stats.markets_discovered > 0 && (
                 <div style={{
