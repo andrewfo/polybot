@@ -632,7 +632,13 @@ class BotEngine:
                 pass
 
             # Still populate structured data so UI shows market info + signals
-            from signals.aggregator import SIGNAL_WEIGHT_MULTIPLIERS, _compute_effective_weight
+            from signals.aggregator import DEFAULT_SIGNAL_WEIGHT_MULTIPLIERS, _compute_effective_weight
+
+            multipliers = (
+                result.signal_weight_multipliers
+                if result is not None and result.signal_weight_multipliers
+                else DEFAULT_SIGNAL_WEIGHT_MULTIPLIERS
+            )
 
             skip_signals = []
             if result is not None:
@@ -645,8 +651,8 @@ class BotEngine:
                         "model_used": s.model_used,
                         "data_points": s.data_points,
                         "raw_data": s.raw_data,
-                        "effective_weight": round(_compute_effective_weight(s), 3) if s.probability is not None and s.confidence > 0 else 0,
-                        "base_multiplier": SIGNAL_WEIGHT_MULTIPLIERS.get(s.source, 1.0),
+                        "effective_weight": round(_compute_effective_weight(s, multipliers), 3) if s.probability is not None and s.confidence > 0 else 0,
+                        "base_multiplier": multipliers.get(s.source, 1.0),
                         "usable": s.probability is not None and s.confidence > 0,
                     })
 
@@ -729,12 +735,19 @@ class BotEngine:
             gas_cost_usd=gas_cost_for_kelly,
         )
 
-        # Depth analysis (always run for UI visibility, adjust trade if needed)
+        # Depth analysis (always run for UI visibility, adjust trade if needed).
+        # Use the token we'll actually trade — token_ids[1] for BUY_NO — so the
+        # slippage / depth floor reflects the right order book.
         depth_data: dict[str, Any] = {}
         if DEPTH_ANALYSIS_ENABLED and token_id:
+            if decision.side == "BUY_NO" and len(token_ids) > 1:
+                depth_token_id = token_ids[1]
+            else:
+                depth_token_id = token_ids[0] if token_ids else decision.token_id
+            decision.token_id = depth_token_id
             try:
                 depth = await analyze_depth(
-                    token_id=decision.token_id,
+                    token_id=depth_token_id,
                     side=decision.side,
                     bet_size_usd=max(decision.bet_size_usd, 1.0),
                 )
@@ -806,8 +819,10 @@ class BotEngine:
                 "paper": PAPER_TRADING,
             }
 
-        # Compute effective weights for each signal
-        from signals.aggregator import SIGNAL_WEIGHT_MULTIPLIERS, _compute_effective_weight
+        # Compute effective weights for each signal using THIS aggregation's
+        # multipliers (not a shared global — preserves per-cycle correctness).
+        from signals.aggregator import DEFAULT_SIGNAL_WEIGHT_MULTIPLIERS, _compute_effective_weight
+        multipliers = result.signal_weight_multipliers or DEFAULT_SIGNAL_WEIGHT_MULTIPLIERS
         import math as _math
 
         signal_probs = [
@@ -835,7 +850,7 @@ class BotEngine:
                 "market_price": market_price,
                 "total_data_points": result.total_data_points,
                 "signals_stdev": round(signals_stdev, 4),
-                "signal_weight_multipliers": {k: round(v, 2) for k, v in SIGNAL_WEIGHT_MULTIPLIERS.items()},
+                "signal_weight_multipliers": {k: round(v, 2) for k, v in multipliers.items()},
                 "signals": [
                     {
                         "source": s.source,
@@ -845,8 +860,8 @@ class BotEngine:
                         "model_used": s.model_used,
                         "data_points": s.data_points,
                         "raw_data": s.raw_data,
-                        "effective_weight": round(_compute_effective_weight(s), 3) if s.probability is not None and s.confidence > 0 else 0,
-                        "base_multiplier": SIGNAL_WEIGHT_MULTIPLIERS.get(s.source, 1.0),
+                        "effective_weight": round(_compute_effective_weight(s, multipliers), 3) if s.probability is not None and s.confidence > 0 else 0,
+                        "base_multiplier": multipliers.get(s.source, 1.0),
                         "usable": s.probability is not None and s.confidence > 0,
                     }
                     for s in (result.all_signals if result.all_signals else result.individual_signals)

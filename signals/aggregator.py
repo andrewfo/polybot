@@ -70,7 +70,9 @@ def _get_signal_weight_multipliers() -> dict[str, float]:
     return DEFAULT_SIGNAL_WEIGHT_MULTIPLIERS
 
 
-# Active multipliers — refreshed per aggregation cycle
+# Back-compat alias used by tests and the web UI display layer.
+# Never mutated — the multipliers used in any given aggregation are passed
+# explicitly through the call chain to avoid races under parallel aggregation.
 SIGNAL_WEIGHT_MULTIPLIERS: dict[str, float] = DEFAULT_SIGNAL_WEIGHT_MULTIPLIERS
 
 # MIN_FRONTIER_CONFIDENCE imported from config.settings
@@ -95,15 +97,23 @@ class AggregatedSignal:
     total_data_points: int = 0
     skipped: bool = False
     skip_reason: str = ""
+    signal_weight_multipliers: dict[str, float] = field(default_factory=dict)
 
 
-def _compute_effective_weight(signal: SignalResult) -> float:
+def _compute_effective_weight(
+    signal: SignalResult,
+    multipliers: dict[str, float] | None = None,
+) -> float:
     """Compute the effective weight for a signal in the preliminary estimate."""
-    multiplier = SIGNAL_WEIGHT_MULTIPLIERS.get(signal.source, 1.0)
+    m = multipliers if multipliers is not None else SIGNAL_WEIGHT_MULTIPLIERS
+    multiplier = m.get(signal.source, 1.0)
     return signal.confidence * multiplier
 
 
-def _log_odds_average(signals: list[SignalResult]) -> float:
+def _log_odds_average(
+    signals: list[SignalResult],
+    multipliers: dict[str, float] | None = None,
+) -> float:
     """Compute weighted average probability in log-odds space.
 
     More calibrated at extreme probabilities than linear averaging.
@@ -119,7 +129,7 @@ def _log_odds_average(signals: list[SignalResult]) -> float:
             continue
         p = max(EPS, min(1.0 - EPS, signal.probability))
         log_odds = math.log(p / (1.0 - p))
-        ew = _compute_effective_weight(signal)
+        ew = _compute_effective_weight(signal, multipliers)
         weighted_log_odds += log_odds * ew
         total_weight += ew
 
@@ -158,7 +168,10 @@ def _compute_signals_agreement(signals: list[SignalResult]) -> str:
         return "disagree"
 
 
-def compute_preliminary_probability(signals: list[SignalResult]) -> float:
+def compute_preliminary_probability(
+    signals: list[SignalResult],
+    multipliers: dict[str, float] | None = None,
+) -> float:
     """Compute weighted average probability from usable signals.
 
     Each signal's weight is: confidence * source_multiplier.
@@ -168,7 +181,7 @@ def compute_preliminary_probability(signals: list[SignalResult]) -> float:
     for better calibration at extreme probabilities.
     """
     if USE_LOG_ODDS_AVERAGING:
-        return _log_odds_average(signals)
+        return _log_odds_average(signals, multipliers)
 
     total_weight = 0.0
     weighted_sum = 0.0
@@ -176,7 +189,7 @@ def compute_preliminary_probability(signals: list[SignalResult]) -> float:
     for signal in signals:
         if signal.probability is None or signal.confidence <= 0:
             continue
-        ew = _compute_effective_weight(signal)
+        ew = _compute_effective_weight(signal, multipliers)
         weighted_sum += signal.probability * ew
         total_weight += ew
 
@@ -473,13 +486,14 @@ class SignalAggregator:
         """
         self._emit(market_question, "collecting", "gathering signals from all providers")
 
-        # Refresh dynamic weight multipliers from calibration data
-        global SIGNAL_WEIGHT_MULTIPLIERS
+        # Resolve weight multipliers for THIS aggregation only.
+        # Held as a local — no module-level mutation, so concurrent
+        # event/price-target aggregations don't race on a shared global.
         market_type = kwargs.get("market_type", "price_target")
         if market_type == "event":
-            SIGNAL_WEIGHT_MULTIPLIERS = EVENT_SIGNAL_WEIGHT_MULTIPLIERS
+            multipliers = EVENT_SIGNAL_WEIGHT_MULTIPLIERS
         else:
-            SIGNAL_WEIGHT_MULTIPLIERS = _get_signal_weight_multipliers()
+            multipliers = _get_signal_weight_multipliers()
 
         # Step 1: Collect signals from all providers
         raw_results = await asyncio.gather(
@@ -552,10 +566,11 @@ class SignalAggregator:
                 all_signals=all_signals,
                 skipped=True,
                 skip_reason=skip_reason,
+                signal_weight_multipliers=dict(multipliers),
             )
 
         # Step 4: Compute weighted preliminary estimate
-        preliminary_prob = compute_preliminary_probability(usable_signals)
+        preliminary_prob = compute_preliminary_probability(usable_signals, multipliers)
         total_data_points = sum(s.data_points for s in usable_signals)
 
         self._emit(
@@ -668,6 +683,7 @@ class SignalAggregator:
             all_signals=all_signals,
             frontier_model_used="frontier",
             total_data_points=total_data_points,
+            signal_weight_multipliers=dict(multipliers),
         )
 
         # Store in signals table (with full prompt audit trail)
