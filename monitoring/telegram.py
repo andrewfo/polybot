@@ -56,6 +56,8 @@ def _format_status_message(
     bot_phase: str,
     cycle_etas: dict[str, float | None],
     recent_trades: list[dict[str, Any]] | None = None,
+    daily_llm_cost: float = 0.0,
+    total_llm_cost: float = 0.0,
 ) -> str:
     """Build the status message for Telegram."""
     mode = "PAPER" if PAPER_TRADING else "LIVE"
@@ -99,8 +101,10 @@ def _format_status_message(
 
     # P&L
     lines.append(f"{'📊'} P&L")
-    lines.append(f"  Today:    ${daily_pnl:+.2f}")
-    lines.append(f"  All-time: ${total_pnl:+.2f}")
+    lines.append(f"  Today:    ${daily_pnl:+.2f}  (LLM: -${daily_llm_cost:.2f},"
+                 f" net ${daily_pnl - daily_llm_cost:+.2f})")
+    lines.append(f"  All-time: ${total_pnl:+.2f}  (LLM: -${total_llm_cost:.2f},"
+                 f" net ${total_pnl - total_llm_cost:+.2f})")
     lines.append("")
 
     # Positions
@@ -149,7 +153,9 @@ async def _status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     try:
         from core.db import (
             get_all_trades,
+            get_daily_llm_cost,
             get_daily_pnl,
+            get_db,
             get_open_positions,
             get_paper_balance,
             get_total_pnl,
@@ -163,6 +169,14 @@ async def _status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         }
         daily_pnl = get_daily_pnl()
         total_pnl = get_total_pnl()
+        daily_llm_cost = get_daily_llm_cost()
+        total_llm_cost = 0.0
+        try:
+            row = get_db().execute("SELECT COALESCE(SUM(cost_usd), 0) FROM llm_costs").fetchone()
+            if row and row[0] is not None:
+                total_llm_cost = float(row[0])
+        except Exception:
+            pass
 
         # Try to get bot engine state from web server
         bot_running = False
@@ -201,6 +215,8 @@ async def _status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             balance=balance,
             daily_pnl=daily_pnl,
             total_pnl=total_pnl,
+            daily_llm_cost=daily_llm_cost,
+            total_llm_cost=total_llm_cost,
             bot_running=bot_running,
             bot_paused=bot_paused,
             bot_phase=bot_phase,
