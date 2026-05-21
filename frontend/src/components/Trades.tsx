@@ -429,7 +429,23 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
           const exitLabel = isResolved
             ? (rs === 'won' ? 'Worth At Win' : rs === 'lost' ? 'Worth At Loss' : 'Worth At Expiry')
             : 'Worth Now'
-          const fromLabel = isResolved ? 'Worth When Bought' : 'Worth When Bought'
+          const fromLabel = 'Worth When Bought'
+          const entryTs = trade.timestamp
+          const exitTs = isResolved ? (trade.closed_at || null) : (liveOpen ? new Date().toISOString() : null)
+          const fmtDuration = (a: string | null | undefined, b: string | null | undefined): string | null => {
+            if (!a || !b) return null
+            const ms = new Date(b).getTime() - new Date(a).getTime()
+            if (!isFinite(ms) || ms < 0) return null
+            const s = Math.floor(ms / 1000)
+            if (s < 60) return `${s}s`
+            const m = Math.floor(s / 60)
+            if (m < 60) return `${m}m`
+            const h = Math.floor(m / 60)
+            if (h < 24) return `${h}h ${m % 60}m`
+            const d = Math.floor(h / 24)
+            return `${d}d ${h % 24}h`
+          }
+          const heldFor = fmtDuration(entryTs, exitTs)
           const valueDelta = exitValue != null ? exitValue - cost : null
           const valuePct = valueDelta != null && cost > 0 ? (valueDelta / cost) * 100 : null
           const deltaColor = valueDelta == null ? colors.textMuted
@@ -474,8 +490,18 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
                   <span style={{ fontSize: 10, color: colors.textDim, fontFamily: fonts.mono }}>
                     @ {fmt(ep, 3)}
                   </span>
+                  <span style={{ fontSize: 9, color: colors.textDim, fontFamily: fonts.mono }}>
+                    {formatTs(entryTs)}
+                  </span>
                 </div>
-                <span style={{ fontSize: 20, color: deltaColor, fontFamily: fonts.mono }}>&rarr;</span>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                  <span style={{ fontSize: 20, color: deltaColor, fontFamily: fonts.mono }}>&rarr;</span>
+                  {heldFor && (
+                    <span style={{ fontSize: 9, color: colors.textDim, fontFamily: fonts.mono, letterSpacing: '0.04em' }}>
+                      {heldFor}
+                    </span>
+                  )}
+                </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-end' }}>
                   <span style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', fontFamily: fonts.mono, letterSpacing: '0.06em' }}>
                     {exitLabel}
@@ -493,6 +519,9 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
                         ({valuePct >= 0 ? '+' : ''}{valuePct.toFixed(1)}%)
                       </span>
                     )}
+                  </span>
+                  <span style={{ fontSize: 9, color: colors.textDim, fontFamily: fonts.mono }}>
+                    {isResolved ? (exitTs ? formatTs(exitTs) : '--') : 'now'}
                   </span>
                 </div>
               </div>

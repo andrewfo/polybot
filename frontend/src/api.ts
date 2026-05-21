@@ -116,6 +116,7 @@ export interface Trade {
   resolution_status?: string
   current_price?: number | null
   unrealized_pnl?: number | null
+  closed_at?: string | null
 }
 
 export interface FrontierDecision {
