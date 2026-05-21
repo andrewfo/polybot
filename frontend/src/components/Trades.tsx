@@ -417,6 +417,16 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
           const cost = trade.size * ep
           const maxGain = trade.size - cost
           const pnlColor = trade.pnl != null ? (trade.pnl > 0 ? colors.success : trade.pnl < 0 ? colors.danger : undefined) : undefined
+          const cp = trade.current_price
+          const upnl = trade.unrealized_pnl
+          const liveOpen = cp != null && upnl != null
+          const currentValue = liveOpen ? trade.size * (cp as number) : null
+          const valueDelta = currentValue != null ? currentValue - cost : null
+          const valuePct = valueDelta != null && cost > 0 ? (valueDelta / cost) * 100 : null
+          const deltaColor = valueDelta == null ? colors.textMuted
+            : valueDelta > 0 ? colors.success
+            : valueDelta < 0 ? colors.danger
+            : colors.textMuted
           return (
           <>
             {/* Cost hero — the main "how much money was placed" number */}
@@ -437,6 +447,47 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
                 </span>
               )}
             </div>
+
+            {/* Then vs Now — entry value vs current market value */}
+            {liveOpen && (
+              <div style={{
+                display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 12, alignItems: 'center',
+                marginBottom: 12, padding: '10px 12px', borderRadius: 6,
+                background: 'rgba(6,10,20,0.45)', border: `1px solid ${deltaColor}25`,
+              }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', fontFamily: fonts.mono, letterSpacing: '0.06em' }}>
+                    Worth When Bought
+                  </span>
+                  <span style={{ fontSize: 18, fontWeight: 700, fontFamily: fonts.mono, color: colors.textPrimary }}>
+                    {fmtUsd(cost)}
+                  </span>
+                  <span style={{ fontSize: 10, color: colors.textDim, fontFamily: fonts.mono }}>
+                    @ {fmt(ep, 3)}
+                  </span>
+                </div>
+                <span style={{ fontSize: 20, color: deltaColor, fontFamily: fonts.mono }}>&rarr;</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-end' }}>
+                  <span style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', fontFamily: fonts.mono, letterSpacing: '0.06em' }}>
+                    Worth Now
+                  </span>
+                  <span style={{
+                    fontSize: 18, fontWeight: 700, fontFamily: fonts.mono, color: deltaColor,
+                    textShadow: `0 0 12px ${deltaColor}25`,
+                  }}>
+                    {fmtUsd(currentValue)}
+                  </span>
+                  <span style={{ fontSize: 10, color: deltaColor, fontFamily: fonts.mono, fontWeight: 600 }}>
+                    {valueDelta != null && valueDelta >= 0 ? '+' : ''}{fmtUsd(valueDelta)}
+                    {valuePct != null && (
+                      <span style={{ color: colors.textDim, marginLeft: 4 }}>
+                        ({valuePct >= 0 ? '+' : ''}{valuePct.toFixed(1)}%)
+                      </span>
+                    )}
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* Price bar visual */}
             <div style={{ marginBottom: 14 }}>
