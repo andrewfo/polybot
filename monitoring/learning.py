@@ -1360,22 +1360,8 @@ async def update_skipped_resolutions() -> int:
 # Persistence — save reports to DB for dashboard access
 # ---------------------------------------------------------------------------
 
-def _ensure_learning_table() -> None:
-    """Create learning_reports table if it doesn't exist."""
-    d = db.get_db()
-    if "learning_reports" not in d.table_names():
-        d["learning_reports"].create({
-            "id": int,
-            "timestamp": str,
-            "report_json": str,
-            "recommendations_json": str,
-        }, pk="id", if_not_exists=True)
-        logger.info("Created learning_reports table")
-
-
 def save_report(report: LearningReport) -> None:
     """Persist a learning report to the database."""
-    _ensure_learning_table()
     d = db.get_db()
 
     # Serialize report (convert dataclasses to dicts)
@@ -1392,7 +1378,6 @@ def save_report(report: LearningReport) -> None:
 
 def get_latest_report() -> LearningReport | None:
     """Load the most recent learning report from the database."""
-    _ensure_learning_table()
     try:
         d = db.get_db()
         rows = list(d.execute(
@@ -1431,7 +1416,6 @@ def get_latest_report() -> LearningReport | None:
 
 def get_report_history(limit: int = 20) -> list[dict[str, Any]]:
     """Get summary of recent learning reports for trend analysis."""
-    _ensure_learning_table()
     try:
         d = db.get_db()
         rows = list(d.execute(

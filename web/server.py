@@ -1081,7 +1081,8 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         _session_holder["session"] = aiohttp.ClientSession()
-        logger.info("Web dashboard started on http://127.0.0.1:%s", os.environ.get("WEB_PORT", "8080"))
+        from config.settings import WEB_PORT
+        logger.info("Web dashboard started on http://127.0.0.1:%s", WEB_PORT)
 
         # Start Telegram bot if configured
         telegram_app = None

@@ -50,11 +50,6 @@ WEB_SEARCH_SIGNAL_WEIGHT = float(os.getenv("WEB_SEARCH_SIGNAL_WEIGHT", "1.5"))
 ONCHAIN_FLOW_SIGNAL_WEIGHT = float(os.getenv("ONCHAIN_FLOW_SIGNAL_WEIGHT", "1.3"))
 MIN_FRONTIER_CONFIDENCE = float(os.getenv("MIN_FRONTIER_CONFIDENCE", "0.35"))
 
-# --- New Signal Source API Keys ---
-# Metaculus API token (required — their API returns 403 without auth)
-# Get one at https://www.metaculus.com/aib/  (free tier available)
-METACULUS_API_TOKEN = os.getenv("METACULUS_API_TOKEN", "")
-
 # Perplexity Sonar model via OpenRouter (search-grounded LLM)
 SONAR_MODEL = os.getenv("SONAR_MODEL", "perplexity/sonar")
 SONAR_RATE_LIMIT = int(os.getenv("SONAR_RATE_LIMIT", "20"))

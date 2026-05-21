@@ -155,6 +155,15 @@ def ensure_tables() -> None:
         }, pk="condition_id", if_not_exists=True)
         logger.info("Created market_cache table")
 
+    if "learning_reports" not in db.table_names():
+        db["learning_reports"].create({
+            "id": int,
+            "timestamp": str,
+            "report_json": str,
+            "recommendations_json": str,
+        }, pk="id", if_not_exists=True)
+        logger.info("Created learning_reports table")
+
     if "frontier_decisions" not in db.table_names():
         db["frontier_decisions"].create({
             "id": int,

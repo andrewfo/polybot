@@ -72,10 +72,11 @@ if __name__ == "__main__":
 
         load_dotenv()
 
+        from config.settings import WEB_PORT
         from web.server import create_app
 
         app = create_app()
-        port = int(os.environ.get("WEB_PORT", "8080"))
+        port = WEB_PORT
         reload = "--reload" in sys.argv
         uvicorn.run(
             "web.server:create_app",
