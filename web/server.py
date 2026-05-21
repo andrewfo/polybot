@@ -432,16 +432,38 @@ class BotEngine:
                         "status": "processing",
                     })
                     async with sem:
+                        from strategy.executor import AutoStopError
                         try:
                             await self._process_candidate(m_item, c)
+                        except AutoStopError as e:
+                            # Guardrail trip (e.g. max daily loss). Not a
+                            # per-market failure — mark skipped with the real
+                            # reason and let the outer loop stop the bot.
+                            logger.warning("Guardrail tripped for %s: %s", c, e)
+                            self.analysis_entries[c].update({
+                                "status": "skipped",
+                                "skip_reason": f"guardrail: {e}",
+                            })
+                            raise
                         except Exception:
                             logger.exception("Aggregation failed for %s", c)
                             self.analysis_entries[c]["status"] = "error"
 
-                await asyncio.gather(
+                results = await asyncio.gather(
                     *(_process_with_sem(m, i) for i, m in enumerate(candidates)),
                     return_exceptions=True,
                 )
+
+                # Honor AutoStopError raised from any candidate (e.g. daily-loss
+                # guardrail). Stop the bot rather than burning frontier budget
+                # retrying the same guardrail on every remaining market.
+                from strategy.executor import AutoStopError
+                for r in results:
+                    if isinstance(r, AutoStopError):
+                        logger.critical("Auto-stop triggered: %s", r)
+                        self._push_activity("error", "Auto-stop: guardrail tripped", str(r))
+                        await self.stop()
+                        return
 
                 self._aggregation_last_run = time.time()
 

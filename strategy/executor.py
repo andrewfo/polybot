@@ -16,6 +16,7 @@ from config.settings import (
     MAX_CORRELATED_POSITIONS,
     MAX_DAILY_LOSS_PCT,
     MAX_DRAWDOWN_PCT,
+    MAX_ENTRY_SPREAD_PCT,
     MAX_NEW_TRADES_PER_HOUR,
     MAX_OPEN_POSITIONS,
     SLIPPAGE_BUFFER,
@@ -156,10 +157,36 @@ def check_market_cooldown(market_id: str) -> tuple[bool, str]:
     return True, ""
 
 
+def check_entry_spread(market_data: dict[str, Any]) -> tuple[bool, str]:
+    """Refuse to enter when the relative spread would exceed MAX_ENTRY_SPREAD_PCT.
+
+    Crossing a 30%+ relative spread books an immediate unrealized loss larger
+    than STOP_LOSS_PCT, guaranteeing a stop-out on the first mark.
+    """
+    try:
+        best_ask = float(market_data.get("bestAsk", 0) or 0)
+        best_bid = float(market_data.get("bestBid", 0) or 0)
+    except (TypeError, ValueError):
+        return True, ""
+    if best_ask <= 0 or best_bid <= 0 or best_ask <= best_bid:
+        return True, ""
+    mid = (best_ask + best_bid) / 2.0
+    if mid <= 0:
+        return True, ""
+    rel_spread = (best_ask - best_bid) / mid
+    if rel_spread > MAX_ENTRY_SPREAD_PCT:
+        return False, (
+            f"entry spread too wide ({rel_spread:.1%} > {MAX_ENTRY_SPREAD_PCT:.1%}, "
+            f"bid={best_bid:.3f} ask={best_ask:.3f})"
+        )
+    return True, ""
+
+
 def check_all_guardrails(
     bankroll: float,
     market_question: str = "",
     market_id: str = "",
+    market_data: dict[str, Any] | None = None,
 ) -> tuple[bool, str]:
     """Run all risk guardrails. Returns (ok, reason). May raise AutoStopError."""
     # These raise AutoStopError on critical failures
@@ -186,6 +213,11 @@ def check_all_guardrails(
 
     if market_question:
         ok, reason = check_correlated_positions(market_question)
+        if not ok:
+            return False, reason
+
+    if market_data is not None:
+        ok, reason = check_entry_spread(market_data)
         if not ok:
             return False, reason
 
@@ -253,6 +285,7 @@ class PaperExecutor:
             bankroll,
             market_question=decision.market_question,
             market_id=decision.market_id,
+            market_data=market_data,
         )
         if not ok:
             logger.warning("Trade blocked by guardrail: %s", reason)
@@ -390,6 +423,7 @@ class TradeExecutor:
             bankroll,
             market_question=decision.market_question,
             market_id=decision.market_id,
+            market_data=market_data,
         )
         if not ok:
             logger.warning("Trade blocked by guardrail: %s", reason)
@@ -584,11 +618,12 @@ GAMMA_API_URL = "https://gamma-api.polymarket.com/markets"
 
 
 async def _fetch_gamma_price(condition_id: str, side: str = "BUY_YES") -> float | None:
-    """Fetch realizable exit price from Gamma API for a market.
+    """Fetch mark-to-market price from Gamma API for a market.
 
-    Returns the price at which the position could actually be closed right now:
-      - BUY_YES → YES best_bid (what a seller of YES would receive)
-      - BUY_NO  → NO  best_bid = 1 - YES best_ask
+    Returns the bid/ask midpoint of the relevant token. Mid is the standard
+    mark — using the bid would book the whole round-trip spread as an
+    unrealized loss the instant we fill, instantly tripping STOP_LOSS_PCT on
+    any wide-spread market. Realization (actual sell) still happens at the bid.
     Falls back to outcomePrices (last/mid) when bid/ask are missing.
 
     Uses the cached Gamma numeric ID for lookup, since Gamma's ?id= param
@@ -630,10 +665,15 @@ async def _fetch_gamma_price(condition_id: str, side: str = "BUY_YES") -> float 
                 except (TypeError, ValueError):
                     best_ask = None
 
-                if side == "BUY_YES" and best_bid is not None and best_bid > 0:
-                    return best_bid
-                if side == "BUY_NO" and best_ask is not None and best_ask < 1:
-                    return 1.0 - best_ask
+                # Mark-to-market at the YES mid (or NO mid = 1 - YES mid).
+                # Requires both sides; with only one side we'd silently bias.
+                if (
+                    best_bid is not None
+                    and best_ask is not None
+                    and 0 < best_bid <= best_ask < 1
+                ):
+                    yes_mid = (best_bid + best_ask) / 2.0
+                    return yes_mid if side == "BUY_YES" else 1.0 - yes_mid
 
                 # Fallback: outcomePrices (last/mid) when bid/ask missing
                 outcome_prices = market.get("outcomePrices", "")

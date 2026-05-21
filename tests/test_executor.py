@@ -13,6 +13,7 @@ from strategy.executor import (
     check_all_guardrails,
     check_daily_loss,
     check_drawdown,
+    check_entry_spread,
     check_trade_rate,
     compute_limit_price,
 )
@@ -92,6 +93,23 @@ class TestCheckDrawdown:
         mock_db.get_total_pnl.return_value = -350.0
         with pytest.raises(AutoStopError, match="max drawdown"):
             check_drawdown(1000.0)
+
+
+class TestCheckEntrySpread:
+    def test_narrow_spread_ok(self):
+        # 0.55/0.50 → 9.5% relative spread → ok
+        ok, reason = check_entry_spread({"bestBid": "0.50", "bestAsk": "0.55"})
+        assert ok is True
+
+    def test_wide_spread_blocked(self):
+        # 0.09/0.04 → ~77% relative spread → blocked
+        ok, reason = check_entry_spread({"bestBid": "0.04", "bestAsk": "0.09"})
+        assert ok is False
+        assert "spread too wide" in reason
+
+    def test_missing_data_passes(self):
+        ok, _ = check_entry_spread({})
+        assert ok is True
 
 
 class TestCheckDailyLoss:
@@ -281,7 +299,7 @@ class TestTradeExecutor:
 
         executor = TradeExecutor(mock_client)
         decision = _make_decision(side="BUY_YES")
-        market = _make_market_data(bestAsk="0.60")
+        market = _make_market_data(bestBid="0.58", bestAsk="0.60")
 
         await executor.execute_trade(decision, market, 1000.0)
         call_kwargs = mock_client.place_limit_order.call_args
@@ -302,7 +320,7 @@ class TestTradeExecutor:
 
         executor = TradeExecutor(mock_client)
         decision = _make_decision(side="BUY_NO")
-        market = _make_market_data(bestBid="0.50")
+        market = _make_market_data(bestBid="0.50", bestAsk="0.52")
 
         await executor.execute_trade(decision, market, 1000.0)
         call_kwargs = mock_client.place_limit_order.call_args

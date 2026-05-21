@@ -25,6 +25,10 @@ MAX_MARKET_LIQUIDITY = float(os.getenv("MAX_MARKET_LIQUIDITY", "500000"))
 MIN_HOURS_TO_RESOLUTION = int(os.getenv("MIN_HOURS_TO_RESOLUTION", "24"))
 MAX_DAYS_TO_RESOLUTION = int(os.getenv("MAX_DAYS_TO_RESOLUTION", "45"))
 MAX_SPREAD = float(os.getenv("MAX_SPREAD", "0.05"))
+# Relative spread guard at entry time: refuse to buy when (ask-bid)/mid exceeds
+# this. Without it, crossing the spread on a wide market books an instant
+# unrealized loss that exceeds STOP_LOSS_PCT and stops us out on the first tick.
+MAX_ENTRY_SPREAD_PCT = float(os.getenv("MAX_ENTRY_SPREAD_PCT", "0.15"))
 MIN_24H_VOLUME = float(os.getenv("MIN_24H_VOLUME", "100"))
 MARKET_CACHE_REFRESH_SECONDS = int(os.getenv("MARKET_CACHE_REFRESH_SECONDS", "1800"))  # 30 minutes
 
