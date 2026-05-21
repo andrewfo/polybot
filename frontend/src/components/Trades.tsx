@@ -419,9 +419,18 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
           const pnlColor = trade.pnl != null ? (trade.pnl > 0 ? colors.success : trade.pnl < 0 ? colors.danger : undefined) : undefined
           const cp = trade.current_price
           const upnl = trade.unrealized_pnl
-          const liveOpen = cp != null && upnl != null
-          const currentValue = liveOpen ? trade.size * (cp as number) : null
-          const valueDelta = currentValue != null ? currentValue - cost : null
+          const rs = trade.resolution_status || ''
+          const isResolved = rs === 'won' || rs === 'lost' || rs === 'expired'
+          const liveOpen = !isResolved && cp != null && upnl != null
+          const showThenNow = liveOpen || (isResolved && trade.pnl != null)
+          const exitValue = isResolved && trade.pnl != null
+            ? cost + trade.pnl
+            : liveOpen ? trade.size * (cp as number) : null
+          const exitLabel = isResolved
+            ? (rs === 'won' ? 'Worth At Win' : rs === 'lost' ? 'Worth At Loss' : 'Worth At Expiry')
+            : 'Worth Now'
+          const fromLabel = isResolved ? 'Worth When Bought' : 'Worth When Bought'
+          const valueDelta = exitValue != null ? exitValue - cost : null
           const valuePct = valueDelta != null && cost > 0 ? (valueDelta / cost) * 100 : null
           const deltaColor = valueDelta == null ? colors.textMuted
             : valueDelta > 0 ? colors.success
@@ -448,8 +457,8 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
               )}
             </div>
 
-            {/* Then vs Now — entry value vs current market value */}
-            {liveOpen && (
+            {/* Then vs Now — entry value vs current/exit value */}
+            {showThenNow && (
               <div style={{
                 display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 12, alignItems: 'center',
                 marginBottom: 12, padding: '10px 12px', borderRadius: 6,
@@ -457,7 +466,7 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
               }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <span style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', fontFamily: fonts.mono, letterSpacing: '0.06em' }}>
-                    Worth When Bought
+                    {fromLabel}
                   </span>
                   <span style={{ fontSize: 18, fontWeight: 700, fontFamily: fonts.mono, color: colors.textPrimary }}>
                     {fmtUsd(cost)}
@@ -469,13 +478,13 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
                 <span style={{ fontSize: 20, color: deltaColor, fontFamily: fonts.mono }}>&rarr;</span>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-end' }}>
                   <span style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', fontFamily: fonts.mono, letterSpacing: '0.06em' }}>
-                    Worth Now
+                    {exitLabel}
                   </span>
                   <span style={{
                     fontSize: 18, fontWeight: 700, fontFamily: fonts.mono, color: deltaColor,
                     textShadow: `0 0 12px ${deltaColor}25`,
                   }}>
-                    {fmtUsd(currentValue)}
+                    {fmtUsd(exitValue)}
                   </span>
                   <span style={{ fontSize: 10, color: deltaColor, fontFamily: fonts.mono, fontWeight: 600 }}>
                     {valueDelta != null && valueDelta >= 0 ? '+' : ''}{fmtUsd(valueDelta)}
