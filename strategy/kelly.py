@@ -135,7 +135,7 @@ def calculate_kelly(
         q = effective_prob
 
     # --- Safety check 0: reject lottery tickets (extreme low-prob bets) ---
-    # Market prices below 0.05 or above 0.95 are long-shot bets where
+    # Market prices below 0.04 or above 0.96 are long-shot bets where
     # model estimates are unreliable and the edge is often illusory.
     if market_price < 0.04 or market_price > 0.96:
         return _skip(

@@ -435,12 +435,19 @@ class TradeExecutor:
         now = datetime.now(timezone.utc).isoformat()
 
         # Place order on CLOB
-        order_id = await self._client.place_limit_order(
-            token_id=token_id,
-            side="BUY",
-            price=limit_price,
-            size=size,
-        )
+        try:
+            order_id = await self._client.place_limit_order(
+                token_id=token_id,
+                side="BUY",
+                price=limit_price,
+                size=size,
+            )
+        except Exception:
+            logger.exception(
+                "place_limit_order failed for %s %s @ %.4f size=%.2f — no trade recorded",
+                decision.side, decision.market_question[:50], limit_price, size,
+            )
+            return None
 
         # Record trade as PENDING
         db.record_trade(

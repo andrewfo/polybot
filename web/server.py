@@ -1798,6 +1798,11 @@ def create_app() -> FastAPI:
 
         from core.llm import LLMClient
         from signals.aggregator import SignalAggregator
+        from strategy.market_filter import extract_resolution_params
+
+        resolution_keywords = extract_resolution_params(question)
+        market_type = "price_target" if resolution_keywords.get("coin_id") else "event"
+
         async with LLMClient() as llm:
             agg = SignalAggregator(llm)
             result = await agg.aggregate(
@@ -1805,6 +1810,8 @@ def create_app() -> FastAPI:
                 market_category="crypto",
                 market_end_date="",
                 market_price=market_price,
+                resolution_keywords=resolution_keywords,
+                market_type=market_type,
             )
         if result is None:
             return {"status": "skipped", "reason": "no usable signals"}

@@ -37,5 +37,6 @@ class SignalProvider:
         kwargs may include:
         - resolution_keywords: dict from extract_resolution_params()
           for crypto markets
+        - market_type: "price_target" or "event" — aggregator branches on this
         """
         raise NotImplementedError
