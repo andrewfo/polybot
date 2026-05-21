@@ -292,8 +292,24 @@ class PaperExecutor:
             return None
 
         limit_price, token_id = compute_limit_price(decision, market_data)
+        # For paper, simulate the realistic fill at best_ask (BUY_YES) or
+        # 1 - best_bid (BUY_NO). The limit price includes a spread-crossing
+        # buffer that a real CLOB would not actually charge — booking it as
+        # the fill silently bakes a ~spread+buffer loss into every paper
+        # entry. Fall back to limit_price when book data is missing.
+        best_ask = float(market_data.get("bestAsk", 0) or 0)
+        best_bid = float(market_data.get("bestBid", 0) or 0)
+        if decision.side == "BUY_YES" and 0 < best_ask < 1:
+            fill_price = best_ask
+        elif decision.side == "BUY_NO" and 0 < best_bid < 1:
+            fill_price = 1.0 - best_bid
+        else:
+            fill_price = limit_price
+        fill_price = max(0.01, min(0.99, fill_price))
+
         trade_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
+        size = decision.bet_size_usd / fill_price if fill_price > 0 else 0
 
         # Record trade as immediately filled
         db.record_trade(
@@ -301,8 +317,8 @@ class PaperExecutor:
             market_id=decision.market_id,
             token_id=token_id,
             side=decision.side,
-            price=limit_price,
-            size=decision.bet_size_usd / limit_price if limit_price > 0 else 0,
+            price=fill_price,
+            size=size,
             status="FILLED",
             paper=True,
             order_id=f"paper-{trade_id[:8]}",
@@ -316,15 +332,15 @@ class PaperExecutor:
             market_id=decision.market_id,
             market_question=decision.market_question,
             side=decision.side,
-            avg_entry=limit_price,
-            size=decision.bet_size_usd / limit_price if limit_price > 0 else 0,
-            current_price=limit_price,
+            avg_entry=fill_price,
+            size=size,
+            current_price=fill_price,
             paper=True,
         )
 
         logger.info(
             "PAPER TRADE: %s %s @ %.4f | size=$%.2f | trade_id=%s",
-            decision.side, decision.market_question[:50], limit_price,
+            decision.side, decision.market_question[:50], fill_price,
             decision.bet_size_usd, trade_id,
         )
         return trade_id
