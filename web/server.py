@@ -543,6 +543,7 @@ class BotEngine:
     async def _process_candidate(self, m: dict[str, Any], cid: str) -> None:
         """Run aggregation + Kelly + depth + execution for a single market."""
         from strategy.depth import analyze_depth
+        from strategy.executor import check_market_cooldown
         from strategy.kelly import calculate_kelly
 
         # Parse market price — never default to 0.5
@@ -552,6 +553,27 @@ class BotEngine:
                 "status": "skipped",
                 "skip_reason": "Could not determine market price from Gamma data",
             })
+            return
+
+        # Cooldown check before any LLM calls — prevents stop-loss churn
+        # from burning frontier-model budget on a market we won't re-enter.
+        ok, cooldown_reason = check_market_cooldown(cid)
+        if not ok:
+            self.analysis_entries[cid].update({
+                "status": "skipped",
+                "skip_reason": cooldown_reason,
+            })
+            try:
+                from core.db import record_skipped_market
+                record_skipped_market(
+                    market_id=cid,
+                    skip_reason=cooldown_reason,
+                    market_price=market_price,
+                    estimated_prob=0.0,
+                    confidence=0.0,
+                )
+            except Exception:
+                pass
             return
 
         # Run aggregation

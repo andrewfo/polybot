@@ -12,6 +12,7 @@ from typing import Any
 import aiohttp
 
 from config.settings import (
+    MARKET_COOLDOWN_MINUTES,
     MAX_CORRELATED_POSITIONS,
     MAX_DAILY_LOSS_PCT,
     MAX_DRAWDOWN_PCT,
@@ -131,7 +132,35 @@ def check_balance(bankroll: float) -> tuple[bool, str]:
     return True, ""
 
 
-def check_all_guardrails(bankroll: float, market_question: str = "") -> tuple[bool, str]:
+def check_market_cooldown(market_id: str) -> tuple[bool, str]:
+    """Block re-entry on a market within MARKET_COOLDOWN_MINUTES of its last close.
+
+    Prevents stop-loss / take-profit churn where the bot re-opens the same
+    position within minutes of the previous exit.
+    """
+    if not market_id or MARKET_COOLDOWN_MINUTES <= 0:
+        return True, ""
+    last_close = db.get_last_close_time_for_market(market_id)
+    if not last_close:
+        return True, ""
+    try:
+        closed_time = datetime.fromisoformat(last_close)
+        if closed_time.tzinfo is None:
+            closed_time = closed_time.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return True, ""
+    elapsed_min = (datetime.now(timezone.utc) - closed_time).total_seconds() / 60.0
+    if elapsed_min < MARKET_COOLDOWN_MINUTES:
+        remaining = MARKET_COOLDOWN_MINUTES - elapsed_min
+        return False, f"market cooldown active ({remaining:.0f}m remaining since last close)"
+    return True, ""
+
+
+def check_all_guardrails(
+    bankroll: float,
+    market_question: str = "",
+    market_id: str = "",
+) -> tuple[bool, str]:
     """Run all risk guardrails. Returns (ok, reason). May raise AutoStopError."""
     # These raise AutoStopError on critical failures
     check_drawdown(bankroll)
@@ -149,6 +178,11 @@ def check_all_guardrails(bankroll: float, market_question: str = "") -> tuple[bo
     ok, reason = check_balance(bankroll)
     if not ok:
         return False, reason
+
+    if market_id:
+        ok, reason = check_market_cooldown(market_id)
+        if not ok:
+            return False, reason
 
     if market_question:
         ok, reason = check_correlated_positions(market_question)
@@ -215,7 +249,11 @@ class PaperExecutor:
     ) -> str | None:
         """Execute a paper trade. Returns trade_id or None if blocked."""
         # Run guardrails
-        ok, reason = check_all_guardrails(bankroll, market_question=decision.market_question)
+        ok, reason = check_all_guardrails(
+            bankroll,
+            market_question=decision.market_question,
+            market_id=decision.market_id,
+        )
         if not ok:
             logger.warning("Trade blocked by guardrail: %s", reason)
             return None
@@ -348,7 +386,11 @@ class TradeExecutor:
         bankroll: float,
     ) -> str | None:
         """Execute a live trade. Returns trade_id or None if blocked."""
-        ok, reason = check_all_guardrails(bankroll, market_question=decision.market_question)
+        ok, reason = check_all_guardrails(
+            bankroll,
+            market_question=decision.market_question,
+            market_id=decision.market_id,
+        )
         if not ok:
             logger.warning("Trade blocked by guardrail: %s", reason)
             return None

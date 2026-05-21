@@ -568,6 +568,18 @@ def get_recent_trade_count(hours: int = 1) -> int:
     return int(rows[0][0]) if rows else 0
 
 
+def get_last_close_time_for_market(market_id: str) -> str | None:
+    """Return ISO timestamp of the most recent trade close on this market, or None."""
+    db = get_db()
+    rows = list(db.execute(
+        "SELECT MAX(closed_at) FROM trades WHERE market_id = ? AND closed_at IS NOT NULL",
+        [market_id],
+    ).fetchall())
+    if not rows or rows[0][0] is None:
+        return None
+    return str(rows[0][0])
+
+
 # ---------------------------------------------------------------------------
 # Position helpers
 # ---------------------------------------------------------------------------
