@@ -426,6 +426,11 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
           const exitValue = isResolved && trade.pnl != null
             ? cost + trade.pnl
             : liveOpen ? trade.size * (cp as number) : null
+          // Exit price (odds when sold) for closed/resolved trades; current price for open
+          const exitPrice: number | null = isResolved
+            ? (trade.exit_price != null ? trade.exit_price
+                : (rs === 'won' ? 1 : rs === 'lost' ? 0 : null))
+            : (liveOpen ? (cp as number) : null)
           const exitLabel = isResolved
             ? (rs === 'won' ? 'Worth At Win' : rs === 'lost' ? 'Worth At Loss' : 'Worth At Expiry')
             : 'Worth Now'
@@ -512,6 +517,12 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
                   }}>
                     {fmtUsd(exitValue)}
                   </span>
+                  {exitPrice != null && (
+                    <span style={{ fontSize: 10, color: colors.textDim, fontFamily: fonts.mono }}>
+                      @ {fmt(exitPrice, 3)}
+                      {!isResolved && <span style={{ marginLeft: 4, color: colors.textDim }}>(current)</span>}
+                    </span>
+                  )}
                   <span style={{ fontSize: 10, color: deltaColor, fontFamily: fonts.mono, fontWeight: 600 }}>
                     {valueDelta != null && valueDelta >= 0 ? '+' : ''}{fmtUsd(valueDelta)}
                     {valuePct != null && (

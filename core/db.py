@@ -385,6 +385,7 @@ def _enrich_trades_with_resolution(trades: list[dict[str, Any]]) -> list[dict[st
             current = pos.get("current_price")
             size = pos.get("size") or trade.get("size") or 0
             trade["current_price"] = current
+            trade["exit_price"] = None
             if current is not None and entry > 0:
                 trade["unrealized_pnl"] = (current - entry) * size
             else:
@@ -392,6 +393,7 @@ def _enrich_trades_with_resolution(trades: list[dict[str, Any]]) -> list[dict[st
         else:
             trade["current_price"] = None
             trade["unrealized_pnl"] = None
+            trade["exit_price"] = pos.get("exit_price") if pos else None
     return trades
 
 
@@ -479,6 +481,22 @@ def get_trade_with_context(trade_id: str) -> dict[str, Any] | None:
         except Exception:
             pass
     trade["resolution_status"] = _compute_resolution_status(trade, pos)
+
+    # Surface current/exit price from position for the frontend
+    if pos and (pos.get("status") or "open") != "closed":
+        entry = trade.get("fill_price") or trade.get("price") or 0
+        current = pos.get("current_price")
+        size = pos.get("size") or trade.get("size") or 0
+        trade["current_price"] = current
+        trade["exit_price"] = None
+        if current is not None and entry > 0:
+            trade["unrealized_pnl"] = (current - entry) * size
+        else:
+            trade["unrealized_pnl"] = None
+    else:
+        trade["current_price"] = None
+        trade["unrealized_pnl"] = None
+        trade["exit_price"] = pos.get("exit_price") if pos else None
 
     return result
 
