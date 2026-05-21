@@ -299,7 +299,7 @@ class PaperExecutor:
                     pos.get("market_question", pos["token_id"])[:50],
                     pnl_pct * 100, pos["avg_entry"], current_price, unrealized_pnl,
                 )
-                db.close_position(pos["token_id"], exit_price=current_price, realized_pnl=unrealized_pnl)
+                db.close_position(pos["token_id"], exit_price=current_price, realized_pnl=unrealized_pnl, reason="take_profit")
                 continue
 
             # Stop-loss: close if loss exceeds threshold
@@ -309,7 +309,7 @@ class PaperExecutor:
                     pos.get("market_question", pos["token_id"])[:50],
                     pnl_pct * 100, pos["avg_entry"], current_price, unrealized_pnl,
                 )
-                db.close_position(pos["token_id"], exit_price=current_price, realized_pnl=unrealized_pnl)
+                db.close_position(pos["token_id"], exit_price=current_price, realized_pnl=unrealized_pnl, reason="stop_loss")
                 continue
 
             db.upsert_position(
@@ -490,7 +490,7 @@ class TradeExecutor:
                         price=sell_price,
                         size=pos["size"],
                     )
-                    db.close_position(pos["token_id"], exit_price=current_price, realized_pnl=unrealized_pnl)
+                    db.close_position(pos["token_id"], exit_price=current_price, realized_pnl=unrealized_pnl, reason="take_profit")
                 except Exception as e:
                     logger.error("Failed to close position for take-profit: %s", e)
                 continue
@@ -510,7 +510,7 @@ class TradeExecutor:
                         price=sell_price,
                         size=pos["size"],
                     )
-                    db.close_position(pos["token_id"], exit_price=current_price, realized_pnl=unrealized_pnl)
+                    db.close_position(pos["token_id"], exit_price=current_price, realized_pnl=unrealized_pnl, reason="stop_loss")
                 except Exception as e:
                     logger.error("Failed to close position for stop-loss: %s", e)
                 continue

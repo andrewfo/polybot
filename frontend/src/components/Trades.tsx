@@ -148,6 +148,8 @@ const RESOLUTION_CONFIG: Record<string, { label: string; fg: string }> = {
   open_flat:    { label: 'FLAT', fg: '#8899bb' },
   won:          { label: 'WON', fg: '#00ff88' },
   lost:         { label: 'LOST', fg: '#ff3366' },
+  closed_profit:{ label: 'CLOSED +', fg: '#00ff88' },
+  closed_loss:  { label: 'CLOSED -', fg: '#ff3366' },
   expired:      { label: 'EXPIRED', fg: '#556688' },
 }
 
@@ -420,23 +422,29 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
           const cp = trade.current_price
           const upnl = trade.unrealized_pnl
           const rs = trade.resolution_status || ''
-          const isResolved = rs === 'won' || rs === 'lost' || rs === 'expired'
-          const liveOpen = !isResolved && cp != null && upnl != null
-          const showThenNow = liveOpen || (isResolved && trade.pnl != null)
-          const exitValue = isResolved && trade.pnl != null
+          const isClosed = rs === 'won' || rs === 'lost' || rs === 'expired'
+            || rs === 'closed_profit' || rs === 'closed_loss'
+          const liveOpen = !isClosed && cp != null && upnl != null
+          const showThenNow = liveOpen || (isClosed && trade.pnl != null)
+          const exitValue = isClosed && trade.pnl != null
             ? cost + trade.pnl
             : liveOpen ? trade.size * (cp as number) : null
-          // Exit price (odds when sold) for closed/resolved trades; current price for open
-          const exitPrice: number | null = isResolved
+          // Exit price (odds when sold). Only fall back to the 0/1 rail when
+          // we're certain it was a real market resolution — never invent it
+          // for take-profit / stop-loss closes.
+          const exitPrice: number | null = isClosed
             ? (trade.exit_price != null ? trade.exit_price
                 : (rs === 'won' ? 1 : rs === 'lost' ? 0 : null))
             : (liveOpen ? (cp as number) : null)
-          const exitLabel = isResolved
-            ? (rs === 'won' ? 'Worth At Win' : rs === 'lost' ? 'Worth At Loss' : 'Worth At Expiry')
+          const exitLabel = isClosed
+            ? (rs === 'won' ? 'Worth At Win'
+                : rs === 'lost' ? 'Worth At Loss'
+                : rs === 'expired' ? 'Worth At Expiry'
+                : 'Worth At Close')
             : 'Worth Now'
           const fromLabel = 'Worth When Bought'
           const entryTs = trade.timestamp
-          const exitTs = isResolved ? (trade.closed_at || null) : (liveOpen ? new Date().toISOString() : null)
+          const exitTs = isClosed ? (trade.closed_at || null) : (liveOpen ? new Date().toISOString() : null)
           const fmtDuration = (a: string | null | undefined, b: string | null | undefined): string | null => {
             if (!a || !b) return null
             const ms = new Date(b).getTime() - new Date(a).getTime()
@@ -520,7 +528,7 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
                   {exitPrice != null && (
                     <span style={{ fontSize: 10, color: colors.textDim, fontFamily: fonts.mono }}>
                       @ {fmt(exitPrice, 3)}
-                      {!isResolved && <span style={{ marginLeft: 4, color: colors.textDim }}>(current)</span>}
+                      {!isClosed && <span style={{ marginLeft: 4, color: colors.textDim }}>(current)</span>}
                     </span>
                   )}
                   <span style={{ fontSize: 10, color: deltaColor, fontFamily: fonts.mono, fontWeight: 600 }}>
@@ -532,7 +540,7 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
                     )}
                   </span>
                   <span style={{ fontSize: 9, color: colors.textDim, fontFamily: fonts.mono }}>
-                    {isResolved ? (exitTs ? formatTs(exitTs) : '--') : 'now'}
+                    {isClosed ? (exitTs ? formatTs(exitTs) : '--') : 'now'}
                   </span>
                 </div>
               </div>
@@ -694,7 +702,7 @@ function TradeStats({ trades, paperBal }: { trades: Trade[]; paperBal: PaperBala
 type FilterStatus = 'all' | 'filled' | 'pending'
 type FilterPnl = 'all' | 'winners' | 'losers' | 'open'
 type FilterType = 'all' | 'paper' | 'live'
-type FilterResolution = 'all' | 'open' | 'won' | 'lost' | 'expired'
+type FilterResolution = 'all' | 'open' | 'closed' | 'won' | 'lost' | 'expired'
 
 function FilterBar({
   status, onStatus, pnl, onPnl, tradeType, onTradeType, resolution, onResolution,
@@ -736,7 +744,7 @@ function FilterBar({
       </div>
       <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
         <span style={{ fontSize: 9, color: colors.textDim, fontFamily: fonts.mono, marginRight: 4 }}>OUTCOME</span>
-        {(['all', 'open', 'won', 'lost', 'expired'] as FilterResolution[]).map(v => (
+        {(['all', 'open', 'closed', 'won', 'lost', 'expired'] as FilterResolution[]).map(v => (
           <button key={v} style={btnStyle(resolution === v)} onClick={() => onResolution(v)}>{v}</button>
         ))}
       </div>
@@ -783,6 +791,7 @@ export default function Trades() {
     if (filterType === 'live' && t.paper !== 0) return false
     const rs = t.resolution_status || ''
     if (filterResolution === 'open' && !rs.startsWith('open_') && rs !== 'pending_fill') return false
+    if (filterResolution === 'closed' && rs !== 'closed_profit' && rs !== 'closed_loss') return false
     if (filterResolution === 'won' && rs !== 'won') return false
     if (filterResolution === 'lost' && rs !== 'lost') return false
     if (filterResolution === 'expired' && rs !== 'expired') return false

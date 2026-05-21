@@ -55,6 +55,8 @@ def ensure_tables() -> None:
             "placed_at": str,
             "market_question": str,
             "closed_at": str,
+            "exit_price": float,
+            "close_reason": str,
         }, pk="id", if_not_exists=True)
         logger.info("Created trades table")
 
@@ -72,6 +74,33 @@ def ensure_tables() -> None:
         if "closed_at" not in columns:
             db.execute("ALTER TABLE trades ADD COLUMN closed_at TEXT")
             logger.info("Added closed_at column to trades table")
+        if "exit_price" not in columns:
+            db.execute("ALTER TABLE trades ADD COLUMN exit_price FLOAT")
+            logger.info("Added exit_price column to trades table")
+        if "close_reason" not in columns:
+            db.execute("ALTER TABLE trades ADD COLUMN close_reason TEXT")
+            logger.info("Added close_reason column to trades table")
+            # Backfill: any closed trade with pnl but no exit_price gets a
+            # synthetic exit price computed from the realized PnL and a
+            # conservative close_reason. Prevents the frontend from inventing
+            # an exit price of 1.0 / 0.0 for historical take-profit closes.
+            rows = db.execute(
+                "SELECT id, side, price, size, pnl FROM trades "
+                "WHERE pnl IS NOT NULL AND exit_price IS NULL"
+            ).fetchall()
+            for tid, side, price, size, pnl in rows:
+                if not size or size <= 0 or price is None:
+                    continue
+                side_upper = (side or "").upper()
+                if "NO" in side_upper and "YES" not in side_upper:
+                    ep = price - (pnl / size)
+                else:
+                    ep = price + (pnl / size)
+                ep = max(0.0, min(1.0, ep))
+                reason = "take_profit" if (pnl or 0) > 0 else "stop_loss"
+                db["trades"].update(tid, {"exit_price": ep, "close_reason": reason})
+            if rows:
+                logger.info("Backfilled exit_price/close_reason for %d historical trades", len(rows))
 
     if "positions" not in db.table_names():
         db["positions"].create({
@@ -328,13 +357,15 @@ def _compute_resolution_status(trade: dict[str, Any], position: dict[str, Any] |
     """Derive resolution status from trade + position state.
 
     Returns one of:
-      pending_fill  — order placed, not yet filled
-      open_winning  — position open, currently profitable
-      open_losing   — position open, currently at a loss
-      open_flat     — position open, roughly break-even
-      won           — position closed with profit
-      lost          — position closed with loss
-      expired       — order cancelled / never filled
+      pending_fill   — order placed, not yet filled
+      open_winning   — position open, currently profitable
+      open_losing    — position open, currently at a loss
+      open_flat      — position open, roughly break-even
+      won            — closed at actual market resolution with profit
+      lost           — closed at actual market resolution with loss
+      closed_profit  — closed early (take-profit / manual) with profit
+      closed_loss    — closed early (stop-loss / manual) with loss
+      expired        — order cancelled / never filled
     """
     status = (trade.get("status") or "").upper()
 
@@ -345,7 +376,16 @@ def _compute_resolution_status(trade: dict[str, Any], position: dict[str, Any] |
 
     # FILLED — check if position is still open or closed
     if trade.get("pnl") is not None:
-        return "won" if trade["pnl"] > 0 else "lost"
+        reason = (trade.get("close_reason") or "").lower()
+        ep = trade.get("exit_price")
+        # Treat as a true market resolution only when the close reason says so,
+        # or the exit price actually hit the 0/1 rail.
+        resolved = reason == "resolved" or (
+            ep is not None and (ep >= 0.99 or ep <= 0.01)
+        )
+        if resolved:
+            return "won" if trade["pnl"] > 0 else "lost"
+        return "closed_profit" if trade["pnl"] > 0 else "closed_loss"
 
     # No PnL recorded yet — check live position
     if position and (position.get("status") or "open") != "closed":
@@ -389,12 +429,15 @@ def _enrich_trades_with_resolution(trades: list[dict[str, Any]]) -> list[dict[st
         trade["resolution_status"] = _compute_resolution_status(trade, pos)
         # Surface live position state so the frontend can show entry→current and
         # the running win/loss amount without a second round-trip.
+        # Trade row's own exit_price (set by close_position) is authoritative —
+        # positions rows get overwritten on reopen and lose it.
+        trade_exit = trade.get("exit_price")
         if pos and (pos.get("status") or "open") != "closed":
             entry = trade.get("fill_price") or trade.get("price") or 0
             current = pos.get("current_price")
             size = pos.get("size") or trade.get("size") or 0
             trade["current_price"] = current
-            trade["exit_price"] = None
+            trade["exit_price"] = trade_exit
             if current is not None and entry > 0:
                 trade["unrealized_pnl"] = (current - entry) * size
             else:
@@ -402,7 +445,7 @@ def _enrich_trades_with_resolution(trades: list[dict[str, Any]]) -> list[dict[st
         else:
             trade["current_price"] = None
             trade["unrealized_pnl"] = None
-            trade["exit_price"] = pos.get("exit_price") if pos else None
+            trade["exit_price"] = trade_exit if trade_exit is not None else (pos.get("exit_price") if pos else None)
     return trades
 
 
@@ -491,13 +534,16 @@ def get_trade_with_context(trade_id: str) -> dict[str, Any] | None:
             pass
     trade["resolution_status"] = _compute_resolution_status(trade, pos)
 
-    # Surface current/exit price from position for the frontend
+    # Surface current/exit price from position for the frontend. The trade
+    # row's own exit_price (written by close_position) is authoritative since
+    # positions rows get overwritten on reopen.
+    trade_exit = trade.get("exit_price")
     if pos and (pos.get("status") or "open") != "closed":
         entry = trade.get("fill_price") or trade.get("price") or 0
         current = pos.get("current_price")
         size = pos.get("size") or trade.get("size") or 0
         trade["current_price"] = current
-        trade["exit_price"] = None
+        trade["exit_price"] = trade_exit
         if current is not None and entry > 0:
             trade["unrealized_pnl"] = (current - entry) * size
         else:
@@ -505,7 +551,7 @@ def get_trade_with_context(trade_id: str) -> dict[str, Any] | None:
     else:
         trade["current_price"] = None
         trade["unrealized_pnl"] = None
-        trade["exit_price"] = pos.get("exit_price") if pos else None
+        trade["exit_price"] = trade_exit if trade_exit is not None else (pos.get("exit_price") if pos else None)
 
     return result
 
@@ -563,12 +609,15 @@ def close_position(
     token_id: str,
     exit_price: float = 0.0,
     realized_pnl: float = 0.0,
+    reason: str = "take_profit",
 ) -> None:
     """Mark a position as closed and record realized PnL.
 
     Updates status to 'closed', sets current_price to exit_price,
-    and records the realized PnL. Also updates the matching trade's pnl
-    field so that get_total_pnl() and metrics stay consistent.
+    and records the realized PnL. Also writes ``exit_price`` and
+    ``close_reason`` onto the matching trade row so the UI can show
+    the true exit odds even after the position is later reopened
+    (which overwrites the positions row).
     """
     db = get_db()
     now = datetime.now(timezone.utc).isoformat()
@@ -597,6 +646,8 @@ def close_position(
             db["trades"].update(trade_rows[0][0], {
                 "pnl": realized_pnl,
                 "closed_at": now,
+                "exit_price": exit_price,
+                "close_reason": reason,
             })
     except Exception:
         pass
