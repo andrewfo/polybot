@@ -187,12 +187,12 @@ def compute_limit_price(
         buffer = SLIPPAGE_BUFFER
 
     if decision.side == "BUY_YES":
-        # Buy YES token at slightly below best ask
-        price = best_ask - buffer
+        # Cross the spread: bid at or above best ask so the order actually fills
+        price = best_ask + buffer
         token_id = clob_token_ids[0] if clob_token_ids else decision.token_id
     else:
-        # Buy NO token: NO price = 1 - YES price
-        price = (1.0 - best_bid) - buffer
+        # Buy NO token: NO ask = 1 - YES bid; cross it by adding the buffer
+        price = (1.0 - best_bid) + buffer
         token_id = clob_token_ids[1] if len(clob_token_ids) > 1 else decision.token_id
 
     # Clamp to valid range
@@ -542,10 +542,12 @@ GAMMA_API_URL = "https://gamma-api.polymarket.com/markets"
 
 
 async def _fetch_gamma_price(condition_id: str, side: str = "BUY_YES") -> float | None:
-    """Fetch current token price from Gamma API for a market.
+    """Fetch realizable exit price from Gamma API for a market.
 
-    For BUY_YES positions returns the YES price (prices[0]).
-    For BUY_NO positions returns the NO price (prices[1], i.e. 1 - YES).
+    Returns the price at which the position could actually be closed right now:
+      - BUY_YES → YES best_bid (what a seller of YES would receive)
+      - BUY_NO  → NO  best_bid = 1 - YES best_ask
+    Falls back to outcomePrices (last/mid) when bid/ask are missing.
 
     Uses the cached Gamma numeric ID for lookup, since Gamma's ?id= param
     requires the numeric ID, not the condition_id (0x...).
@@ -574,6 +576,24 @@ async def _fetch_gamma_price(condition_id: str, side: str = "BUY_YES") -> float 
                 else:
                     return None
 
+                # Prefer realizable exit price from best_bid / best_ask
+                best_bid_raw = market.get("bestBid")
+                best_ask_raw = market.get("bestAsk")
+                try:
+                    best_bid = float(best_bid_raw) if best_bid_raw is not None else None
+                except (TypeError, ValueError):
+                    best_bid = None
+                try:
+                    best_ask = float(best_ask_raw) if best_ask_raw is not None else None
+                except (TypeError, ValueError):
+                    best_ask = None
+
+                if side == "BUY_YES" and best_bid is not None and best_bid > 0:
+                    return best_bid
+                if side == "BUY_NO" and best_ask is not None and best_ask < 1:
+                    return 1.0 - best_ask
+
+                # Fallback: outcomePrices (last/mid) when bid/ask missing
                 outcome_prices = market.get("outcomePrices", "")
                 if isinstance(outcome_prices, str):
                     import json

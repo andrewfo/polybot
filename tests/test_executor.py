@@ -118,14 +118,14 @@ class TestComputeLimitPrice:
         market = _make_market_data(bestAsk="0.55")
         price, token_id = compute_limit_price(decision, market)
         assert token_id == "tok-yes"
-        assert abs(price - (0.55 - 0.02)) < 0.001
+        assert abs(price - (0.55 + 0.02)) < 0.001
 
     def test_buy_no(self):
         decision = _make_decision(side="BUY_NO")
         market = _make_market_data(bestBid="0.50")
         price, token_id = compute_limit_price(decision, market)
         assert token_id == "tok-no"
-        assert abs(price - (0.50 - 0.02)) < 0.001
+        assert abs(price - ((1.0 - 0.50) + 0.02)) < 0.001
 
     def test_clamp_low(self):
         decision = _make_decision(side="BUY_YES")
@@ -286,7 +286,7 @@ class TestTradeExecutor:
         await executor.execute_trade(decision, market, 1000.0)
         call_kwargs = mock_client.place_limit_order.call_args
         price = call_kwargs.kwargs.get("price") or call_kwargs[1].get("price")
-        assert abs(price - 0.58) < 0.001  # 0.60 - 0.02
+        assert abs(price - 0.62) < 0.001  # 0.60 + 0.02 (cross the spread)
 
     @pytest.mark.asyncio
     @patch("strategy.executor.db")
@@ -308,7 +308,7 @@ class TestTradeExecutor:
         call_kwargs = mock_client.place_limit_order.call_args
         price = call_kwargs.kwargs.get("price") or call_kwargs[1].get("price")
         token_id = call_kwargs.kwargs.get("token_id") or call_kwargs[1].get("token_id")
-        assert abs(price - 0.48) < 0.001  # (1 - 0.50) - 0.02
+        assert abs(price - 0.52) < 0.001  # (1 - 0.50) + 0.02 (cross the spread)
         assert token_id == "tok-no"
 
     @pytest.mark.asyncio

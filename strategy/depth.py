@@ -237,7 +237,7 @@ async def analyze_depth(
         else:
             adjusted_bet = min(bet_size_usd, max_at_slippage)
             logger.info(
-                "Depth adjustment: $%.2f → $%.2f (slippage %.1%% → within %.1%%)",
+                "Depth adjustment: $%.2f → $%.2f (slippage %.1f%% → within %.1f%%)",
                 bet_size_usd, adjusted_bet, slippage * 100, MAX_ACCEPTABLE_SLIPPAGE * 100,
             )
     else:
