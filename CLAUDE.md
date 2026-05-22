@@ -41,9 +41,9 @@ frontend/                     → React (Vite) dashboard: Dashboard, Markets, An
 ## Build Sequence & Progress
 Built section by section from `POLYMARKET_BOT_PLAN (1).md`. Build in order, run tests after each section.
 
-**Sections 0-9: COMPLETE** — Core infra, LLM, wallet, DB, market filtering, signal engine (4 providers + aggregator), Kelly criterion, order execution, web dashboard (7 tabs: Dashboard, Markets, Analysis, Learning, Database, Logs, Trades), continuous learning engine, monitoring & notifications, health checks, pipeline integration (headless main loop, 3 workers, database explorer). 364 tests passing, zero TODOs/FIXMEs. Recent work: improved resolution_crypto calibration (negative coin cache, drift shrinkage), hardened frontier prompt safety gates, added Trades tab with full analysis view.
+**Sections 0-9: COMPLETE** — Core infra, LLM, wallet, DB, market filtering, signal engine (4 providers + aggregator), Kelly criterion, order execution, web dashboard (7 tabs incl. Trades), continuous learning, monitoring/notifications, health checks, pipeline integration (3 workers). **422 tests passing**, zero TODOs/FIXMEs. Recent: realistic pricing (`REALISTIC_PRICING` flag) — fresh Gamma book refetch before Kelly/depth/executor see it, paper exits at bid not mid, live records actual CLOB fill via new `ClobClientWrapper.get_order_fill`; TP/SL position check tightened from 10→5 min; `MIN_EDGE_THRESHOLD` raise rec now scales (1.5x) rather than hardcoded.
 
-**Next:** Section 10 (paper summary endpoint, live readiness gate, requirements.txt cleanup) → 11 (docs & dead code removal)
+**Next:** Section 10 (paper summary endpoint, live readiness gate, requirements.txt cleanup) → 11 (docs & dead code).
 
 Available skills: `/build-section N`, `/verify-section N`, `/status`, `/test-module <name>`, `/audit-llm`, `/check-health`, `/run-pipeline`, `/add-signal <name>`, `/improve-signal <name>`, `/tune-prompts`.
 

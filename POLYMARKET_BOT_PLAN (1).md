@@ -53,7 +53,7 @@ Core project structure, dependencies, config/settings.py (env-overridable), .env
 
 ## Section 6: Order Execution & Position Management — COMPLETE
 
-`strategy/executor.py` — PaperExecutor + TradeExecutor, risk guardrails (position count, trade rate, drawdown, daily loss), limit order placement, order monitoring, take-profit/stop-loss position management, AutoStopError for critical failures.
+`strategy/executor.py` — PaperExecutor + TradeExecutor, risk guardrails (position count, trade rate, drawdown, daily loss), limit order placement, order monitoring, take-profit/stop-loss position management, AutoStopError for critical failures. Realistic-pricing path (`REALISTIC_PRICING`, default on): paper and live both refetch the Gamma book before Kelly runs, evaluate TP/SL against the bid (not the mid), and record actual CLOB fill prices via `ClobClientWrapper.get_order_fill` so paper PnL matches what a live exit would realize.
 
 ---
 
@@ -116,7 +116,7 @@ Paper trading is already implemented in `strategy/executor.py` (PaperExecutor). 
 
 ## Section 11: Documentation & Polish — NOT STARTED
 
-**Status:** Not started. Zero TODOs/FIXMEs in codebase. All 364 tests pass. Dead code removal and README update remain.
+**Status:** Not started. Zero TODOs/FIXMEs in codebase. All 422 tests pass. Dead code removal and README update remain.
 
 ### Tasks
 1. **Update README.md** — accurate setup, architecture, and usage instructions reflecting web dashboard (not TUI)

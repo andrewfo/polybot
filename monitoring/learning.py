@@ -760,15 +760,22 @@ def compute_parameter_recommendations(
         small_edge = edge_real.by_edge_band.get("small", {})
         if small_edge and small_edge.get("count", 0) >= 5:
             if small_edge.get("avg_return", 0) < 0:
-                # Small-edge trades are losing money — raise threshold
-                recs.append(ParameterRecommendation(
-                    parameter="MIN_EDGE_THRESHOLD",
-                    current_value=MIN_EDGE_THRESHOLD,
-                    recommended_value=0.04,
-                    reason=f"Small-edge trades (<5%) avg return {small_edge['avg_return']:.1%} — raise threshold to filter them out",
-                    confidence=min(0.7, small_edge["count"] / 20),
-                    sample_count=int(small_edge["count"]),
-                ))
+                # Small-edge trades are losing money — raise threshold by 50%,
+                # capped at the configured ceiling so we always recommend a
+                # strictly higher value than the current effective threshold.
+                new_thresh = min(
+                    PARAMETER_LIMITS["MIN_EDGE_THRESHOLD"][1],
+                    round(MIN_EDGE_THRESHOLD * 1.5, 3),
+                )
+                if new_thresh > MIN_EDGE_THRESHOLD:
+                    recs.append(ParameterRecommendation(
+                        parameter="MIN_EDGE_THRESHOLD",
+                        current_value=MIN_EDGE_THRESHOLD,
+                        recommended_value=new_thresh,
+                        reason=f"Small-edge trades (<5%) avg return {small_edge['avg_return']:.1%} — raise threshold to filter them out",
+                        confidence=min(0.7, small_edge["count"] / 20),
+                        sample_count=int(small_edge["count"]),
+                    ))
             elif small_edge.get("avg_return", 0) > 0.05:
                 # Small-edge trades are profitable — could lower threshold
                 new_thresh = max(0.01, MIN_EDGE_THRESHOLD * 0.75)
