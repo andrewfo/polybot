@@ -27,6 +27,15 @@ from core import db
 logger = logging.getLogger(__name__)
 
 
+# Stop-loss churn bugs (per-market cooldown, wide-spread guard, paper-fill
+# entry-price fix, tick-aware floor) landed between 2026-05-21 13:38 CDT and
+# 2026-05-22 14:07 CDT. Stop-loss closes timestamped before the last fix were
+# fired by the broken logic, not by genuine signal failure — feeding them into
+# the win-rate calculation pushes KELLY_FRACTION recommendations down
+# spuriously. We exclude those specific closes from edge-realization inputs.
+BROKEN_STOP_WINDOW_END = "2026-05-22T19:07:30+00:00"
+
+
 # ---------------------------------------------------------------------------
 # Data classes for learning report
 # ---------------------------------------------------------------------------
@@ -391,13 +400,43 @@ def analyze_edge_realization() -> EdgeRealizationReport:
             SELECT fd.edge, fd.confidence, fd.estimated_prob, fd.market_price,
                    fd.bet_size_usd,
                    COALESCE(p.realized_pnl, p.unrealized_pnl) as rpnl,
-                   p.avg_entry, p.size, fd.timestamp
+                   p.avg_entry, p.size, fd.timestamp,
+                   (SELECT t.close_reason FROM trades t
+                    WHERE t.market_id = fd.market_id
+                          AND t.pnl IS NOT NULL AND t.closed_at IS NOT NULL
+                    ORDER BY t.closed_at DESC LIMIT 1) AS close_reason,
+                   (SELECT t.closed_at FROM trades t
+                    WHERE t.market_id = fd.market_id
+                          AND t.pnl IS NOT NULL AND t.closed_at IS NOT NULL
+                    ORDER BY t.closed_at DESC LIMIT 1) AS closed_at
             FROM frontier_decisions fd
             INNER JOIN positions p ON fd.market_id = p.market_id
             WHERE fd.should_trade = 1 AND p.status = 'closed'
                   AND COALESCE(p.realized_pnl, p.unrealized_pnl) IS NOT NULL
             """
         ).fetchall())
+
+        # Exclude stop-loss closes from the broken-stop window so we don't
+        # double-penalise Kelly for losses caused by since-fixed churn.
+        filtered_rows = []
+        excluded = 0
+        for row in rows:
+            close_reason = (row[9] or "").lower()
+            closed_at = row[10]
+            if (
+                close_reason == "stop_loss"
+                and closed_at is not None
+                and closed_at < BROKEN_STOP_WINDOW_END
+            ):
+                excluded += 1
+                continue
+            filtered_rows.append(row)
+        if excluded:
+            logger.info(
+                "Edge realization: excluded %d stop-loss trades from broken-stop window (cutoff=%s)",
+                excluded, BROKEN_STOP_WINDOW_END,
+            )
+        rows = filtered_rows
 
         if not rows:
             return report

@@ -166,13 +166,14 @@ class TestEdgeRealization:
         assert report.total_trades == 0
 
     def test_edge_analysis(self, mock_db):
-        # (edge, confidence, estimated_prob, market_price, bet_size, realized_pnl, entry, size, timestamp)
+        # (edge, confidence, estimated_prob, market_price, bet_size, realized_pnl, entry, size, timestamp, close_reason, closed_at)
+        # close_reason="take_profit" so the broken-stop-window filter doesn't drop them.
         trade_rows = [
-            (0.10, 0.80, 0.60, 0.50, 100, 15.0, 0.50, 200, "2026-05-01T00:00:00+00:00"),
-            (0.05, 0.60, 0.55, 0.50, 50, -8.0, 0.50, 100, "2026-05-02T00:00:00+00:00"),
-            (0.15, 0.90, 0.70, 0.55, 150, 30.0, 0.55, 273, "2026-05-03T00:00:00+00:00"),
-            (0.08, 0.70, 0.58, 0.50, 80, 12.0, 0.50, 160, "2026-05-04T00:00:00+00:00"),
-            (0.12, 0.85, 0.62, 0.50, 120, -20.0, 0.50, 240, "2026-05-05T00:00:00+00:00"),
+            (0.10, 0.80, 0.60, 0.50, 100, 15.0, 0.50, 200, "2026-05-01T00:00:00+00:00", "take_profit", "2026-06-01T00:00:00+00:00"),
+            (0.05, 0.60, 0.55, 0.50, 50, -8.0, 0.50, 100, "2026-05-02T00:00:00+00:00", "take_profit", "2026-06-02T00:00:00+00:00"),
+            (0.15, 0.90, 0.70, 0.55, 150, 30.0, 0.55, 273, "2026-05-03T00:00:00+00:00", "take_profit", "2026-06-03T00:00:00+00:00"),
+            (0.08, 0.70, 0.58, 0.50, 80, 12.0, 0.50, 160, "2026-05-04T00:00:00+00:00", "take_profit", "2026-06-04T00:00:00+00:00"),
+            (0.12, 0.85, 0.62, 0.50, 120, -20.0, 0.50, 240, "2026-05-05T00:00:00+00:00", "take_profit", "2026-06-05T00:00:00+00:00"),
         ]
         mock_db.execute.return_value.fetchall.return_value = trade_rows
         report = analyze_edge_realization()
@@ -182,6 +183,25 @@ class TestEdgeRealization:
         assert report.avg_predicted_edge == sum(r[0] for r in trade_rows) / 5
         assert report.profit_factor > 0
         assert "mid" in report.by_confidence_band or "high" in report.by_confidence_band
+
+    def test_excludes_broken_stop_window(self, mock_db):
+        # Stop-losses fired before BROKEN_STOP_WINDOW_END are excluded; later
+        # stops and all take-profits survive.
+        from monitoring.learning import BROKEN_STOP_WINDOW_END
+        assert BROKEN_STOP_WINDOW_END.startswith("2026-05-22")
+        rows = [
+            # stop_loss before cutoff — excluded
+            (0.10, 0.80, 0.60, 0.50, 100, -25.0, 0.50, 200, "2026-05-21T00:00:00+00:00", "stop_loss", "2026-05-21T20:00:00+00:00"),
+            (0.08, 0.75, 0.58, 0.50, 100, -20.0, 0.50, 200, "2026-05-21T00:00:00+00:00", "stop_loss", "2026-05-22T10:00:00+00:00"),
+            # stop_loss after cutoff — kept
+            (0.09, 0.78, 0.59, 0.50, 100, -15.0, 0.50, 200, "2026-05-23T00:00:00+00:00", "stop_loss", "2026-05-24T00:00:00+00:00"),
+            # take_profit before cutoff — kept (filter is stop-loss-specific)
+            (0.12, 0.85, 0.62, 0.50, 100, 20.0, 0.50, 200, "2026-05-20T00:00:00+00:00", "take_profit", "2026-05-21T00:00:00+00:00"),
+        ]
+        mock_db.execute.return_value.fetchall.return_value = rows
+        report = analyze_edge_realization()
+        assert report.total_trades == 2
+        assert report.win_rate == 0.5
 
 
 # ---------------------------------------------------------------------------
