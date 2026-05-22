@@ -311,7 +311,9 @@ class PaperExecutor:
             logger.warning("Trade blocked by guardrail: %s", reason)
             return None
 
-        limit_price, token_id = compute_limit_price(decision, market_data)
+        limit_price, token_id = compute_limit_price(
+            decision, market_data, depth_slippage=decision.depth_slippage,
+        )
         # For paper, simulate the realistic fill at best_ask (BUY_YES) or
         # 1 - best_bid (BUY_NO). The limit price includes a spread-crossing
         # buffer that a real CLOB would not actually charge — booking it as
@@ -483,7 +485,9 @@ class TradeExecutor:
             logger.warning("Trade blocked by guardrail: %s", reason)
             return None
 
-        limit_price, token_id = compute_limit_price(decision, market_data)
+        limit_price, token_id = compute_limit_price(
+            decision, market_data, depth_slippage=decision.depth_slippage,
+        )
         size = decision.bet_size_usd / limit_price if limit_price > 0 else 0
         trade_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()

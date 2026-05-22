@@ -551,6 +551,7 @@ class SignalAggregator:
             self._log_aggregated_signal(
                 market_question, "aggregator_skip", None, 0.0,
                 f"Insufficient signals — {skip_reason} — skipping market", "none",
+                condition_id=condition_id,
             )
             return AggregatedSignal(
                 market_question=market_question,
@@ -649,6 +650,7 @@ class SignalAggregator:
                 f"Divergence {divergence:.2f} exceeds threshold — skipping "
                 f"(estimate={final_prob:.2f}, market={market_price:.2f}, conf={final_conf:.2f})",
                 "frontier",
+                condition_id=condition_id,
             )
             return None
 
@@ -665,6 +667,7 @@ class SignalAggregator:
                 final_prob, final_conf,
                 f"Frontier confidence {final_conf:.2f} < {eff_min_conf} — skipping",
                 "frontier",
+                condition_id=condition_id,
             )
             return None
 
@@ -691,6 +694,7 @@ class SignalAggregator:
             market_question, "aggregator",
             final_prob, final_conf, reasoning, "frontier",
             raw_data={"system_prompt": system_prompt, "user_prompt": prompt},
+            condition_id=condition_id,
         )
 
         # Also log individual signals and record for calibration
@@ -699,6 +703,7 @@ class SignalAggregator:
                 market_question, f"aggregator_input_{signal.source}",
                 signal.probability, signal.confidence,
                 signal.reasoning[:500], signal.model_used,
+                condition_id=condition_id,
             )
             # Record prediction for dynamic calibration tracking
             if signal.probability is not None:
@@ -722,11 +727,17 @@ class SignalAggregator:
         reasoning: str,
         model_used: str,
         raw_data: dict[str, Any] | None = None,
+        condition_id: str = "",
     ) -> None:
-        """Log a signal to the SQLite signals table."""
+        """Log a signal to the SQLite signals table.
+
+        Keys the row by ``condition_id`` when supplied so the row joins to
+        ``frontier_decisions`` / ``trades`` / ``skipped_markets`` (all keyed
+        on condition_id). Falls back to the truncated question for back-compat.
+        """
         try:
             db.record_signal(
-                market_id=market_question[:200],
+                market_id=condition_id if condition_id else market_question[:200],
                 signal_source=signal_source,
                 probability=probability if probability is not None else -1.0,
                 confidence=confidence,
