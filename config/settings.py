@@ -104,6 +104,12 @@ PAPER_TRADING = os.getenv("PAPER_TRADING", "true").lower() == "true"
 STALE_ORDER_MINUTES = int(os.getenv("STALE_ORDER_MINUTES", "15"))
 TAKE_PROFIT_PCT = float(os.getenv("TAKE_PROFIT_PCT", "0.12"))    # Close position at +12% profit
 STOP_LOSS_PCT = float(os.getenv("STOP_LOSS_PCT", "0.10"))        # Close position at -10% loss
+# Tick-aware stop-loss floor. On a $0.08 market a 1-cent tick is a 12.5% swing,
+# so a flat 10% stop fires on the first quote update. Require N ticks of move
+# against entry before stopping; widens the effective stop on low-priced markets
+# while leaving mid/high-priced behavior unchanged.
+STOP_LOSS_TICK_SIZE = float(os.getenv("STOP_LOSS_TICK_SIZE", "0.01"))
+STOP_LOSS_MIN_TICKS = int(os.getenv("STOP_LOSS_MIN_TICKS", "3"))
 
 # --- Telegram ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")

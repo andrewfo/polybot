@@ -16,6 +16,7 @@ from strategy.executor import (
     check_entry_spread,
     check_trade_rate,
     compute_limit_price,
+    effective_stop_loss_pct,
 )
 from strategy.kelly import TradeDecision
 
@@ -254,6 +255,91 @@ class TestPaperExecutor:
         executor = PaperExecutor()
         await executor.monitor_orders()
         mock_db.update_trade_status.assert_called_once_with("t1", "FILLED", fill_price=0.55)
+
+    def test_effective_stop_loss_floors_at_high_price(self):
+        # Mid/high entry: base 10% stop already wider than 3-tick floor, base wins.
+        assert effective_stop_loss_pct(0.50, 0.10) == pytest.approx(0.10)
+        assert effective_stop_loss_pct(0.30, 0.10) == pytest.approx(0.10)
+
+    def test_effective_stop_loss_widens_at_low_price(self):
+        # At $0.08 entry, 3 ticks = $0.03 = 37.5%, beats base 10%.
+        assert effective_stop_loss_pct(0.08, 0.10) == pytest.approx(0.375)
+        # At $0.15 entry, 3 ticks = $0.03 = 20%, beats base 10%.
+        assert effective_stop_loss_pct(0.15, 0.10) == pytest.approx(0.20)
+
+    def test_effective_stop_loss_degenerate_entry(self):
+        assert effective_stop_loss_pct(0.0, 0.10) == pytest.approx(0.10)
+
+    @pytest.mark.asyncio
+    @patch("strategy.executor._fetch_gamma_price", new_callable=AsyncMock)
+    @patch("strategy.executor.db")
+    async def test_manage_positions_low_price_skips_stop_at_15pct(self, mock_db, mock_fetch):
+        # Entry $0.08 -> dyn_sl=37.5%. Mark at $0.068 = -15% should NOT stop.
+        mock_fetch.return_value = 0.068
+        mock_db.get_open_positions.return_value = [
+            {
+                "token_id": "tok-low",
+                "market_id": "cond-low",
+                "market_question": "low-price market",
+                "side": "BUY_YES",
+                "avg_entry": 0.08,
+                "size": 100.0,
+                "current_price": 0.08,
+                "paper": 1,
+            }
+        ]
+        executor = PaperExecutor()
+        await executor.manage_positions()
+        mock_db.close_position.assert_not_called()
+        mock_db.upsert_position.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("strategy.executor._fetch_gamma_price", new_callable=AsyncMock)
+    @patch("strategy.executor.db")
+    async def test_manage_positions_low_price_stops_at_40pct(self, mock_db, mock_fetch):
+        # Entry $0.08 -> dyn_sl=37.5%. Mark at $0.045 = -43.75% should stop.
+        mock_fetch.return_value = 0.045
+        mock_db.get_open_positions.return_value = [
+            {
+                "token_id": "tok-low",
+                "market_id": "cond-low",
+                "market_question": "low-price market",
+                "side": "BUY_YES",
+                "avg_entry": 0.08,
+                "size": 100.0,
+                "current_price": 0.08,
+                "paper": 1,
+            }
+        ]
+        executor = PaperExecutor()
+        await executor.manage_positions()
+        mock_db.close_position.assert_called_once()
+        kwargs = mock_db.close_position.call_args.kwargs
+        assert kwargs["reason"] == "stop_loss"
+
+    @pytest.mark.asyncio
+    @patch("strategy.executor._fetch_gamma_price", new_callable=AsyncMock)
+    @patch("strategy.executor.db")
+    async def test_manage_positions_high_price_still_stops_at_10pct(self, mock_db, mock_fetch):
+        # Entry $0.50, mark $0.44 = -12% should stop (base 10% applies).
+        mock_fetch.return_value = 0.44
+        mock_db.get_open_positions.return_value = [
+            {
+                "token_id": "tok-hi",
+                "market_id": "cond-hi",
+                "market_question": "mid-price market",
+                "side": "BUY_YES",
+                "avg_entry": 0.50,
+                "size": 100.0,
+                "current_price": 0.50,
+                "paper": 1,
+            }
+        ]
+        executor = PaperExecutor()
+        await executor.manage_positions()
+        mock_db.close_position.assert_called_once()
+        kwargs = mock_db.close_position.call_args.kwargs
+        assert kwargs["reason"] == "stop_loss"
 
 
 # ---------------------------------------------------------------------------

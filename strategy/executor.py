@@ -21,7 +21,9 @@ from config.settings import (
     MAX_OPEN_POSITIONS,
     SLIPPAGE_BUFFER,
     STALE_ORDER_MINUTES,
+    STOP_LOSS_MIN_TICKS,
     STOP_LOSS_PCT,
+    STOP_LOSS_TICK_SIZE,
     TAKE_PROFIT_PCT,
     TEST_BANKROLL,
     get_effective_param,
@@ -225,6 +227,23 @@ def check_all_guardrails(
 
 
 # ---------------------------------------------------------------------------
+# Exit thresholds
+# ---------------------------------------------------------------------------
+
+def effective_stop_loss_pct(avg_entry: float, base_sl: float) -> float:
+    """Return the effective stop-loss pct, widened on low-priced markets.
+
+    Polymarket's 1-cent tick at sub-$0.20 prices makes a flat percentage stop
+    fire on a single tick of normal book noise. The floor requires at least
+    STOP_LOSS_MIN_TICKS of price movement against entry before stopping.
+    """
+    if avg_entry <= 0:
+        return base_sl
+    tick_floor = (STOP_LOSS_MIN_TICKS * STOP_LOSS_TICK_SIZE) / avg_entry
+    return max(base_sl, tick_floor)
+
+
+# ---------------------------------------------------------------------------
 # Price computation
 # ---------------------------------------------------------------------------
 
@@ -378,6 +397,7 @@ class PaperExecutor:
             cost_basis = pos["avg_entry"] * pos["size"]
             unrealized_pnl = (current_price - pos["avg_entry"]) * pos["size"]
             pnl_pct = unrealized_pnl / cost_basis if cost_basis > 0 else 0
+            dyn_sl = effective_stop_loss_pct(pos["avg_entry"], eff_sl)
 
             # Take-profit: close if unrealized PnL exceeds threshold
             if pnl_pct >= eff_tp:
@@ -389,12 +409,12 @@ class PaperExecutor:
                 db.close_position(pos["token_id"], exit_price=current_price, realized_pnl=unrealized_pnl, reason="take_profit")
                 continue
 
-            # Stop-loss: close if loss exceeds threshold
-            if pnl_pct <= -eff_sl:
+            # Stop-loss: close if loss exceeds tick-aware threshold
+            if pnl_pct <= -dyn_sl:
                 logger.warning(
-                    "STOP LOSS: %s down %.1f%% (entry=%.4f current=%.4f, PnL=$%.2f)",
+                    "STOP LOSS: %s down %.1f%% (entry=%.4f current=%.4f, PnL=$%.2f, sl=%.1f%%)",
                     pos.get("market_question", pos["token_id"])[:50],
-                    pnl_pct * 100, pos["avg_entry"], current_price, unrealized_pnl,
+                    pnl_pct * 100, pos["avg_entry"], current_price, unrealized_pnl, dyn_sl * 100,
                 )
                 db.close_position(pos["token_id"], exit_price=current_price, realized_pnl=unrealized_pnl, reason="stop_loss")
                 continue
@@ -573,6 +593,7 @@ class TradeExecutor:
             cost_basis = pos["avg_entry"] * pos["size"]
             unrealized_pnl = (current_price - pos["avg_entry"]) * pos["size"]
             pnl_pct = unrealized_pnl / cost_basis if cost_basis > 0 else 0
+            dyn_sl = effective_stop_loss_pct(pos["avg_entry"], eff_sl)
 
             # Take-profit: place sell order
             if pnl_pct >= eff_tp:
@@ -594,12 +615,12 @@ class TradeExecutor:
                     logger.error("Failed to close position for take-profit: %s", e)
                 continue
 
-            # Stop-loss: place sell order
-            if pnl_pct <= -eff_sl:
+            # Stop-loss: place sell order on tick-aware threshold
+            if pnl_pct <= -dyn_sl:
                 logger.warning(
-                    "STOP LOSS: %s down %.1f%% (entry=%.4f current=%.4f, PnL=$%.2f)",
+                    "STOP LOSS: %s down %.1f%% (entry=%.4f current=%.4f, PnL=$%.2f, sl=%.1f%%)",
                     pos.get("market_question", pos["token_id"])[:50],
-                    pnl_pct * 100, pos["avg_entry"], current_price, unrealized_pnl,
+                    pnl_pct * 100, pos["avg_entry"], current_price, unrealized_pnl, dyn_sl * 100,
                 )
                 try:
                     sell_price = max(0.01, min(0.99, current_price - SLIPPAGE_BUFFER))
