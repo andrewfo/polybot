@@ -347,7 +347,7 @@ class TestPaperExecutor:
         assert kwargs["reason"] == "stop_loss"
 
     @pytest.mark.asyncio
-    @patch("strategy.executor.PAPER_REALISTIC_PRICING", False)
+    @patch("strategy.executor.REALISTIC_PRICING", False)
     @patch("strategy.executor._fetch_gamma_price", new_callable=AsyncMock)
     @patch("strategy.executor._fetch_gamma_book", new_callable=AsyncMock)
     @patch("strategy.executor.db")
@@ -538,6 +538,105 @@ class TestTradeExecutor:
         upsert_kwargs = mock_db.upsert_position.call_args.kwargs
         assert upsert_kwargs["avg_entry"] == pytest.approx(0.49)
         assert upsert_kwargs["current_price"] == pytest.approx(0.49)
+
+    @pytest.mark.asyncio
+    @patch("strategy.executor._fetch_gamma_book", new_callable=AsyncMock)
+    @patch("strategy.executor.db")
+    async def test_live_manage_positions_take_profit_at_bid(self, mock_db, mock_book):
+        # Entry 0.50, bid 0.60 = +20% realizable → TP fires.
+        # Mid 0.62 would have triggered TP under old (mid-based) logic too,
+        # so this test mainly verifies the close is recorded at the actual
+        # SELL fill price (0.59 in the mock), not at the mid.
+        mock_book.return_value = {"best_bid": 0.60, "best_ask": 0.64, "mid": 0.62}
+        mock_db.get_open_positions.return_value = [
+            {
+                "token_id": "tok-1",
+                "market_id": "cond-1",
+                "market_question": "live tp",
+                "side": "BUY_YES",
+                "avg_entry": 0.50,
+                "size": 100.0,
+                "current_price": 0.50,
+                "paper": 0,
+            }
+        ]
+        mock_client = AsyncMock()
+        mock_client.place_limit_order.return_value = "sell-ord-1"
+        mock_client.get_order_fill.return_value = {"fill_price": 0.59, "filled_size": 100.0}
+
+        executor = TradeExecutor(mock_client)
+        await executor.manage_positions()
+
+        mock_client.place_limit_order.assert_called_once()
+        sell_kwargs = mock_client.place_limit_order.call_args.kwargs
+        assert sell_kwargs["side"] == "SELL"
+        # Sell limit crosses the spread: bid (0.60) - SLIPPAGE_BUFFER (0.02) = 0.58
+        assert sell_kwargs["price"] == pytest.approx(0.58, abs=0.005)
+        # close_position records the ACTUAL fill (0.59), not the mid (0.62) or the limit (0.58)
+        close_kwargs = mock_db.close_position.call_args.kwargs
+        assert close_kwargs["exit_price"] == pytest.approx(0.59)
+        assert close_kwargs["realized_pnl"] == pytest.approx((0.59 - 0.50) * 100.0)
+        assert close_kwargs["reason"] == "take_profit"
+
+    @pytest.mark.asyncio
+    @patch("strategy.executor._fetch_gamma_book", new_callable=AsyncMock)
+    @patch("strategy.executor.db")
+    async def test_live_manage_positions_falls_back_to_sell_limit_when_no_fill(self, mock_db, mock_book):
+        # SELL placed but get_order_fill returns None (still resting on the
+        # book). We record the sell limit price as the best estimate — never
+        # the mid, never a phantom number.
+        mock_book.return_value = {"best_bid": 0.60, "best_ask": 0.64, "mid": 0.62}
+        mock_db.get_open_positions.return_value = [
+            {
+                "token_id": "tok-1",
+                "market_id": "cond-1",
+                "market_question": "live tp pending",
+                "side": "BUY_YES",
+                "avg_entry": 0.50,
+                "size": 100.0,
+                "current_price": 0.50,
+                "paper": 0,
+            }
+        ]
+        mock_client = AsyncMock()
+        mock_client.place_limit_order.return_value = "sell-ord-2"
+        mock_client.get_order_fill.return_value = None  # not filled yet
+
+        executor = TradeExecutor(mock_client)
+        await executor.manage_positions()
+
+        close_kwargs = mock_db.close_position.call_args.kwargs
+        # Limit was bid - slippage = 0.58
+        assert close_kwargs["exit_price"] == pytest.approx(0.58, abs=0.005)
+
+    @pytest.mark.asyncio
+    @patch("strategy.executor._fetch_gamma_book", new_callable=AsyncMock)
+    @patch("strategy.executor.db")
+    async def test_live_manage_positions_no_close_when_only_mid_above_threshold(self, mock_db, mock_book):
+        # Mid is 0.62 (+24% from 0.50, above 12% TP), but bid is only 0.54
+        # (+8%, below TP). New logic must NOT fire — the spread eats the win.
+        mock_book.return_value = {"best_bid": 0.54, "best_ask": 0.70, "mid": 0.62}
+        mock_db.get_open_positions.return_value = [
+            {
+                "token_id": "tok-1",
+                "market_id": "cond-1",
+                "market_question": "wide-spread tp false-positive",
+                "side": "BUY_YES",
+                "avg_entry": 0.50,
+                "size": 100.0,
+                "current_price": 0.50,
+                "paper": 0,
+            }
+        ]
+        mock_client = AsyncMock()
+        executor = TradeExecutor(mock_client)
+        await executor.manage_positions()
+
+        mock_client.place_limit_order.assert_not_called()
+        mock_db.close_position.assert_not_called()
+        # Position is marked-to-mid for display
+        upsert_kwargs = mock_db.upsert_position.call_args.kwargs
+        assert upsert_kwargs["current_price"] == pytest.approx(0.62)
 
     @pytest.mark.asyncio
     @patch("strategy.executor.db")

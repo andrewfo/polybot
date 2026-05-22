@@ -42,8 +42,8 @@ from config.settings import (
     MIN_EDGE_THRESHOLD,
     MIN_EV_GAS_RATIO,
     MIN_MARKET_LIQUIDITY,
-    PAPER_REALISTIC_PRICING,
     PAPER_TRADING,
+    REALISTIC_PRICING,
     POLYMARKET_FEE_RATE,
     POSITION_CHECK_INTERVAL_MINUTES,
     STOP_LOSS_PCT,
@@ -572,11 +572,12 @@ class BotEngine:
         # Refresh the cached order book against live Gamma before any
         # downstream decision runs. The discovery cache is up to 30 min stale;
         # if we used it as-is, aggregator divergence checks, Kelly edge calc,
-        # and the paper fill price would all key off a snapshot that may have
-        # moved by 2-5% on a volatile market. One Gamma call per candidate is
-        # well within rate budget. Mutates `m` in place — downstream parsers
-        # (_parse_market_price, executor) read these fields.
-        if PAPER_REALISTIC_PRICING:
+        # and the recorded fill price would all key off a snapshot that may
+        # have moved by 2-5% on a volatile market. One Gamma call per
+        # candidate is well within rate budget. Mutates `m` in place —
+        # downstream parsers (_parse_market_price, executor) read these
+        # fields. Applies to both paper and live; gate is for backtest A/B.
+        if REALISTIC_PRICING:
             book = await _fetch_gamma_book(cid)
             if book is not None:
                 m["bestBid"] = str(book["best_bid"])

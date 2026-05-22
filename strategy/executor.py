@@ -19,7 +19,7 @@ from config.settings import (
     MAX_ENTRY_SPREAD_PCT,
     MAX_NEW_TRADES_PER_HOUR,
     MAX_OPEN_POSITIONS,
-    PAPER_REALISTIC_PRICING,
+    REALISTIC_PRICING,
     SLIPPAGE_BUFFER,
     STALE_ORDER_MINUTES,
     STOP_LOSS_MIN_TICKS,
@@ -394,11 +394,11 @@ class PaperExecutor:
             pos_side = pos.get("side", "BUY_YES")
             # Fetch the order book so we can value the position at the mid
             # (display mark) and evaluate TP/SL against the bid (what a real
-            # sell would realize). When PAPER_REALISTIC_PRICING is off, fall
+            # sell would realize). When REALISTIC_PRICING is off, fall
             # back to mid for both — preserves legacy behavior.
             mark_price: float | None = None
             exit_price: float | None = None
-            if PAPER_REALISTIC_PRICING:
+            if REALISTIC_PRICING:
                 book = await _fetch_gamma_book(pos["market_id"])
                 if book is not None:
                     if pos_side == "BUY_YES":
@@ -632,53 +632,51 @@ class TradeExecutor:
                 continue
 
             pos_side = pos.get("side", "BUY_YES")
-            current_price = await _fetch_gamma_price(pos["market_id"], side=pos_side)
-            if current_price is None:
-                continue
+            # Same bid/mid split as paper: mark at mid for display, but
+            # evaluate TP/SL at the bid (what we'd actually realize).
+            mark_price: float | None = None
+            exit_price: float | None = None
+            if REALISTIC_PRICING:
+                book = await _fetch_gamma_book(pos["market_id"])
+                if book is not None:
+                    if pos_side == "BUY_YES":
+                        mark_price = book["mid"]
+                        exit_price = book["best_bid"]
+                    else:
+                        mark_price = 1.0 - book["mid"]
+                        exit_price = 1.0 - book["best_ask"]
+            if mark_price is None or exit_price is None:
+                mid = await _fetch_gamma_price(pos["market_id"], side=pos_side)
+                if mid is None:
+                    continue
+                mark_price = mid
+                exit_price = mid
 
             cost_basis = pos["avg_entry"] * pos["size"]
-            unrealized_pnl = (current_price - pos["avg_entry"]) * pos["size"]
-            pnl_pct = unrealized_pnl / cost_basis if cost_basis > 0 else 0
+            realizable_pnl = (exit_price - pos["avg_entry"]) * pos["size"]
+            pnl_pct = realizable_pnl / cost_basis if cost_basis > 0 else 0
             dyn_sl = effective_stop_loss_pct(pos["avg_entry"], eff_sl)
 
-            # Take-profit: place sell order
             if pnl_pct >= eff_tp:
                 logger.info(
-                    "TAKE PROFIT: %s up %.1f%% (entry=%.4f current=%.4f, PnL=$%.2f)",
+                    "TAKE PROFIT: %s up %.1f%% (entry=%.4f mark=%.4f exit=%.4f, PnL=$%.2f)",
                     pos.get("market_question", pos["token_id"])[:50],
-                    pnl_pct * 100, pos["avg_entry"], current_price, unrealized_pnl,
+                    pnl_pct * 100, pos["avg_entry"], mark_price, exit_price, realizable_pnl,
                 )
-                try:
-                    sell_price = max(0.01, min(0.99, current_price - SLIPPAGE_BUFFER))
-                    await self._client.place_limit_order(
-                        token_id=pos["token_id"],
-                        side="SELL",
-                        price=sell_price,
-                        size=pos["size"],
-                    )
-                    db.close_position(pos["token_id"], exit_price=current_price, realized_pnl=unrealized_pnl, reason="take_profit")
-                except Exception as e:
-                    logger.error("Failed to close position for take-profit: %s", e)
+                await self._close_live_position(
+                    pos, exit_price_estimate=exit_price, reason="take_profit",
+                )
                 continue
 
-            # Stop-loss: place sell order on tick-aware threshold
             if pnl_pct <= -dyn_sl:
                 logger.warning(
-                    "STOP LOSS: %s down %.1f%% (entry=%.4f current=%.4f, PnL=$%.2f, sl=%.1f%%)",
+                    "STOP LOSS: %s down %.1f%% (entry=%.4f mark=%.4f exit=%.4f, PnL=$%.2f, sl=%.1f%%)",
                     pos.get("market_question", pos["token_id"])[:50],
-                    pnl_pct * 100, pos["avg_entry"], current_price, unrealized_pnl, dyn_sl * 100,
+                    pnl_pct * 100, pos["avg_entry"], mark_price, exit_price, realizable_pnl, dyn_sl * 100,
                 )
-                try:
-                    sell_price = max(0.01, min(0.99, current_price - SLIPPAGE_BUFFER))
-                    await self._client.place_limit_order(
-                        token_id=pos["token_id"],
-                        side="SELL",
-                        price=sell_price,
-                        size=pos["size"],
-                    )
-                    db.close_position(pos["token_id"], exit_price=current_price, realized_pnl=unrealized_pnl, reason="stop_loss")
-                except Exception as e:
-                    logger.error("Failed to close position for stop-loss: %s", e)
+                await self._close_live_position(
+                    pos, exit_price_estimate=exit_price, reason="stop_loss",
+                )
                 continue
 
             db.upsert_position(
@@ -688,16 +686,70 @@ class TradeExecutor:
                 side=pos_side,
                 avg_entry=pos["avg_entry"],
                 size=pos["size"],
-                current_price=current_price,
+                current_price=mark_price,
                 paper=False,
             )
 
             if pnl_pct < -0.20:
                 logger.warning(
-                    "LOSS WARNING: %s down %.1f%% (entry=%.4f current=%.4f)",
+                    "LOSS WARNING: %s down %.1f%% (entry=%.4f mark=%.4f exit=%.4f)",
                     pos.get("market_question", pos["token_id"])[:50],
-                    pnl_pct * 100, pos["avg_entry"], current_price,
+                    pnl_pct * 100, pos["avg_entry"], mark_price, exit_price,
                 )
+
+    async def _close_live_position(
+        self,
+        pos: dict[str, Any],
+        exit_price_estimate: float,
+        reason: str,
+    ) -> None:
+        """Submit a SELL limit and record the position close at the real fill.
+
+        Places the sell at ``exit_price_estimate - SLIPPAGE_BUFFER`` so we
+        cross the spread, then queries ``get_order_fill`` once to pick up the
+        actual CLOB clearing price. Falls back to the limit price (then to
+        the bid estimate) so we never record a phantom mid-based PnL.
+        """
+        sell_limit = max(0.01, min(0.99, exit_price_estimate - SLIPPAGE_BUFFER))
+        try:
+            order_id = await self._client.place_limit_order(
+                token_id=pos["token_id"],
+                side="SELL",
+                price=sell_limit,
+                size=pos["size"],
+            )
+        except Exception as e:
+            logger.error("Failed to place %s sell for %s: %s", reason, pos["token_id"], e)
+            return
+
+        # Try to learn the real fill price. If the sell crossed the spread
+        # it usually fills immediately; if it's still resting we record the
+        # limit as the best available estimate and let monitor_orders refine
+        # later via the same get_order_fill path used for entries.
+        actual_price = sell_limit
+        try:
+            fill = await self._client.get_order_fill(order_id) if order_id else None
+        except Exception as e:
+            logger.warning(
+                "get_order_fill(%s) errored for SELL; recording limit %.4f: %s",
+                order_id, sell_limit, e,
+            )
+            fill = None
+        if fill is not None:
+            actual_price = fill["fill_price"]
+            if abs(actual_price - sell_limit) > 0.0001:
+                logger.info(
+                    "SELL %s filled at %.4f (limit was %.4f) | order %s",
+                    pos["token_id"], actual_price, sell_limit, order_id,
+                )
+
+        realized_pnl = (actual_price - pos["avg_entry"]) * pos["size"]
+        db.close_position(
+            pos["token_id"],
+            exit_price=actual_price,
+            realized_pnl=realized_pnl,
+            reason=reason,
+        )
 
 
 # ---------------------------------------------------------------------------
