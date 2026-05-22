@@ -38,6 +38,100 @@ class AuthenticationError(ClientError):
     pass
 
 
+def _parse_fill_from_order(order: Any) -> dict[str, float] | None:
+    """Extract fill_price/filled_size from a py-clob-client get_order response.
+
+    Different client versions return slightly different field names; check the
+    common ones. Returns None when the order has no fill yet or fields are
+    malformed.
+    """
+    if not isinstance(order, dict):
+        return None
+    size_keys = ("size_matched", "sizeMatched", "filled_size", "filledSize", "size_filled")
+    price_keys = ("avg_fill_price", "avgFillPrice", "average_price", "averagePrice", "price")
+
+    filled_size = None
+    for k in size_keys:
+        v = order.get(k)
+        if v is None:
+            continue
+        try:
+            filled_size = float(v)
+            break
+        except (TypeError, ValueError):
+            continue
+    if filled_size is None or filled_size <= 0:
+        return None
+
+    fill_price = None
+    for k in price_keys:
+        v = order.get(k)
+        if v is None:
+            continue
+        try:
+            fill_price = float(v)
+            break
+        except (TypeError, ValueError):
+            continue
+    if fill_price is None or not (0 < fill_price < 1):
+        return None
+
+    return {"fill_price": fill_price, "filled_size": filled_size}
+
+
+def _parse_fill_from_trades(trades: Any, order_id: str) -> dict[str, float] | None:
+    """Aggregate fills matching ``order_id`` across a trade list.
+
+    Multiple partial fills are size-weighted into a single average price.
+    """
+    if not order_id:
+        return None
+    if isinstance(trades, dict):
+        trades = trades.get("data", trades.get("trades", []))
+    if not isinstance(trades, list):
+        return None
+
+    id_keys = ("order_id", "orderID", "orderId", "maker_order_id", "takerOrderId")
+    size_keys = ("size", "matched_size", "match_size")
+    price_keys = ("price", "match_price", "matched_price")
+
+    total_size = 0.0
+    weighted_price = 0.0
+    for t in trades:
+        if not isinstance(t, dict):
+            continue
+        if not any(t.get(k) == order_id for k in id_keys):
+            continue
+        size = None
+        for k in size_keys:
+            v = t.get(k)
+            if v is None:
+                continue
+            try:
+                size = float(v)
+                break
+            except (TypeError, ValueError):
+                continue
+        price = None
+        for k in price_keys:
+            v = t.get(k)
+            if v is None:
+                continue
+            try:
+                price = float(v)
+                break
+            except (TypeError, ValueError):
+                continue
+        if size is None or price is None or size <= 0 or not (0 < price < 1):
+            continue
+        total_size += size
+        weighted_price += size * price
+
+    if total_size <= 0:
+        return None
+    return {"fill_price": weighted_price / total_size, "filled_size": total_size}
+
+
 class ClobClientWrapper:
     """Async wrapper around Polymarket's CLOB client.
 
@@ -227,6 +321,40 @@ class ClobClientWrapper:
         if isinstance(result, dict):
             return result.get("data", result.get("orders", []))
         return []
+
+    async def get_order_fill(self, order_id: str) -> dict[str, float] | None:
+        """Return actual fill details for an order, or None if not yet filled.
+
+        Returns {'fill_price': float, 'filled_size': float}. Prefers the
+        per-order endpoint when available; falls back to scanning recent
+        trades. Returns None when fill data cannot be obtained — callers
+        should fall back to the recorded limit price.
+        """
+        # Strategy 1: per-order endpoint (py-clob-client.get_order)
+        order_data: Any = None
+        try:
+            get_order = getattr(self._client, "get_order", None)
+            if get_order is not None:
+                order_data = await self._rate_limited_call(get_order, order_id)
+        except (ClientError, AttributeError) as e:
+            logger.debug("get_order(%s) failed: %s", order_id, e)
+            order_data = None
+
+        fill = _parse_fill_from_order(order_data) if order_data else None
+        if fill is not None:
+            return fill
+
+        # Strategy 2: scan trade history for this order's fills
+        try:
+            get_trades = getattr(self._client, "get_trades", None)
+            if get_trades is None:
+                return None
+            trades = await self._rate_limited_call(get_trades)
+        except (ClientError, AttributeError) as e:
+            logger.debug("get_trades fallback failed for order %s: %s", order_id, e)
+            return None
+
+        return _parse_fill_from_trades(trades, order_id)
 
     async def get_positions(self) -> list[dict[str, Any]]:
         """Get current token positions."""

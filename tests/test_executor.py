@@ -208,16 +208,17 @@ class TestPaperExecutor:
         mock_db.record_trade.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch("strategy.executor._fetch_gamma_price", new_callable=AsyncMock)
+    @patch("strategy.executor._fetch_gamma_book", new_callable=AsyncMock)
     @patch("strategy.executor.db")
-    async def test_manage_positions_updates_pnl(self, mock_db, mock_fetch):
-        mock_fetch.return_value = 0.55  # 10% gain — below 12% take-profit threshold
+    async def test_manage_positions_updates_pnl(self, mock_db, mock_book):
+        # Mid 0.55 (10% gain, below 12% TP), bid 0.54 (8% realizable, also below TP).
+        mock_book.return_value = {"best_bid": 0.54, "best_ask": 0.56, "mid": 0.55}
         mock_db.get_open_positions.return_value = [
             {
                 "token_id": "tok-1",
                 "market_id": "cond-1",
                 "market_question": "Will BTC reach 100k?",
-                "side": "BUY",
+                "side": "BUY_YES",
                 "avg_entry": 0.50,
                 "size": 100.0,
                 "current_price": 0.50,
@@ -228,9 +229,11 @@ class TestPaperExecutor:
         executor = PaperExecutor()
         await executor.manage_positions()
 
+        mock_db.close_position.assert_not_called()
         mock_db.upsert_position.assert_called_once()
         call_kwargs = mock_db.upsert_position.call_args
-        assert call_kwargs.kwargs.get("current_price") == 0.55 or call_kwargs[1].get("current_price") == 0.55
+        # current_price column holds the mark (mid), not the bid
+        assert call_kwargs.kwargs.get("current_price") == pytest.approx(0.55)
 
     @pytest.mark.asyncio
     @patch("strategy.executor.db")
@@ -271,11 +274,11 @@ class TestPaperExecutor:
         assert effective_stop_loss_pct(0.0, 0.10) == pytest.approx(0.10)
 
     @pytest.mark.asyncio
-    @patch("strategy.executor._fetch_gamma_price", new_callable=AsyncMock)
+    @patch("strategy.executor._fetch_gamma_book", new_callable=AsyncMock)
     @patch("strategy.executor.db")
-    async def test_manage_positions_low_price_skips_stop_at_15pct(self, mock_db, mock_fetch):
-        # Entry $0.08 -> dyn_sl=37.5%. Mark at $0.068 = -15% should NOT stop.
-        mock_fetch.return_value = 0.068
+    async def test_manage_positions_low_price_skips_stop_at_15pct(self, mock_db, mock_book):
+        # Entry $0.08 -> dyn_sl=37.5%. Bid $0.068 = -15% should NOT stop.
+        mock_book.return_value = {"best_bid": 0.068, "best_ask": 0.072, "mid": 0.070}
         mock_db.get_open_positions.return_value = [
             {
                 "token_id": "tok-low",
@@ -294,11 +297,11 @@ class TestPaperExecutor:
         mock_db.upsert_position.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("strategy.executor._fetch_gamma_price", new_callable=AsyncMock)
+    @patch("strategy.executor._fetch_gamma_book", new_callable=AsyncMock)
     @patch("strategy.executor.db")
-    async def test_manage_positions_low_price_stops_at_40pct(self, mock_db, mock_fetch):
-        # Entry $0.08 -> dyn_sl=37.5%. Mark at $0.045 = -43.75% should stop.
-        mock_fetch.return_value = 0.045
+    async def test_manage_positions_low_price_stops_at_40pct(self, mock_db, mock_book):
+        # Entry $0.08 -> dyn_sl=37.5%. Bid $0.045 = -43.75% should stop.
+        mock_book.return_value = {"best_bid": 0.045, "best_ask": 0.055, "mid": 0.050}
         mock_db.get_open_positions.return_value = [
             {
                 "token_id": "tok-low",
@@ -316,13 +319,15 @@ class TestPaperExecutor:
         mock_db.close_position.assert_called_once()
         kwargs = mock_db.close_position.call_args.kwargs
         assert kwargs["reason"] == "stop_loss"
+        # exit_price column reflects the realizable bid, not the mid
+        assert kwargs["exit_price"] == pytest.approx(0.045)
 
     @pytest.mark.asyncio
-    @patch("strategy.executor._fetch_gamma_price", new_callable=AsyncMock)
+    @patch("strategy.executor._fetch_gamma_book", new_callable=AsyncMock)
     @patch("strategy.executor.db")
-    async def test_manage_positions_high_price_still_stops_at_10pct(self, mock_db, mock_fetch):
-        # Entry $0.50, mark $0.44 = -12% should stop (base 10% applies).
-        mock_fetch.return_value = 0.44
+    async def test_manage_positions_high_price_still_stops_at_10pct(self, mock_db, mock_book):
+        # Entry $0.50, bid $0.44 = -12% should stop (base 10% applies).
+        mock_book.return_value = {"best_bid": 0.44, "best_ask": 0.46, "mid": 0.45}
         mock_db.get_open_positions.return_value = [
             {
                 "token_id": "tok-hi",
@@ -340,6 +345,63 @@ class TestPaperExecutor:
         mock_db.close_position.assert_called_once()
         kwargs = mock_db.close_position.call_args.kwargs
         assert kwargs["reason"] == "stop_loss"
+
+    @pytest.mark.asyncio
+    @patch("strategy.executor.PAPER_REALISTIC_PRICING", False)
+    @patch("strategy.executor._fetch_gamma_price", new_callable=AsyncMock)
+    @patch("strategy.executor._fetch_gamma_book", new_callable=AsyncMock)
+    @patch("strategy.executor.db")
+    async def test_manage_positions_legacy_mid_when_flag_off(self, mock_db, mock_book, mock_mid):
+        # With flag off, _fetch_gamma_book is not consulted; mid drives both
+        # mark and TP/SL evaluation (legacy behavior).
+        mock_mid.return_value = 0.44  # -12% mid on entry 0.50; base SL=10% trips.
+        mock_db.get_open_positions.return_value = [
+            {
+                "token_id": "tok-1",
+                "market_id": "cond-1",
+                "market_question": "legacy",
+                "side": "BUY_YES",
+                "avg_entry": 0.50,
+                "size": 100.0,
+                "current_price": 0.50,
+                "paper": 1,
+            }
+        ]
+        executor = PaperExecutor()
+        await executor.manage_positions()
+        mock_book.assert_not_called()
+        mock_db.close_position.assert_called_once()
+        kwargs = mock_db.close_position.call_args.kwargs
+        # Legacy path closes at mid, not bid
+        assert kwargs["exit_price"] == pytest.approx(0.44)
+
+    @pytest.mark.asyncio
+    @patch("strategy.executor._fetch_gamma_price", new_callable=AsyncMock)
+    @patch("strategy.executor._fetch_gamma_book", new_callable=AsyncMock)
+    @patch("strategy.executor.db")
+    async def test_manage_positions_falls_back_to_mid_when_book_unavailable(self, mock_db, mock_book, mock_mid):
+        # Flag on but Gamma returned no bid/ask (e.g. one-sided book); falls
+        # back to _fetch_gamma_price's mid path so we still mark the position.
+        mock_book.return_value = None
+        mock_mid.return_value = 0.55
+        mock_db.get_open_positions.return_value = [
+            {
+                "token_id": "tok-1",
+                "market_id": "cond-1",
+                "market_question": "fallback",
+                "side": "BUY_YES",
+                "avg_entry": 0.50,
+                "size": 100.0,
+                "current_price": 0.50,
+                "paper": 1,
+            }
+        ]
+        executor = PaperExecutor()
+        await executor.manage_positions()
+        mock_book.assert_called_once()
+        mock_mid.assert_called_once()
+        mock_db.close_position.assert_not_called()
+        mock_db.upsert_position.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -443,3 +505,64 @@ class TestTradeExecutor:
 
         mock_client.cancel_order.assert_called_once_with("order-stale")
         mock_db.update_trade_status.assert_called_once_with("t1", "EXPIRED")
+
+    @pytest.mark.asyncio
+    @patch("strategy.executor.db")
+    async def test_monitor_orders_records_actual_clob_fill(self, mock_db):
+        # Limit was 0.52, but CLOB filled at 0.49 (better fill). The DB row
+        # must reflect 0.49, not the original limit.
+        mock_db.get_open_trades.return_value = [
+            {
+                "id": "t1",
+                "paper": 0,
+                "order_id": "order-filled",
+                "placed_at": datetime.now(timezone.utc).isoformat(),
+                "price": 0.52,
+                "size": 50.0,
+                "token_id": "tok-1",
+                "market_id": "cond-1",
+                "market_question": "Test?",
+                "side": "BUY_YES",
+            }
+        ]
+        mock_client = AsyncMock()
+        # CLOB no longer has the order open → it filled
+        mock_client.get_open_orders.return_value = []
+        mock_client.get_order_fill.return_value = {"fill_price": 0.49, "filled_size": 50.0}
+
+        executor = TradeExecutor(mock_client)
+        await executor.monitor_orders()
+
+        mock_client.get_order_fill.assert_called_once_with("order-filled")
+        mock_db.update_trade_status.assert_called_once_with("t1", "FILLED", fill_price=0.49)
+        upsert_kwargs = mock_db.upsert_position.call_args.kwargs
+        assert upsert_kwargs["avg_entry"] == pytest.approx(0.49)
+        assert upsert_kwargs["current_price"] == pytest.approx(0.49)
+
+    @pytest.mark.asyncio
+    @patch("strategy.executor.db")
+    async def test_monitor_orders_falls_back_to_limit_when_fill_unavailable(self, mock_db):
+        # If get_order_fill returns None (API blip), the trade is still
+        # recorded against the limit price so we don't lose the position.
+        mock_db.get_open_trades.return_value = [
+            {
+                "id": "t1",
+                "paper": 0,
+                "order_id": "order-filled",
+                "placed_at": datetime.now(timezone.utc).isoformat(),
+                "price": 0.52,
+                "size": 50.0,
+                "token_id": "tok-1",
+                "market_id": "cond-1",
+                "market_question": "Test?",
+                "side": "BUY_YES",
+            }
+        ]
+        mock_client = AsyncMock()
+        mock_client.get_open_orders.return_value = []
+        mock_client.get_order_fill.return_value = None
+
+        executor = TradeExecutor(mock_client)
+        await executor.monitor_orders()
+
+        mock_db.update_trade_status.assert_called_once_with("t1", "FILLED", fill_price=0.52)

@@ -19,6 +19,7 @@ from config.settings import (
     MAX_ENTRY_SPREAD_PCT,
     MAX_NEW_TRADES_PER_HOUR,
     MAX_OPEN_POSITIONS,
+    PAPER_REALISTIC_PRICING,
     SLIPPAGE_BUFFER,
     STALE_ORDER_MINUTES,
     STOP_LOSS_MIN_TICKS,
@@ -388,35 +389,52 @@ class PaperExecutor:
             if not pos.get("paper"):
                 continue
 
-            # Fetch current price from Gamma (side-aware: YES price for BUY_YES, NO price for BUY_NO)
             pos_side = pos.get("side", "BUY_YES")
-            current_price = await _fetch_gamma_price(pos["market_id"], side=pos_side)
-            if current_price is None:
-                continue
+            # Fetch the order book so we can value the position at the mid
+            # (display mark) and evaluate TP/SL against the bid (what a real
+            # sell would realize). When PAPER_REALISTIC_PRICING is off, fall
+            # back to mid for both — preserves legacy behavior.
+            mark_price: float | None = None
+            exit_price: float | None = None
+            if PAPER_REALISTIC_PRICING:
+                book = await _fetch_gamma_book(pos["market_id"])
+                if book is not None:
+                    if pos_side == "BUY_YES":
+                        mark_price = book["mid"]
+                        exit_price = book["best_bid"]
+                    else:
+                        mark_price = 1.0 - book["mid"]
+                        exit_price = 1.0 - book["best_ask"]
+            if mark_price is None or exit_price is None:
+                # Fallback path: bid/ask unavailable or flag off — use mid for both
+                mid = await _fetch_gamma_price(pos["market_id"], side=pos_side)
+                if mid is None:
+                    continue
+                mark_price = mid
+                exit_price = mid
 
             cost_basis = pos["avg_entry"] * pos["size"]
-            unrealized_pnl = (current_price - pos["avg_entry"]) * pos["size"]
-            pnl_pct = unrealized_pnl / cost_basis if cost_basis > 0 else 0
+            # PnL for TP/SL evaluation uses the realizable exit price.
+            realizable_pnl = (exit_price - pos["avg_entry"]) * pos["size"]
+            pnl_pct = realizable_pnl / cost_basis if cost_basis > 0 else 0
             dyn_sl = effective_stop_loss_pct(pos["avg_entry"], eff_sl)
 
-            # Take-profit: close if unrealized PnL exceeds threshold
             if pnl_pct >= eff_tp:
                 logger.info(
-                    "TAKE PROFIT: %s up %.1f%% (entry=%.4f current=%.4f, PnL=$%.2f)",
+                    "TAKE PROFIT: %s up %.1f%% (entry=%.4f mark=%.4f exit=%.4f, PnL=$%.2f)",
                     pos.get("market_question", pos["token_id"])[:50],
-                    pnl_pct * 100, pos["avg_entry"], current_price, unrealized_pnl,
+                    pnl_pct * 100, pos["avg_entry"], mark_price, exit_price, realizable_pnl,
                 )
-                db.close_position(pos["token_id"], exit_price=current_price, realized_pnl=unrealized_pnl, reason="take_profit")
+                db.close_position(pos["token_id"], exit_price=exit_price, realized_pnl=realizable_pnl, reason="take_profit")
                 continue
 
-            # Stop-loss: close if loss exceeds tick-aware threshold
             if pnl_pct <= -dyn_sl:
                 logger.warning(
-                    "STOP LOSS: %s down %.1f%% (entry=%.4f current=%.4f, PnL=$%.2f, sl=%.1f%%)",
+                    "STOP LOSS: %s down %.1f%% (entry=%.4f mark=%.4f exit=%.4f, PnL=$%.2f, sl=%.1f%%)",
                     pos.get("market_question", pos["token_id"])[:50],
-                    pnl_pct * 100, pos["avg_entry"], current_price, unrealized_pnl, dyn_sl * 100,
+                    pnl_pct * 100, pos["avg_entry"], mark_price, exit_price, realizable_pnl, dyn_sl * 100,
                 )
-                db.close_position(pos["token_id"], exit_price=current_price, realized_pnl=unrealized_pnl, reason="stop_loss")
+                db.close_position(pos["token_id"], exit_price=exit_price, realized_pnl=realizable_pnl, reason="stop_loss")
                 continue
 
             db.upsert_position(
@@ -426,15 +444,15 @@ class PaperExecutor:
                 side=pos_side,
                 avg_entry=pos["avg_entry"],
                 size=pos["size"],
-                current_price=current_price,
+                current_price=mark_price,
                 paper=True,
             )
 
             if pnl_pct < -0.20:
                 logger.warning(
-                    "LOSS WARNING: %s down %.1f%% (entry=%.4f current=%.4f)",
+                    "LOSS WARNING: %s down %.1f%% (entry=%.4f mark=%.4f exit=%.4f)",
                     pos.get("market_question", pos["token_id"])[:50],
-                    pnl_pct * 100, pos["avg_entry"], current_price,
+                    pnl_pct * 100, pos["avg_entry"], mark_price, exit_price,
                 )
 
 
@@ -534,16 +552,40 @@ class TradeExecutor:
 
             # If order is no longer on CLOB, it was filled
             if order_id and order_id not in clob_order_ids:
-                db.update_trade_status(trade["id"], "FILLED", fill_price=trade["price"])
-                # Upsert position
+                # Query CLOB for actual fill price; fall back to limit on failure.
+                actual_price = trade["price"]
+                actual_size = trade["size"]
+                try:
+                    fill = await self._client.get_order_fill(order_id)
+                except Exception as e:
+                    logger.warning(
+                        "get_order_fill(%s) errored, recording limit price: %s",
+                        order_id, e,
+                    )
+                    fill = None
+                if fill is not None:
+                    actual_price = fill["fill_price"]
+                    actual_size = fill["filled_size"]
+                    if abs(actual_price - trade["price"]) > 0.0001:
+                        logger.info(
+                            "Order %s filled at %.4f (limit was %.4f) | trade %s",
+                            order_id, actual_price, trade["price"], trade["id"],
+                        )
+                else:
+                    logger.warning(
+                        "Order %s: actual fill price unavailable; recording limit %.4f",
+                        order_id, trade["price"],
+                    )
+
+                db.update_trade_status(trade["id"], "FILLED", fill_price=actual_price)
                 db.upsert_position(
                     token_id=trade["token_id"],
                     market_id=trade["market_id"],
                     market_question=trade.get("market_question", ""),
                     side=trade["side"],
-                    avg_entry=trade["price"],
-                    size=trade["size"],
-                    current_price=trade["price"],
+                    avg_entry=actual_price,
+                    size=actual_size,
+                    current_price=actual_price,
                     paper=False,
                 )
                 logger.info("Order %s filled (trade %s)", order_id, trade["id"])
@@ -661,23 +703,18 @@ class TradeExecutor:
 GAMMA_API_URL = "https://gamma-api.polymarket.com/markets"
 
 
-async def _fetch_gamma_price(condition_id: str, side: str = "BUY_YES") -> float | None:
-    """Fetch mark-to-market price from Gamma API for a market.
+async def _fetch_gamma_market(condition_id: str) -> dict[str, Any] | None:
+    """Fetch the raw Gamma market dict for a condition_id, or None.
 
-    Returns the bid/ask midpoint of the relevant token. Mid is the standard
-    mark — using the bid would book the whole round-trip spread as an
-    unrealized loss the instant we fill, instantly tripping STOP_LOSS_PCT on
-    any wide-spread market. Realization (actual sell) still happens at the bid.
-    Falls back to outcomePrices (last/mid) when bid/ask are missing.
-
-    Uses the cached Gamma numeric ID for lookup, since Gamma's ?id= param
-    requires the numeric ID, not the condition_id (0x...).
+    Single network round-trip; callers parse the fields they need. Uses the
+    cached Gamma numeric ID since Gamma's ?id= param requires the numeric ID,
+    not the condition_id (0x...).
     """
     from core.db import get_gamma_id_for_condition
 
     gamma_id = get_gamma_id_for_condition(condition_id)
     if not gamma_id:
-        logger.debug("No cached Gamma ID for %s, cannot fetch price", condition_id[:20])
+        logger.debug("No cached Gamma ID for %s, cannot fetch market", condition_id[:20])
         return None
 
     try:
@@ -691,53 +728,94 @@ async def _fetch_gamma_price(condition_id: str, side: str = "BUY_YES") -> float 
                     return None
                 data = await resp.json()
                 if isinstance(data, list) and data:
-                    market = data[0]
-                elif isinstance(data, dict):
-                    market = data
-                else:
-                    return None
-
-                # Prefer realizable exit price from best_bid / best_ask
-                best_bid_raw = market.get("bestBid")
-                best_ask_raw = market.get("bestAsk")
-                try:
-                    best_bid = float(best_bid_raw) if best_bid_raw is not None else None
-                except (TypeError, ValueError):
-                    best_bid = None
-                try:
-                    best_ask = float(best_ask_raw) if best_ask_raw is not None else None
-                except (TypeError, ValueError):
-                    best_ask = None
-
-                # Mark-to-market at the YES mid (or NO mid = 1 - YES mid).
-                # Requires both sides; with only one side we'd silently bias.
-                if (
-                    best_bid is not None
-                    and best_ask is not None
-                    and 0 < best_bid <= best_ask < 1
-                ):
-                    yes_mid = (best_bid + best_ask) / 2.0
-                    return yes_mid if side == "BUY_YES" else 1.0 - yes_mid
-
-                # Fallback: outcomePrices (last/mid) when bid/ask missing
-                outcome_prices = market.get("outcomePrices", "")
-                if isinstance(outcome_prices, str):
-                    import json
-                    try:
-                        prices = json.loads(outcome_prices)
-                    except (json.JSONDecodeError, TypeError):
-                        return None
-                elif isinstance(outcome_prices, list):
-                    prices = outcome_prices
-                else:
-                    return None
-
-                if not prices:
-                    return None
-                yes_price = float(prices[0])
-                if side == "BUY_NO":
-                    return 1.0 - yes_price
-                return yes_price
+                    return data[0]
+                if isinstance(data, dict):
+                    return data
+                return None
     except Exception as e:
-        logger.debug("Failed to fetch Gamma price for %s: %s", condition_id, e)
+        logger.debug("Failed to fetch Gamma market for %s: %s", condition_id, e)
         return None
+
+
+def _parse_bid_ask(market: dict[str, Any]) -> tuple[float | None, float | None]:
+    """Extract (best_bid, best_ask) floats from a Gamma market dict, or (None, None)."""
+    best_bid_raw = market.get("bestBid")
+    best_ask_raw = market.get("bestAsk")
+    try:
+        best_bid = float(best_bid_raw) if best_bid_raw is not None else None
+    except (TypeError, ValueError):
+        best_bid = None
+    try:
+        best_ask = float(best_ask_raw) if best_ask_raw is not None else None
+    except (TypeError, ValueError):
+        best_ask = None
+    return best_bid, best_ask
+
+
+async def _fetch_gamma_book(condition_id: str) -> dict[str, float] | None:
+    """Return {'best_bid', 'best_ask', 'mid'} for a market, or None.
+
+    Returns None when bid or ask is missing or out of valid (0,1) range; callers
+    that can tolerate a single-side price should use ``_fetch_gamma_price``
+    instead, which falls back to outcomePrices.
+    """
+    market = await _fetch_gamma_market(condition_id)
+    if market is None:
+        return None
+    best_bid, best_ask = _parse_bid_ask(market)
+    if (
+        best_bid is None
+        or best_ask is None
+        or not (0 < best_bid <= best_ask < 1)
+    ):
+        return None
+    return {
+        "best_bid": best_bid,
+        "best_ask": best_ask,
+        "mid": (best_bid + best_ask) / 2.0,
+    }
+
+
+async def _fetch_gamma_price(condition_id: str, side: str = "BUY_YES") -> float | None:
+    """Fetch mark-to-market price from Gamma API for a market.
+
+    Returns the bid/ask midpoint of the relevant token. Mid is the standard
+    mark — using the bid would book the whole round-trip spread as an
+    unrealized loss the instant we fill, instantly tripping STOP_LOSS_PCT on
+    any wide-spread market. Realization (actual sell) still happens at the bid.
+    Falls back to outcomePrices (last/mid) when bid/ask are missing.
+    """
+    market = await _fetch_gamma_market(condition_id)
+    if market is None:
+        return None
+
+    best_bid, best_ask = _parse_bid_ask(market)
+    if (
+        best_bid is not None
+        and best_ask is not None
+        and 0 < best_bid <= best_ask < 1
+    ):
+        yes_mid = (best_bid + best_ask) / 2.0
+        return yes_mid if side == "BUY_YES" else 1.0 - yes_mid
+
+    outcome_prices = market.get("outcomePrices", "")
+    if isinstance(outcome_prices, str):
+        import json
+        try:
+            prices = json.loads(outcome_prices)
+        except (json.JSONDecodeError, TypeError):
+            return None
+    elif isinstance(outcome_prices, list):
+        prices = outcome_prices
+    else:
+        return None
+
+    if not prices:
+        return None
+    try:
+        yes_price = float(prices[0])
+    except (TypeError, ValueError):
+        return None
+    if side == "BUY_NO":
+        return 1.0 - yes_price
+    return yes_price

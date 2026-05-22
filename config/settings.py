@@ -110,6 +110,10 @@ STOP_LOSS_PCT = float(os.getenv("STOP_LOSS_PCT", "0.10"))        # Close positio
 # while leaving mid/high-priced behavior unchanged.
 STOP_LOSS_TICK_SIZE = float(os.getenv("STOP_LOSS_TICK_SIZE", "0.01"))
 STOP_LOSS_MIN_TICKS = int(os.getenv("STOP_LOSS_MIN_TICKS", "3"))
+# When true, paper trading models realistic spread cost: entries use a freshly
+# fetched bestAsk (not a 30-min-old discovery snapshot) and exits realize at the
+# bid (not the mid). Disable to reproduce the legacy mid-based paper PnL.
+PAPER_REALISTIC_PRICING = os.getenv("PAPER_REALISTIC_PRICING", "true").lower() == "true"
 
 # --- Telegram ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")

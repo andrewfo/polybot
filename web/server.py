@@ -42,6 +42,7 @@ from config.settings import (
     MIN_EDGE_THRESHOLD,
     MIN_EV_GAS_RATIO,
     MIN_MARKET_LIQUIDITY,
+    PAPER_REALISTIC_PRICING,
     PAPER_TRADING,
     POLYMARKET_FEE_RATE,
     POSITION_CHECK_INTERVAL_MINUTES,
@@ -565,8 +566,28 @@ class BotEngine:
     async def _process_candidate(self, m: dict[str, Any], cid: str) -> None:
         """Run aggregation + Kelly + depth + execution for a single market."""
         from strategy.depth import analyze_depth
-        from strategy.executor import check_market_cooldown
+        from strategy.executor import _fetch_gamma_book, check_market_cooldown
         from strategy.kelly import calculate_kelly
+
+        # Refresh the cached order book against live Gamma before any
+        # downstream decision runs. The discovery cache is up to 30 min stale;
+        # if we used it as-is, aggregator divergence checks, Kelly edge calc,
+        # and the paper fill price would all key off a snapshot that may have
+        # moved by 2-5% on a volatile market. One Gamma call per candidate is
+        # well within rate budget. Mutates `m` in place — downstream parsers
+        # (_parse_market_price, executor) read these fields.
+        if PAPER_REALISTIC_PRICING:
+            book = await _fetch_gamma_book(cid)
+            if book is not None:
+                m["bestBid"] = str(book["best_bid"])
+                m["bestAsk"] = str(book["best_ask"])
+                # Keep outcomePrices consistent so _parse_market_price's first
+                # branch matches the fresh book. Format mirrors Gamma's payload
+                # (JSON-encoded string of [YES, NO]).
+                m["outcomePrices"] = json.dumps([
+                    f"{book['mid']:.4f}",
+                    f"{1.0 - book['mid']:.4f}",
+                ])
 
         # Parse market price — never default to 0.5
         market_price = self._parse_market_price(m)
