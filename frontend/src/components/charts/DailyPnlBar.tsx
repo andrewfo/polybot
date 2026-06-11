@@ -26,21 +26,24 @@ export default function DailyPnlBar({ snapshots }: { snapshots: PnlSnapshot[] })
     )
   }
 
-  // Group snapshots by day and compute daily change
-  const dailyMap = new Map<string, { first: number; last: number }>()
+  // Group snapshots by day. Each day's change is measured against the
+  // previous day's closing value so overnight moves aren't dropped.
+  const dailyMap = new Map<string, { base: number; close: number }>()
+  let prevClose: number | null = null
   for (const s of snapshots) {
     const day = new Date(s.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     if (!dailyMap.has(day)) {
-      dailyMap.set(day, { first: s.total_value, last: s.total_value })
+      dailyMap.set(day, { base: prevClose ?? s.total_value, close: s.total_value })
     } else {
-      dailyMap.get(day)!.last = s.total_value
+      dailyMap.get(day)!.close = s.total_value
     }
+    prevClose = s.total_value
   }
 
   const days = Array.from(dailyMap.keys()).slice(-14) // Last 14 days
   const changes = days.map(d => {
     const entry = dailyMap.get(d)!
-    return entry.last - entry.first
+    return entry.close - entry.base
   })
 
   return (

@@ -1377,6 +1377,7 @@ def create_app() -> FastAPI:
                 get_daily_llm_cost,
                 get_daily_pnl,
                 get_db,
+                get_paper_balance,
                 get_total_llm_cost,
                 get_total_pnl,
             )
@@ -1388,15 +1389,15 @@ def create_app() -> FastAPI:
             total_llm_cost = get_total_llm_cost()
             total_net = total - total_llm_cost
 
-            # Bankroll snapshots for the chart
+            # Bankroll snapshots for the chart — most recent 500, oldest first
             snapshots: list[dict[str, Any]] = []
             try:
                 rows = list(db.execute(
                     "SELECT timestamp, total_value, available_cash, "
                     "unrealized_pnl, realized_pnl_today, realized_pnl_total "
-                    "FROM bankroll ORDER BY timestamp ASC LIMIT 500"
+                    "FROM bankroll ORDER BY timestamp DESC LIMIT 500"
                 ).fetchall())
-                for r in rows:
+                for r in reversed(rows):
                     snapshots.append({
                         "timestamp": r[0],
                         "total_value": r[1],
@@ -1405,6 +1406,22 @@ def create_app() -> FastAPI:
                         "realized_pnl_today": r[4],
                         "realized_pnl_total": r[5],
                     })
+            except Exception:
+                pass
+
+            # Append a live point so the charts reflect current state — stored
+            # snapshots are throttled to 1/hour, so without this the charts can
+            # disagree with the P&L cards after a big intra-hour swing.
+            try:
+                bal = get_paper_balance(TEST_BANKROLL)
+                snapshots.append({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "total_value": bal["total_value"],
+                    "available_cash": bal["available_cash"],
+                    "unrealized_pnl": bal["unrealized_pnl"],
+                    "realized_pnl_today": daily,
+                    "realized_pnl_total": total,
+                })
             except Exception:
                 pass
 
