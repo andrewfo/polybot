@@ -12,6 +12,9 @@ venv/
 
 # Database & logs
 data/bot.db
+data/bot.db-shm
+data/bot.db-wal
+data/*.bak*
 data/bot.log
 
 # IDE

@@ -45,7 +45,7 @@ Built section by section from `POLYMARKET_BOT_PLAN (1).md`. Build in order, run 
 
 **Next:** Section 10 remainder (live readiness gate on BotEngine.start, requirements.txt cleanup — paper summary endpoint done) → 11 (docs & dead code). Fix-plan Phase 5 (hold-to-resolution, wider TP) can ship during the Phase 4 measurement run.
 
-Available skills: `/build-section N`, `/verify-section N`, `/status`, `/test-module <name>`, `/audit-llm`, `/check-health`, `/run-pipeline`, `/add-signal <name>`, `/improve-signal <name>`, `/tune-prompts`.
+Available skills: `/build-section N`, `/verify-section N`, `/status`, `/test-module <name>`, `/audit-llm`, `/check-pipeline`, `/check-consistency`, `/add-signal <name>`, `/improve-signal <name>`, `/tune-prompts`, `/sync-frontend`, `/update-context`.
 
 ## Critical Rules — Do Not Violate
 
