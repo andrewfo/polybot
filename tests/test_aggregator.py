@@ -601,3 +601,183 @@ class TestFrontierPrompt:
         prompt = mock_llm.call_json.call_args[0][0]
         assert "superforecaster" in prompt
         assert "calibrated" in prompt.lower()
+
+
+# ---------------------------------------------------------------------------
+# Test: pre-frontier edge gate (Phase 1 cost control)
+# ---------------------------------------------------------------------------
+
+def _make_web_search_provider(signal: SignalResult | None = None) -> MagicMock:
+    """Mock provider classified as the gated (paid Sonar) web_search provider."""
+    provider = _make_mock_provider(
+        signal or _make_signal(source="web_search", probability=0.6, confidence=0.7)
+    )
+    provider.name = "web_search"
+    return provider
+
+
+class TestPreFrontierGate:
+    @pytest.mark.asyncio
+    async def test_gate_skips_sonar_and_frontier_on_low_edge(self, mock_llm):
+        """Free-signal prelim edge below threshold → no Sonar, no frontier."""
+        ws_provider = _make_web_search_provider()
+        providers = [
+            _make_mock_provider(_make_signal(source="resolution_crypto", probability=0.51, confidence=0.9)),
+            _make_mock_provider(_make_signal(source="prediction_markets", probability=0.50, confidence=0.8)),
+            ws_provider,
+        ]
+        aggregator = SignalAggregator(llm=mock_llm, providers=providers)
+
+        with patch("signals.aggregator.db") as mock_db:
+            result = await aggregator.aggregate(
+                market_question="Test gate?",
+                market_category="crypto",
+                market_end_date="2026-12-31",
+                market_price=0.50,
+                condition_id="0xgate",
+            )
+
+        assert result is not None
+        assert result.skipped is True
+        assert "pre-frontier gate" in result.skip_reason
+        # Preliminary probability from free signals preserved for the UI
+        assert 0.45 < result.preliminary_probability < 0.55
+        # Neither the paid Sonar provider nor the frontier model was called
+        ws_provider.get_signal.assert_not_called()
+        mock_llm.call_json.assert_not_called()
+        # Skip recorded in frontier_decisions for the learning engine
+        mock_db.record_frontier_decision.assert_called_once()
+        fd_kwargs = mock_db.record_frontier_decision.call_args[1]
+        assert fd_kwargs["market_id"] == "0xgate"
+        assert fd_kwargs["should_trade"] is False
+        assert fd_kwargs["skip_reason"] == "prelim edge below pre-frontier gate"
+        assert fd_kwargs["bet_size_usd"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_gate_passes_on_high_edge(self, mock_llm):
+        """Free-signal prelim edge above threshold → Sonar and frontier both run."""
+        ws_provider = _make_web_search_provider()
+        providers = [
+            _make_mock_provider(_make_signal(source="resolution_crypto", probability=0.70, confidence=0.9)),
+            _make_mock_provider(_make_signal(source="prediction_markets", probability=0.65, confidence=0.8)),
+            ws_provider,
+        ]
+        aggregator = SignalAggregator(llm=mock_llm, providers=providers)
+
+        with patch("signals.aggregator.db"):
+            result = await aggregator.aggregate(
+                market_question="Test gate pass?",
+                market_category="crypto",
+                market_end_date="2026-12-31",
+                market_price=0.50,
+            )
+
+        assert result is not None
+        assert result.skipped is False
+        ws_provider.get_signal.assert_called_once()
+        mock_llm.call_json.assert_called_once()
+        # web_search signal made it into the aggregation
+        assert any(s.source == "web_search" for s in result.individual_signals)
+
+    @pytest.mark.asyncio
+    async def test_gate_not_applied_when_free_signals_insufficient(self, mock_llm):
+        """Free signals cannot qualify alone → web_search still runs (no gating)."""
+        ws_provider = _make_web_search_provider(
+            _make_signal(source="web_search", probability=0.52, confidence=0.7)
+        )
+        providers = [
+            # Only one usable free signal — even at zero edge the market must
+            # fall through so the Sonar signal can complete the 2+ requirement.
+            _make_mock_provider(_make_signal(source="resolution_crypto", probability=0.50, confidence=0.9)),
+            _make_mock_provider(_make_signal(source="prediction_markets", probability=None, confidence=0.0)),
+            ws_provider,
+        ]
+        aggregator = SignalAggregator(llm=mock_llm, providers=providers)
+
+        with patch("signals.aggregator.db") as mock_db:
+            result = await aggregator.aggregate(
+                market_question="Test insufficient free?",
+                market_category="crypto",
+                market_end_date="2026-12-31",
+                market_price=0.50,
+            )
+
+        ws_provider.get_signal.assert_called_once()
+        mock_llm.call_json.assert_called_once()
+        assert result is not None
+        assert result.skipped is False
+        mock_db.record_frontier_decision.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_gate_disabled_with_zero_threshold(self, mock_llm):
+        """PRE_FRONTIER_EDGE_THRESHOLD=0 disables the gate entirely."""
+        ws_provider = _make_web_search_provider()
+        providers = [
+            _make_mock_provider(_make_signal(source="resolution_crypto", probability=0.50, confidence=0.9)),
+            _make_mock_provider(_make_signal(source="prediction_markets", probability=0.50, confidence=0.8)),
+            ws_provider,
+        ]
+        aggregator = SignalAggregator(llm=mock_llm, providers=providers)
+
+        with patch("signals.aggregator.db"), \
+             patch("signals.aggregator.PRE_FRONTIER_EDGE_THRESHOLD", 0.0):
+            result = await aggregator.aggregate(
+                market_question="Test gate disabled?",
+                market_category="crypto",
+                market_end_date="2026-12-31",
+                market_price=0.50,
+            )
+
+        ws_provider.get_signal.assert_called_once()
+        mock_llm.call_json.assert_called_once()
+        assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_gate_skip_records_calibration_predictions(self, mock_llm):
+        """Free signals that ran before a gate skip still feed calibration."""
+        providers = [
+            _make_mock_provider(_make_signal(source="resolution_crypto", probability=0.51, confidence=0.9)),
+            _make_mock_provider(_make_signal(source="prediction_markets", probability=0.50, confidence=0.8)),
+        ]
+        aggregator = SignalAggregator(llm=mock_llm, providers=providers)
+
+        with patch("signals.aggregator.db"), \
+             patch("signals.aggregator.record_prediction") as mock_rp:
+            result = await aggregator.aggregate(
+                market_question="Test gate calibration?",
+                market_category="crypto",
+                market_end_date="2026-12-31",
+                market_price=0.50,
+                condition_id="0xcal",
+            )
+
+        assert result is not None and result.skipped is True
+        recorded_sources = {c[1]["signal_source"] for c in mock_rp.call_args_list}
+        assert recorded_sources == {"resolution_crypto", "prediction_markets"}
+
+    @pytest.mark.asyncio
+    async def test_event_market_gate(self, mock_llm):
+        """Gate applies to event markets using event weight multipliers."""
+        ws_provider = _make_web_search_provider()
+        providers = [
+            _make_mock_provider(_make_signal(source="prediction_markets", probability=0.50, confidence=0.8)),
+            _make_mock_provider(_make_signal(source="onchain_flow", probability=0.51, confidence=0.6)),
+            ws_provider,
+        ]
+        aggregator = SignalAggregator(llm=mock_llm, providers=providers)
+
+        with patch("signals.aggregator.db") as mock_db:
+            result = await aggregator.aggregate(
+                market_question="Will event happen?",
+                market_category="crypto",
+                market_end_date="2026-12-31",
+                market_price=0.50,
+                market_type="event",
+            )
+
+        assert result is not None
+        assert result.skipped is True
+        assert "pre-frontier gate" in result.skip_reason
+        ws_provider.get_signal.assert_not_called()
+        mock_llm.call_json.assert_not_called()
+        mock_db.record_frontier_decision.assert_called_once()

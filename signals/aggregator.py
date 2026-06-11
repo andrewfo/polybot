@@ -5,6 +5,10 @@ prediction_markets, onchain_flow), computes a weighted preliminary
 estimate, then makes the single FRONTIER MODEL call that determines
 the final probability. This is the only place the expensive frontier
 model is used in the signal pipeline.
+
+Cost control: the free providers run first; if their preliminary edge
+vs the market price is below PRE_FRONTIER_EDGE_THRESHOLD, the market is
+skipped before the paid Sonar (web_search) and frontier calls are made.
 """
 
 import asyncio
@@ -23,10 +27,12 @@ from config.settings import (
     MIN_FRONTIER_CONFIDENCE,
     MIN_FRONTIER_CONFIDENCE_EVENT,
     ONCHAIN_FLOW_SIGNAL_WEIGHT,
+    PRE_FRONTIER_EDGE_THRESHOLD,
     PREDICTION_MARKETS_SIGNAL_WEIGHT,
     RESOLUTION_SIGNAL_WEIGHT,
     USE_LOG_ODDS_AVERAGING,
     WEB_SEARCH_SIGNAL_WEIGHT,
+    get_effective_param,
 )
 from core import db
 from core.llm import LLMClient, LLMError
@@ -138,6 +144,31 @@ def _log_odds_average(
 
     avg_log_odds = weighted_log_odds / total_weight
     return 1.0 / (1.0 + math.exp(-avg_log_odds))
+
+
+def _min_signal_skip_reason(
+    usable_signals: list[SignalResult],
+    market_type: str,
+) -> Optional[str]:
+    """Return why the usable signals fail minimum requirements, or None if they pass.
+
+    Event markets: need 2+ usable signals from any source (no math model).
+    Price-target markets: need 2+ usable signals AND the math-based signal.
+    """
+    if market_type == "event":
+        if len(usable_signals) < 2:
+            return f"only {len(usable_signals)} usable signals (need 2+ for event market)"
+        return None
+
+    has_math_signal = any(
+        s.source == "resolution_crypto" for s in usable_signals
+    )
+    reasons = []
+    if len(usable_signals) < 2:
+        reasons.append(f"only {len(usable_signals)} usable signals (need 2+)")
+    if not has_math_signal:
+        reasons.append("missing resolution_crypto math signal")
+    return "; ".join(reasons) if reasons else None
 
 
 def _compute_signals_agreement(signals: list[SignalResult]) -> str:
@@ -433,11 +464,14 @@ class SignalAggregator:
     """Aggregates signals from all providers and calls the frontier model.
 
     This is the central orchestrator for the signal pipeline. It:
-    1. Collects signals from 4 providers for a given market
+    1. Collects signals from the free providers for a given market
     2. Filters out signals with confidence=0 or probability=None
-    3. Computes a weighted preliminary estimate
-    4. Makes the single FRONTIER MODEL call for the final probability
-    5. Stores everything in the signals table for audit
+    3. Pre-frontier gate: skips before any paid call when the free signals'
+       preliminary edge is below PRE_FRONTIER_EDGE_THRESHOLD
+    4. Runs the paid web_search (Sonar) provider once the gate passes
+    5. Computes a weighted preliminary estimate from all usable signals
+    6. Makes the single FRONTIER MODEL call for the final probability
+    7. Stores everything in the signals table for audit
     """
 
     def __init__(
@@ -495,13 +529,22 @@ class SignalAggregator:
         else:
             multipliers = _get_signal_weight_multipliers()
 
-        # Step 1: Collect signals from all providers
+        # Step 1: Collect signals from the free providers first. The paid
+        # Sonar provider (web_search) only runs after the pre-frontier gate
+        # passes, so a no-edge market costs zero LLM spend.
+        free_providers = [
+            p for p in self._providers if getattr(p, "name", "") != "web_search"
+        ]
+        gated_providers = [
+            p for p in self._providers if getattr(p, "name", "") == "web_search"
+        ]
+
         raw_results = await asyncio.gather(
             *(
                 provider.get_signal(
                     market_question, market_category, market_end_date, **kwargs
                 )
-                for provider in self._providers
+                for provider in free_providers
             ),
             return_exceptions=True,
         )
@@ -519,31 +562,112 @@ class SignalAggregator:
             if s.confidence > 0 and s.probability is not None
         ]
 
+        # Step 2b: Pre-frontier edge gate. Only applies when the free signals
+        # alone already satisfy the minimum requirements — a market that still
+        # needs web_search to qualify falls through to the normal path, so the
+        # gate can never skip a market the old pipeline would have analyzed
+        # for lack of the Sonar signal.
+        eff_pre_gate = get_effective_param(
+            "PRE_FRONTIER_EDGE_THRESHOLD", PRE_FRONTIER_EDGE_THRESHOLD
+        )
+        if eff_pre_gate > 0 and _min_signal_skip_reason(usable_signals, market_type) is None:
+            prelim_free = compute_preliminary_probability(usable_signals, multipliers)
+            prelim_edge = abs(prelim_free - market_price)
+            if prelim_edge < eff_pre_gate:
+                avg_conf = sum(s.confidence for s in usable_signals) / len(usable_signals)
+                gate_reason = (
+                    f"preliminary edge {prelim_edge:.3f} below "
+                    f"pre-frontier gate {eff_pre_gate:.3f}"
+                )
+                logger.info(
+                    "Pre-frontier gate skip for '%s': %s (prelim=%.3f, market=%.3f)",
+                    market_question[:60], gate_reason, prelim_free, market_price,
+                )
+                self._emit(market_question, "skip", gate_reason)
+                self._log_aggregated_signal(
+                    market_question, "aggregator_pregate_skip",
+                    prelim_free, avg_conf,
+                    f"Pre-frontier gate — {gate_reason} — skipping before Sonar/frontier",
+                    "none",
+                    condition_id=condition_id,
+                )
+                # Record in frontier_decisions so the learning engine sees the
+                # gated skip alongside post-frontier "edge below threshold" rows.
+                # Constant skip_reason string keeps GROUP BY analyses clean.
+                try:
+                    db.record_frontier_decision(
+                        market_id=condition_id if condition_id else market_question[:200],
+                        estimated_prob=prelim_free,
+                        effective_prob=prelim_free,
+                        market_price=market_price,
+                        edge=prelim_edge,
+                        kelly_fraction=0.0,
+                        bet_size_usd=0.0,
+                        confidence=avg_conf,
+                        should_trade=False,
+                        skip_reason="prelim edge below pre-frontier gate",
+                    )
+                except Exception as e:
+                    logger.warning("Failed to record pre-gate frontier decision: %s", e)
+                # The free signals still ran — keep feeding calibration so
+                # dynamic multipliers learn from gated markets too.
+                for signal in usable_signals:
+                    record_prediction(
+                        market_id=condition_id if condition_id else market_question[:200],
+                        signal_source=signal.source,
+                        predicted_probability=signal.probability,
+                        market_question=market_question,
+                    )
+                return AggregatedSignal(
+                    market_question=market_question,
+                    market_category=market_category,
+                    market_price=market_price,
+                    final_probability=0.0,
+                    confidence=0.0,
+                    reasoning="",
+                    signals_agreement="--",
+                    market_efficiency="--",
+                    preliminary_probability=prelim_free,
+                    individual_signals=usable_signals,
+                    all_signals=all_signals,
+                    skipped=True,
+                    skip_reason=gate_reason,
+                    signal_weight_multipliers=dict(multipliers),
+                )
+
+        # Step 2c: Gate passed (or not decidable from free signals) — now
+        # spend money on the Sonar-backed web_search signal.
+        if gated_providers:
+            self._emit(
+                market_question, "collecting",
+                "pre-frontier gate passed — running web search signal",
+            )
+            gated_results = await asyncio.gather(
+                *(
+                    provider.get_signal(
+                        market_question, market_category, market_end_date, **kwargs
+                    )
+                    for provider in gated_providers
+                ),
+                return_exceptions=True,
+            )
+            for result in gated_results:
+                if isinstance(result, Exception):
+                    logger.warning("Signal provider error: %s", result)
+                    continue
+                all_signals.append(result)
+            usable_signals = [
+                s for s in all_signals
+                if s.confidence > 0 and s.probability is not None
+            ]
+
         self._emit(
             market_question, "filtering",
             f"{len(usable_signals)} usable of {len(all_signals)} total signals",
         )
 
         # Step 3: Check minimum signal requirements (varies by market type)
-        market_type = kwargs.get("market_type", "price_target")
-        skip_reason = None
-
-        if market_type == "event":
-            # Event markets: need 2+ usable signals from any source (no math model required)
-            if len(usable_signals) < 2:
-                skip_reason = f"only {len(usable_signals)} usable signals (need 2+ for event market)"
-        else:
-            # Price-target markets: need 2+ usable signals AND the math-based signal
-            has_math_signal = any(
-                s.source == "resolution_crypto" for s in usable_signals
-            )
-            reasons = []
-            if len(usable_signals) < 2:
-                reasons.append(f"only {len(usable_signals)} usable signals (need 2+)")
-            if not has_math_signal:
-                reasons.append("missing resolution_crypto math signal")
-            if reasons:
-                skip_reason = "; ".join(reasons)
+        skip_reason = _min_signal_skip_reason(usable_signals, market_type)
 
         if skip_reason:
             logger.info("Insufficient signals for '%s': %s, skipping", market_question[:60], skip_reason)

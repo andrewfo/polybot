@@ -48,6 +48,13 @@ MARKET_COOLDOWN_MINUTES = int(os.getenv("MARKET_COOLDOWN_MINUTES", "240"))  # Bl
 MAX_DRAWDOWN_PCT = float(os.getenv("MAX_DRAWDOWN_PCT", "0.30"))       # Stop trading if down 30%
 MAX_DAILY_LOSS_PCT = float(os.getenv("MAX_DAILY_LOSS_PCT", "0.15"))   # Stop for 24h if down 15% in a day
 
+# --- Pre-Frontier Gate ---
+# Skip the paid Sonar + frontier calls when the preliminary edge computed from
+# the free signals (resolution_crypto, prediction_markets, onchain_flow) is
+# below this. Set slightly below MIN_EDGE_THRESHOLD so borderline cases still
+# reach the frontier model. Set to 0 to disable the gate.
+PRE_FRONTIER_EDGE_THRESHOLD = float(os.getenv("PRE_FRONTIER_EDGE_THRESHOLD", "0.03"))
+
 # --- Signal Weights (defaults, overridden by calibration when enough data) ---
 RESOLUTION_SIGNAL_WEIGHT = float(os.getenv("RESOLUTION_SIGNAL_WEIGHT", "1.3"))
 PREDICTION_MARKETS_SIGNAL_WEIGHT = float(os.getenv("PREDICTION_MARKETS_SIGNAL_WEIGHT", "1.8"))

@@ -41,7 +41,7 @@ frontend/                     → React (Vite) dashboard: Dashboard, Markets, An
 ## Build Sequence & Progress
 Built section by section from `POLYMARKET_BOT_PLAN (1).md`. Build in order, run tests after each section.
 
-**Sections 0-9: COMPLETE** — Core infra, LLM, wallet, DB, market filtering, signal engine (4 providers + aggregator), Kelly criterion, order execution, web dashboard (7 tabs incl. Trades), continuous learning, monitoring/notifications, health checks, pipeline integration (3 workers). **422 tests passing**, zero TODOs/FIXMEs. Recent: realistic pricing (`REALISTIC_PRICING` flag) — fresh Gamma book refetch before Kelly/depth/executor see it, paper exits at bid not mid, live records actual CLOB fill via new `ClobClientWrapper.get_order_fill`; TP/SL position check tightened from 10→5 min; `MIN_EDGE_THRESHOLD` raise rec now scales (1.5x) rather than hardcoded.
+**Sections 0-9: COMPLETE** — Core infra, LLM, wallet, DB, market filtering, signal engine (4 providers + aggregator), Kelly criterion, order execution, web dashboard (7 tabs incl. Trades), continuous learning, monitoring/notifications, health checks, pipeline integration (3 workers). **428 tests passing**, zero TODOs/FIXMEs. Recent: pre-frontier edge gate (`PRE_FRONTIER_EDGE_THRESHOLD`, Phase 1 of `docs/PROFITABILITY_FIX_PLAN.md`) — free signals run first, Sonar+frontier skipped when prelim edge < 3%, skips logged to `frontier_decisions`; realistic pricing (`REALISTIC_PRICING` flag) — fresh Gamma book refetch before Kelly/depth/executor see it, paper exits at bid not mid, live records actual CLOB fill via new `ClobClientWrapper.get_order_fill`.
 
 **Next:** Section 10 (paper summary endpoint, live readiness gate, requirements.txt cleanup) → 11 (docs & dead code).
 
