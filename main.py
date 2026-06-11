@@ -17,6 +17,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# python-telegram-bot's getUpdates long-poll emits one httpx INFO line per
+# poll cycle, flooding the log. Keep third-party HTTP chatter at WARNING.
+for _noisy in ("httpx", "httpcore", "telegram", "apscheduler"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+
 
 async def main() -> None:
     """Main orchestrator loop — runs the bot without the web dashboard."""

@@ -627,7 +627,7 @@ class BotEngine:
             market_end_date=m.get("endDate", ""),
             market_price=market_price,
             condition_id=cid,
-            resolution_keywords=m.get("_resolution_params"),
+            resolution_keywords=m.get("_resolution_params") or {},
             market_type=m.get("_market_type", "price_target"),
         )
 
@@ -1140,6 +1140,11 @@ def create_app() -> FastAPI:
     # Attach log buffer to root logger
     log_buffer.setFormatter(logging.Formatter("%(message)s"))
     logging.getLogger().addHandler(log_buffer)
+
+    # python-telegram-bot's getUpdates long-poll emits one httpx INFO line
+    # per poll cycle, flooding the console and the dashboard Logs tab.
+    for noisy in ("httpx", "httpcore", "telegram", "apscheduler"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
     # Shared aiohttp session
     _session_holder: dict[str, aiohttp.ClientSession | None] = {"session": None}
