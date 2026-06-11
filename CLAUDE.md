@@ -41,7 +41,7 @@ frontend/                     → React (Vite) dashboard: Dashboard, Markets, An
 ## Build Sequence & Progress
 Built section by section from `POLYMARKET_BOT_PLAN (1).md`. Build in order, run tests after each section.
 
-**Sections 0-9: COMPLETE** — Core infra, LLM, wallet, DB, market filtering, signal engine (4 providers + aggregator), Kelly criterion, order execution, web dashboard (7 tabs incl. Trades), continuous learning, monitoring/notifications, health checks, pipeline integration (3 workers). **472 tests passing**, zero TODOs/FIXMEs. Recent (Phases 1-4 of `docs/PROFITABILITY_FIX_PLAN.md`): pre-frontier edge gate (`PRE_FRONTIER_EDGE_THRESHOLD`); `web_search` benched + `onchain_flow` weight 0 with calibration earn-back; `onchain_flow` rebuilt market-aware; `RESOLUTION_SIGNAL_WEIGHT` 1.3→2.5; learning state reset — `LEARNING_DATA_CUTOFF` (2026-05-22T20:30Z) excludes pre-fix optimistic-pricing rows from all learning + calibration queries, poisoned KELLY_FRACTION override deactivated, rows tagged `data_regime` via `scripts/reset_learning_state.py`; Phase 4 measurement gate — `GET /api/paper/summary` reports post-cutoff net-of-LLM-cost PnL, profit concentration, per-signal Brier, frontier-vs-market Brier, and go/no-go criteria (`PAPER_RUN_*` settings). **7-day honest-pricing paper run pending** before live.
+**Sections 0-9: COMPLETE** — Core infra, LLM, wallet, DB, market filtering, signal engine (4 providers + aggregator), Kelly criterion, order execution, web dashboard (7 tabs incl. Trades), continuous learning, monitoring/notifications, health checks, pipeline integration (3 workers). **485 tests passing**, zero TODOs/FIXMEs. 2026-06-11 ops fixes: cheap-model slugs refreshed after OpenRouter delisting (gemini-2.5-flash-lite / glm-4.5-air), None-guard on `resolution_keywords` in signal providers, global CoinGecko throttle (`core.coingecko_throttle`, 6s spacing) + 429-aware backoff + shared global-source cache in onchain_flow. Recent (Phases 1-4 of `docs/PROFITABILITY_FIX_PLAN.md`): pre-frontier edge gate (`PRE_FRONTIER_EDGE_THRESHOLD`); `web_search` benched + `onchain_flow` weight 0 with calibration earn-back; `onchain_flow` rebuilt market-aware; `RESOLUTION_SIGNAL_WEIGHT` 1.3→2.5; learning state reset — `LEARNING_DATA_CUTOFF` (2026-05-22T20:30Z) excludes pre-fix optimistic-pricing rows from all learning + calibration queries, poisoned KELLY_FRACTION override deactivated, rows tagged `data_regime` via `scripts/reset_learning_state.py`; Phase 4 measurement gate — `GET /api/paper/summary` reports post-cutoff net-of-LLM-cost PnL, profit concentration, per-signal Brier, frontier-vs-market Brier, and go/no-go criteria (`PAPER_RUN_*` settings). **7-day honest-pricing paper run pending** before live.
 
 **Next:** Section 10 remainder (live readiness gate on BotEngine.start, requirements.txt cleanup — paper summary endpoint done) → 11 (docs & dead code). Fix-plan Phase 5 (hold-to-resolution, wider TP) can ship during the Phase 4 measurement run.
 
@@ -50,8 +50,8 @@ Available skills: `/build-section N`, `/verify-section N`, `/status`, `/test-mod
 ## Critical Rules — Do Not Violate
 
 ### LLM Routing
-- **Cheap** (`google/gemini-2.0-flash-lite-001`): summarization, extraction, classification fallback
-- **Cheap fallback** (`z-ai/glm-4.5-air:free`): auto-fallback if primary cheap fails
+- **Cheap** (`google/gemini-2.5-flash-lite`): summarization, extraction, classification fallback
+- **Cheap fallback** (`z-ai/glm-4.5-air`): auto-fallback if primary cheap fails
 - **Sonar** (`perplexity/sonar`): search-grounded web signal. Falls back to cheap on failure.
 - **Frontier** (`anthropic/claude-opus-4-6`): final probability estimation and trade decisions ONLY
 - If frontier fails: **ALERT AND SKIP**. Never silently fall back to cheap for frontier tasks.

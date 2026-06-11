@@ -71,6 +71,22 @@ async def test_no_coin_id_returns_zero():
 
 
 @pytest.mark.asyncio
+async def test_none_resolution_keywords_does_not_crash():
+    """resolution_keywords=None (upstream extraction failed) must not raise.
+
+    Regression: used to crash with "'NoneType' object has no attribute 'get'".
+    """
+    clear_flow_cache()
+    provider = OnchainFlowProvider()
+    result = await provider.get_signal(
+        "Will the market go up?", "crypto", "2026-12-31",
+        resolution_keywords=None,
+    )
+    assert result.source == "onchain_flow"
+    assert result.confidence == 0.0
+
+
+@pytest.mark.asyncio
 async def test_coin_detected_from_question():
     """Provider should detect BTC from the question text."""
     clear_flow_cache()
@@ -80,6 +96,43 @@ async def test_coin_detected_from_question():
         resolution_keywords={"target_value": 200000, "target_direction": "above"},
     )
     assert result.source == "onchain_flow"
+
+
+@pytest.mark.asyncio
+async def test_global_sources_fetched_once_across_coins(monkeypatch):
+    """Global market sources are cached once, not re-fetched per coin_id.
+
+    Regression: each distinct coin used to trigger its own CoinGecko /global
+    fetch, blowing through the free-tier rate limit during aggregation.
+    """
+    import signals.onchain_flow as flow_mod
+
+    clear_flow_cache()
+    calls = {"global": 0, "coin": 0}
+
+    async def fake_none(session):
+        return None
+
+    async def fake_global(session):
+        calls["global"] += 1
+        return 0.2, {"source": "coingecko_global", "pressure": 0.2}
+
+    async def fake_coin(session, coin_id):
+        calls["coin"] += 1
+        return 0.1, {"source": "coin_specific", "pressure": 0.1}
+
+    monkeypatch.setattr(flow_mod, "_fetch_stablecoin_flow", fake_none)
+    monkeypatch.setattr(flow_mod, "_fetch_tvl_trend", fake_none)
+    monkeypatch.setattr(flow_mod, "_fetch_fear_greed", fake_none)
+    monkeypatch.setattr(flow_mod, "_fetch_coingecko_global", fake_global)
+    monkeypatch.setattr(flow_mod, "_fetch_coin_specific", fake_coin)
+
+    await flow_mod._fetch_flow_data("bitcoin")
+    await flow_mod._fetch_flow_data("ethereum")
+
+    assert calls["global"] == 1  # second coin hit the shared cache
+    assert calls["coin"] == 2  # per-coin chart still fetched for each
+    clear_flow_cache()
 
 
 def test_max_adjustment_is_18pp():

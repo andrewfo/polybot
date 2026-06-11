@@ -37,7 +37,7 @@ TASK_ROUTING: dict[str, str] = {
     "evaluate_confidence": "frontier",
 }
 
-FALLBACK_CHEAP_MODEL = "z-ai/glm-4.5-air:free"
+FALLBACK_CHEAP_MODEL = "z-ai/glm-4.5-air"
 
 CHEAP_TIMEOUT = 30
 SONAR_TIMEOUT = 45

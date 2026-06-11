@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 import aiohttp
 
-from core import db, fetch_with_retry
+from core import coingecko_throttle, db, fetch_with_retry
 from core.llm import LLMClient
 from signals.base import SignalProvider, SignalResult
 
@@ -305,6 +305,7 @@ async def _fetch_coingecko_price(
     }
 
     async def _attempt() -> dict[str, Any] | None:
+        await coingecko_throttle()
         async with session.get(
             COINGECKO_PRICE_URL,
             params=params,
@@ -330,6 +331,7 @@ async def _fetch_coingecko_chart(
     params = {"vs_currency": "usd", "days": str(days)}
 
     async def _attempt() -> list[list[float]] | None:
+        await coingecko_throttle()
         async with session.get(
             url,
             params=params,
@@ -779,7 +781,7 @@ class CryptoResolutionProvider(SignalProvider):
         Returns the model probability directly without LLM adjustment.
         All raw data is included so the frontier model can make its own assessment.
         """
-        resolution_keywords = kwargs.get("resolution_keywords", {})
+        resolution_keywords = kwargs.get("resolution_keywords") or {}
 
         # Gate: reject non-crypto assets that Polymarket may tag as "crypto"
         question_lower = market_question.lower()

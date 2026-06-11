@@ -186,7 +186,7 @@ resolved markets).
 ```
  task                          model                          on failure
  ──────────────────────────    ───────────────────────────    ─────────────────────
- summarize/extract/classify    google/gemini-2.0-flash-lite   z-ai/glm-4.5-air:free
+ summarize/extract/classify    google/gemini-2.5-flash-lite   z-ai/glm-4.5-air
  web search signal (benched)   perplexity/sonar               fall back to cheap
  final probability + decision  anthropic/claude-opus-4-6      ALERT AND SKIP — never
                                                               silently downgrade

@@ -77,9 +77,9 @@ Core project structure, dependencies, config/settings.py (env-overridable), .env
 
 ---
 
-## Section 10: Paper Trading Validation — NOT STARTED
+## Section 10: Paper Trading Validation — IN PROGRESS
 
-**Status:** Not started. Paper summary endpoint, live readiness gate, and requirements.txt cleanup all remain. requirements.txt still contains banned/unused deps (schedule, python-telegram-bot, feedparser, beautifulsoup4, lxml).
+**Status:** Partially done. Paper summary endpoint (`GET /api/paper/summary`) with go/no-go measurement gate is shipped and the 7-day honest-pricing paper run is underway. Live readiness gate on BotEngine.start and requirements.txt cleanup remain — requirements.txt still contains banned/unused deps (schedule, feedparser, beautifulsoup4, lxml; note python-telegram-bot IS now used by monitoring/telegram.py).
 
 ### Context
 Paper trading is already implemented in `strategy/executor.py` (PaperExecutor). This section adds validation tooling and the live-trading readiness gate.
@@ -116,7 +116,7 @@ Paper trading is already implemented in `strategy/executor.py` (PaperExecutor). 
 
 ## Section 11: Documentation & Polish — NOT STARTED
 
-**Status:** Not started. Zero TODOs/FIXMEs in codebase. All 422 tests pass. Dead code removal and README update remain.
+**Status:** Not started. Zero TODOs/FIXMEs in codebase. All 485 tests pass. Dead code removal and README update remain.
 
 ### Tasks
 1. **Update README.md** — accurate setup, architecture, and usage instructions reflecting web dashboard (not TUI)

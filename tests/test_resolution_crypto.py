@@ -585,6 +585,59 @@ async def test_coingecko_failure_graceful(mock_session_cls, mock_llm):
 
 
 @pytest.mark.asyncio
+@patch("signals.resolution_crypto.aiohttp.ClientSession")
+async def test_none_resolution_keywords_does_not_crash(mock_session_cls, mock_llm):
+    """resolution_keywords=None (upstream extraction failed) degrades gracefully.
+
+    Regression: the aggregator passes resolution_keywords=None when
+    extract_resolution_params fails, which used to raise
+    "'NoneType' object has no attribute 'get'" inside the pipeline.
+    """
+    price_data = {"bitcoin": {"usd": 95000, "usd_24h_change": 1.0}}
+    price_resp = MagicMock()
+    price_resp.status = 200
+    price_resp.json = AsyncMock(return_value=price_data)
+
+    chart_resp = MagicMock()
+    chart_resp.status = 200
+    chart_resp.json = AsyncMock(
+        return_value={"prices": [[1700000000000 + i * 86400000, 90000 + i * 10] for i in range(90)]}
+    )
+
+    deribit_resp = MagicMock()
+    deribit_resp.status = 200
+    deribit_resp.json = AsyncMock(return_value={"result": {"data": [], "continuation": None}})
+
+    session_mock = MagicMock()
+
+    def side_effect_get(url, **kwargs):
+        if "simple/price" in url:
+            return _FakeAsyncCtx(price_resp)
+        elif "deribit" in url:
+            return _FakeAsyncCtx(deribit_resp)
+        return _FakeAsyncCtx(chart_resp)
+
+    session_mock.get = MagicMock(side_effect=side_effect_get)
+    mock_session_cls.return_value = _FakeSessionCtx(session_mock)
+
+    provider = CryptoResolutionProvider(llm=mock_llm)
+    result = await provider.get_signal(
+        market_question="Will Bitcoin dip to $55,000 in June?",
+        market_category="crypto",
+        market_end_date="2026-06-30",
+        resolution_keywords=None,
+    )
+
+    # Coin resolved from question text via ticker whitelist; no target value
+    # means an event-market context result — not a pipeline crash.
+    assert result.source == "resolution_crypto"
+    assert "Pipeline error" not in result.reasoning
+    assert "Event market" in result.reasoning
+    assert result.raw_data["coin_id"] == "bitcoin"
+    mock_llm.call_json.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_cache_prevents_redundant_fetches(provider, mock_llm):
     """Cached results are returned without re-fetching CoinGecko data."""
     cached_result = SignalResult(

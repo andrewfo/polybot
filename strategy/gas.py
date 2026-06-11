@@ -21,6 +21,7 @@ from config.settings import (
     MATIC_USD_FALLBACK,
     MIN_EV_GAS_RATIO,
 )
+from core import coingecko_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,7 @@ async def fetch_matic_usd_price() -> float:
 
     params = {"ids": "matic-network", "vs_currencies": "usd"}
     try:
+        await coingecko_throttle()
         timeout = aiohttp.ClientTimeout(total=FETCH_TIMEOUT)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(COINGECKO_PRICE_URL, params=params) as resp:

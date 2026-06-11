@@ -29,7 +29,7 @@ from typing import Any
 
 import aiohttp
 
-from core import db, fetch_with_retry
+from core import coingecko_throttle, db, fetch_with_retry
 from signals.base import SignalProvider, SignalResult
 
 logger = logging.getLogger(__name__)
@@ -306,6 +306,7 @@ async def _fetch_coingecko_global(
     """CoinGecko global market data — market cap and volume change %."""
 
     async def _attempt() -> dict[str, Any]:
+        await coingecko_throttle()
         async with session.get(
             COINGECKO_GLOBAL_URL,
             headers={"User-Agent": USER_AGENT},
@@ -360,6 +361,7 @@ async def _fetch_coin_specific(
     url = COINGECKO_COIN_CHART_URL.format(coin_id=coin_id)
 
     async def _attempt() -> dict[str, Any]:
+        await coingecko_throttle()
         async with session.get(
             url,
             headers={"User-Agent": USER_AGENT},
@@ -432,6 +434,53 @@ async def _fetch_coin_specific(
 
 _flow_fetch_lock = asyncio.Lock()
 
+_GLOBAL_SOURCES_KEY = "__global_sources__"
+_GLOBAL_SOURCE_NAMES = ["stablecoin_flow", "tvl_trend", "fear_greed", "global_market"]
+
+
+async def _fetch_global_sources(
+    session: aiohttp.ClientSession,
+) -> tuple[dict[str, float], dict[str, dict[str, Any]]]:
+    """Fetch the four coin-independent sources, cached once for all coins.
+
+    These were previously re-fetched per coin_id, multiplying CoinGecko
+    /global calls by the number of distinct coins in a cycle.
+    """
+    cached = _flow_cache.get(_GLOBAL_SOURCES_KEY)
+    if cached is not None:
+        cached_data, cached_at = cached
+        if time.monotonic() - cached_at < CACHE_TTL_SECONDS:
+            logger.debug("Global flow sources cache hit")
+            return cached_data["pressures"], cached_data["metrics"]
+
+    results = await asyncio.gather(
+        _fetch_stablecoin_flow(session),
+        _fetch_tvl_trend(session),
+        _fetch_fear_greed(session),
+        _fetch_coingecko_global(session),
+        return_exceptions=True,
+    )
+
+    pressures: dict[str, float] = {}
+    metrics: dict[str, dict[str, Any]] = {}
+    for name, result in zip(_GLOBAL_SOURCE_NAMES, results):
+        if isinstance(result, Exception):
+            logger.warning("Flow source %s failed: %s", name, result)
+            continue
+        if result is None:
+            continue
+        pressure, source_metrics = result
+        pressures[name] = pressure
+        metrics[name] = source_metrics
+
+    # Don't cache a total blackout — retry next cycle instead of staying
+    # blind for the full TTL.
+    if pressures:
+        _flow_cache[_GLOBAL_SOURCES_KEY] = (
+            {"pressures": pressures, "metrics": metrics}, time.monotonic(),
+        )
+    return pressures, metrics
+
 
 async def _fetch_flow_data(
     coin_id: str,
@@ -439,9 +488,10 @@ async def _fetch_flow_data(
     """Fetch and compute composite flow pressure from all sources.
 
     Returns (pressure_score, raw_data_dict).
-    All four sources return global market data (not coin-specific), so we
-    cache under a single key and use a lock to prevent concurrent fetches
-    from stampeding rate-limited APIs (especially CoinGecko free tier).
+    Global market sources are cached once across all coins; only the
+    per-coin chart is fetched per coin_id. A lock prevents concurrent
+    cache misses from stampeding rate-limited APIs (especially CoinGecko
+    free tier).
     """
     cache_key = f"composite::{coin_id}"
 
@@ -463,32 +513,21 @@ async def _fetch_flow_data(
                 logger.debug("Flow cache hit (post-lock) for %s", coin_id)
                 return cached_data.get("pressure_score", 0.0), cached_data
 
-        # Fetch all sources concurrently
+        # Global sources are shared across coins; only the coin chart is per-coin
         async with aiohttp.ClientSession() as session:
-            results = await asyncio.gather(
-                _fetch_stablecoin_flow(session),
-                _fetch_tvl_trend(session),
-                _fetch_fear_greed(session),
-                _fetch_coingecko_global(session),
-                _fetch_coin_specific(session, coin_id),
-                return_exceptions=True,
-            )
+            global_pressures, global_metrics = await _fetch_global_sources(session)
+            try:
+                coin_result = await _fetch_coin_specific(session, coin_id)
+            except Exception as exc:
+                logger.warning("Flow source coin_specific failed: %s", exc)
+                coin_result = None
 
-        source_pressures: dict[str, float] = {}
-        source_metrics: dict[str, dict[str, Any]] = {}
-        source_names = [
-            "stablecoin_flow", "tvl_trend", "fear_greed", "global_market", "coin_specific",
-        ]
-
-        for name, result in zip(source_names, results):
-            if isinstance(result, Exception):
-                logger.warning("Flow source %s failed: %s", name, result)
-                continue
-            if result is None:
-                continue
-            pressure, metrics = result
-            source_pressures[name] = pressure
-            source_metrics[name] = metrics
+        source_pressures: dict[str, float] = dict(global_pressures)
+        source_metrics: dict[str, dict[str, Any]] = dict(global_metrics)
+        if coin_result is not None:
+            pressure, metrics = coin_result
+            source_pressures["coin_specific"] = pressure
+            source_metrics["coin_specific"] = metrics
 
         if not source_pressures:
             empty_metrics = {
@@ -603,7 +642,7 @@ class OnchainFlowProvider(SignalProvider):
                 data_points=0,
             )
 
-        resolution_keywords = kwargs.get("resolution_keywords", {})
+        resolution_keywords = kwargs.get("resolution_keywords") or {}
 
         coin_id = resolution_keywords.get("coin_id", "")
         if not coin_id:

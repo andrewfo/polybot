@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from config.settings import LEARNING_DATA_CUTOFF
-from core import db
+from core import coingecko_throttle, db
 
 logger = logging.getLogger(__name__)
 
@@ -953,6 +953,7 @@ async def classify_and_store_regime() -> str:
 
     try:
         timeout = aiohttp.ClientTimeout(total=15)
+        await coingecko_throttle()
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(
                 "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart",
