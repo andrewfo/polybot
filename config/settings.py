@@ -56,11 +56,27 @@ MAX_DAILY_LOSS_PCT = float(os.getenv("MAX_DAILY_LOSS_PCT", "0.15"))   # Stop for
 PRE_FRONTIER_EDGE_THRESHOLD = float(os.getenv("PRE_FRONTIER_EDGE_THRESHOLD", "0.03"))
 
 # --- Signal Weights (defaults, overridden by calibration when enough data) ---
-RESOLUTION_SIGNAL_WEIGHT = float(os.getenv("RESOLUTION_SIGNAL_WEIGHT", "1.3"))
+# May 2026 calibration (241 resolved samples): resolution_crypto Brier 0.048,
+# web_search 0.251, onchain_flow 0.253 (0.25 = always predicting 50%). The two
+# noise signals are benched at weight 0; they earn weight back via the
+# calibration earn-back path below once their rolling Brier improves.
+RESOLUTION_SIGNAL_WEIGHT = float(os.getenv("RESOLUTION_SIGNAL_WEIGHT", "2.5"))
 PREDICTION_MARKETS_SIGNAL_WEIGHT = float(os.getenv("PREDICTION_MARKETS_SIGNAL_WEIGHT", "1.8"))
-WEB_SEARCH_SIGNAL_WEIGHT = float(os.getenv("WEB_SEARCH_SIGNAL_WEIGHT", "1.5"))
-ONCHAIN_FLOW_SIGNAL_WEIGHT = float(os.getenv("ONCHAIN_FLOW_SIGNAL_WEIGHT", "1.3"))
+WEB_SEARCH_SIGNAL_WEIGHT = float(os.getenv("WEB_SEARCH_SIGNAL_WEIGHT", "0.0"))
+ONCHAIN_FLOW_SIGNAL_WEIGHT = float(os.getenv("ONCHAIN_FLOW_SIGNAL_WEIGHT", "0.0"))
 MIN_FRONTIER_CONFIDENCE = float(os.getenv("MIN_FRONTIER_CONFIDENCE", "0.35"))
+
+# When false, the Sonar-backed web_search provider is not constructed at all —
+# no Sonar spend. Re-enable together with a non-zero WEB_SEARCH_SIGNAL_WEIGHT
+# (or let the earn-back path restore its weight) to bring it back.
+ENABLE_WEB_SEARCH_SIGNAL = os.getenv("ENABLE_WEB_SEARCH_SIGNAL", "false").lower() == "true"
+
+# Earn-back path for benched signals (default weight 0): a benched source
+# regains aggregation weight once its rolling Brier beats this threshold over
+# at least this many resolved samples (free signals keep running and logging
+# calibration predictions even at weight 0).
+BENCHED_EARN_BACK_BRIER = float(os.getenv("BENCHED_EARN_BACK_BRIER", "0.20"))
+BENCHED_EARN_BACK_MIN_SAMPLES = int(os.getenv("BENCHED_EARN_BACK_MIN_SAMPLES", "30"))
 
 # Perplexity Sonar model via OpenRouter (search-grounded LLM)
 SONAR_MODEL = os.getenv("SONAR_MODEL", "perplexity/sonar")

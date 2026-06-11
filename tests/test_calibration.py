@@ -25,6 +25,7 @@ class TestRecordPrediction:
         mock_table = MagicMock()
         mock_db = MagicMock()
         mock_db.__getitem__ = MagicMock(return_value=mock_table)
+        mock_db.execute.return_value.fetchone.return_value = None  # no open prediction
 
         with patch("signals.calibration.db.get_db", return_value=mock_db):
             record_prediction(
@@ -40,6 +41,25 @@ class TestRecordPrediction:
         assert row["signal_source"] == "web_search"
         assert row["predicted_probability"] == 0.65
         assert row["actual_outcome"] is None
+
+    def test_updates_open_prediction_instead_of_duplicating(self) -> None:
+        """Re-analysis of the same market updates the open row — no duplicate
+        calibration samples from 30-minute churn."""
+        mock_table = MagicMock()
+        mock_db = MagicMock()
+        mock_db.__getitem__ = MagicMock(return_value=mock_table)
+        mock_db.execute.return_value.fetchone.return_value = (42,)  # open row id
+
+        with patch("signals.calibration.db.get_db", return_value=mock_db):
+            record_prediction("mkt_1", "onchain_flow", 0.71)
+
+        mock_table.insert.assert_not_called()
+        # Second execute call is the UPDATE
+        update_sql = mock_db.execute.call_args[0][0]
+        assert "UPDATE signal_calibration" in update_sql
+        params = mock_db.execute.call_args[0][1]
+        assert params[0] == 0.71
+        assert params[2] == 42
 
     def test_handles_db_error(self) -> None:
         with patch("signals.calibration.db.get_db", side_effect=Exception("DB error")):
@@ -152,16 +172,16 @@ class TestDynamicMultipliers:
             result = get_dynamic_multipliers()
 
         # avg_brier = (0.20 + 0.10 + 0.15) / 3 = 0.15
-        # web_search ratio = 0.15 / 0.20 = 0.75 → mult = 1.5 * 0.75 = 1.125
-        # resolution_crypto ratio = 0.15 / 0.10 = 1.5 → mult = 1.3 * 1.5 = 1.95
+        # resolution_crypto ratio = 0.15 / 0.10 = 1.5 → mult = 2.5 * 1.5 = 3.75
         # prediction_markets ratio = 0.15 / 0.15 = 1.0 → mult = 1.8 * 1.0 = 1.8
+        # web_search is benched (default 0) and brier 0.20 misses the
+        # earn-back threshold (< 0.20) → stays at 0
         ws = result["web_search"]
-        assert ws.is_default is False
-        assert abs(ws.multiplier - 1.125) < 0.01
+        assert ws.multiplier == 0.0
 
         rc = result["resolution_crypto"]
         assert rc.is_default is False
-        assert abs(rc.multiplier - 1.95) < 0.01
+        assert abs(rc.multiplier - 3.75) < 0.01
 
         pm = result["prediction_markets"]
         assert pm.is_default is False
@@ -180,14 +200,14 @@ class TestDynamicMultipliers:
         rc = result["resolution_crypto"]
         assert rc.multiplier == 2.0 * DEFAULT_MULTIPLIERS["resolution_crypto"]
 
-        # web_search: ratio = avg/0.30 → could be < 0.5
+        # web_search: benched and brier 0.30 → no earn-back, stays at 0
         ws = result["web_search"]
-        assert ws.multiplier >= 0.5 * DEFAULT_MULTIPLIERS["web_search"]
+        assert ws.multiplier == 0.0
 
     def test_mixed_sufficient_and_insufficient(self) -> None:
         """Some providers have enough data, others don't."""
         with patch("signals.calibration.get_provider_brier_scores", return_value={
-            "web_search": (0.20, 30),           # Sufficient
+            "web_search": (0.20, 30),           # Sufficient (but benched)
             "resolution_crypto": (0.10, 5),     # Insufficient (< 20)
             "prediction_markets": (0.15, 25),   # Sufficient
         }):
@@ -197,10 +217,55 @@ class TestDynamicMultipliers:
         assert result["resolution_crypto"].is_default is True
         assert result["resolution_crypto"].multiplier == DEFAULT_MULTIPLIERS["resolution_crypto"]
 
-        # web_search and prediction_markets should be dynamic
-        # avg_brier computed only from sufficient providers: (0.20 + 0.15) / 2 = 0.175
-        assert result["web_search"].is_default is False
+        # prediction_markets should be dynamic; benched web_search stays at 0
+        assert result["web_search"].multiplier == 0.0
         assert result["prediction_markets"].is_default is False
+
+
+class TestBenchedEarnBack:
+    """Benched sources (default weight 0) regain weight only via earn-back."""
+
+    def test_earns_back_with_good_brier_and_samples(self) -> None:
+        with patch("signals.calibration.get_provider_brier_scores", return_value={
+            "onchain_flow": (0.12, 35),         # Beats 0.20 over 30+ samples
+            "resolution_crypto": (0.10, 25),
+            "prediction_markets": (0.15, 25),
+        }):
+            result = get_dynamic_multipliers()
+
+        of = result["onchain_flow"]
+        assert of.is_default is False
+        assert of.multiplier > 0
+        # ratio = avg_brier / 0.12 clamped to [0.5, 2.0], base weight 1.0
+        assert 0.5 <= of.multiplier <= 2.0
+
+    def test_no_earn_back_below_sample_minimum(self) -> None:
+        with patch("signals.calibration.get_provider_brier_scores", return_value={
+            "onchain_flow": (0.10, 29),         # Great brier, one sample short
+            "resolution_crypto": (0.10, 25),
+            "prediction_markets": (0.15, 25),
+        }):
+            result = get_dynamic_multipliers()
+
+        assert result["onchain_flow"].multiplier == 0.0
+        assert result["onchain_flow"].is_default is True
+
+    def test_no_earn_back_with_weak_brier(self) -> None:
+        with patch("signals.calibration.get_provider_brier_scores", return_value={
+            "onchain_flow": (0.24, 100),        # Plenty of samples, still noise
+            "resolution_crypto": (0.10, 25),
+            "prediction_markets": (0.15, 25),
+        }):
+            result = get_dynamic_multipliers()
+
+        assert result["onchain_flow"].multiplier == 0.0
+
+    def test_benched_with_no_data_stays_at_zero(self) -> None:
+        with patch("signals.calibration.get_provider_brier_scores", return_value={}):
+            result = get_dynamic_multipliers()
+
+        assert result["onchain_flow"].multiplier == 0.0
+        assert result["web_search"].multiplier == 0.0
 
 
 class TestGetMultiplierDict:
@@ -224,6 +289,7 @@ class TestCalibrationConditionId:
         mock_table = MagicMock()
         mock_db = MagicMock()
         mock_db.__getitem__ = MagicMock(return_value=mock_table)
+        mock_db.execute.return_value.fetchone.return_value = None  # no open prediction
 
         with patch("signals.calibration.db.get_db", return_value=mock_db):
             record_prediction(

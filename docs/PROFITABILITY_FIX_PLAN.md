@@ -60,6 +60,13 @@ Ordered by impact. Each phase is independently shippable; run the full test suit
 
 ### Phase 2 — Cut the paid dead signal, repair the free one
 
+**Status: IMPLEMENTED (2026-06-11).**
+- `web_search` benched: weight 0 default, provider not constructed unless `ENABLE_WEB_SEARCH_SIGNAL=true` (no Sonar spend). `onchain_flow` weight 0 in both default and event multiplier sets; still runs and logs calibration.
+- Earn-back path in `signals/calibration.py`: a benched source (default weight 0) regains weight once rolling Brier < `BENCHED_EARN_BACK_BRIER` (0.20) over ≥ `BENCHED_EARN_BACK_MIN_SAMPLES` (30) resolved samples, re-entering at `1.0 × ratio`.
+- `RESOLUTION_SIGNAL_WEIGHT` raised 1.3 → 2.5 (Brier 0.048 — the only real edge source).
+- `/improve-signal onchain_flow` run: diagnosis showed the signal was market-blind — `probability = 0.5 ± tanh(pressure)` produced ~0.48 for every market (all 81 resolved predictions in one bin; identical output for a YES-resolving BTC market and a NO-resolving ETH market on the same day). Fix: probability now anchors on a market-specific baseline (driftless normal approx from target distance, time to expiry, and 14-day realized daily vol the coin fetcher already downloads; barrier markets use the reflection-principle touch probability), tilted by the flow adjustment. Flat 0.5 anchor retained as fallback for event markets / missing data.
+- `record_prediction` now upserts the open prediction per (market, source) — 30-minute churn previously created 15+ duplicate calibration rows per market, letting one resolution count as 15 earn-back samples.
+
 **Goal:** stop paying Sonar for a Brier-0.25 signal, and turn `onchain_flow` (free, but currently also Brier ~0.25) into a contributor instead of dilution.
 
 1. Set the aggregation weight of `web_search` to 0 by default and gate it behind a config flag (`ENABLE_WEB_SEARCH_SIGNAL = False`) so Sonar is not called at all when disabled. Keep the provider and its calibration logging so it can earn its way back in via `signals/calibration.py` multipliers.

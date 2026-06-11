@@ -87,11 +87,143 @@ def test_max_adjustment_is_18pp():
     assert MAX_ADJUSTMENT == 0.18
 
 
+# --- Market-aware baseline (fix for the flat ~0.48-for-every-market output) ---
+
+
+class TestBaselineProbability:
+    def test_far_above_target_terminal_is_unlikely(self):
+        """BTC at $77k, 'above $120k at expiry' in 7 days → near zero."""
+        from signals.onchain_flow import _baseline_probability
+        p = _baseline_probability(
+            current_price=77_000, target_price=120_000, daily_vol=0.03,
+            days_remaining=7, resolution_type="terminal", target_direction="above",
+        )
+        assert p is not None and p < 0.05
+
+    def test_already_above_target_terminal_is_likely(self):
+        """BTC at $77k, 'above $60k at expiry' in 7 days → near certain."""
+        from signals.onchain_flow import _baseline_probability
+        p = _baseline_probability(
+            current_price=77_000, target_price=60_000, daily_vol=0.03,
+            days_remaining=7, resolution_type="terminal", target_direction="above",
+        )
+        assert p is not None and p > 0.95
+
+    def test_below_direction_inverts_terminal(self):
+        from signals.onchain_flow import _baseline_probability
+        p_above = _baseline_probability(77_000, 80_000, 0.03, 7, "terminal", "above")
+        p_below = _baseline_probability(77_000, 80_000, 0.03, 7, "terminal", "below")
+        assert abs((p_above + p_below) - 1.0) < 1e-9
+
+    def test_barrier_doubles_terminal_tail(self):
+        """Touch probability ≈ 2x the terminal tail probability."""
+        from signals.onchain_flow import _baseline_probability
+        p_term = _baseline_probability(77_000, 85_000, 0.03, 10, "terminal", "above")
+        p_barrier = _baseline_probability(77_000, 85_000, 0.03, 10, "barrier", "above")
+        assert p_barrier is not None and p_term is not None
+        assert abs(p_barrier - min(0.98, 2 * p_term)) < 1e-9
+
+    def test_barrier_below_spot_uses_lower_tail(self):
+        """'Dip to $70k' from $77k → touch prob of the downside level."""
+        from signals.onchain_flow import _baseline_probability
+        p = _baseline_probability(77_000, 70_000, 0.03, 10, "barrier", "below")
+        assert p is not None and 0.02 <= p < 0.5
+
+    def test_invalid_inputs_return_none(self):
+        from signals.onchain_flow import _baseline_probability
+        assert _baseline_probability(0, 80_000, 0.03, 7, "terminal", "above") is None
+        assert _baseline_probability(77_000, 0, 0.03, 7, "terminal", "above") is None
+        assert _baseline_probability(77_000, 80_000, 0.0, 7, "terminal", "above") is None
+        assert _baseline_probability(77_000, 80_000, 0.03, 0, "terminal", "above") is None
+
+    def test_different_markets_get_different_probabilities(self):
+        """The defect being fixed: distinct targets must produce distinct
+        baselines (all 81 resolved predictions previously sat at ~0.48)."""
+        from signals.onchain_flow import _baseline_probability
+        p_near = _baseline_probability(77_000, 78_000, 0.03, 7, "barrier", "above")
+        p_far = _baseline_probability(77_000, 95_000, 0.03, 7, "barrier", "above")
+        assert p_near is not None and p_far is not None
+        assert p_near - p_far > 0.3
+
+
+@pytest.mark.asyncio
+async def test_get_signal_uses_market_baseline():
+    """With coin price/vol data and a target, probability reflects the market
+    (not a flat 0.5 anchor) and the flow tilt is applied on top."""
+    from unittest.mock import patch
+    clear_flow_cache()
+
+    flow_metrics = {
+        "data_source": "composite",
+        "asset": "bitcoin",
+        "pressure_score": 0.5,
+        "sources_available": 5,
+        "source_agreement": 1.0,
+        "stablecoins_tracked": 5,
+        "coin_current_price": 77_000.0,
+        "coin_daily_vol": 0.03,
+    }
+
+    provider = OnchainFlowProvider()
+    with patch("signals.onchain_flow._fetch_flow_data", return_value=(0.5, flow_metrics)):
+        # Far target: baseline near 0 — even +0.5 pressure keeps P low
+        far = await provider.get_signal(
+            "Will Bitcoin reach $150,000 in June?", "crypto",
+            "2026-06-18T00:00:00Z",
+            resolution_keywords={
+                "coin_id": "bitcoin", "target_value": 150_000,
+                "target_direction": "above", "resolution_type": "barrier",
+            },
+        )
+        # Near target: baseline high
+        near = await provider.get_signal(
+            "Will Bitcoin reach $78,000 in June?", "crypto",
+            "2026-06-18T00:00:00Z",
+            resolution_keywords={
+                "coin_id": "bitcoin", "target_value": 78_000,
+                "target_direction": "above", "resolution_type": "barrier",
+            },
+        )
+
+    assert far.probability is not None and near.probability is not None
+    assert far.probability < 0.30
+    assert near.probability > 0.70
+    assert "baseline=" in far.reasoning
+
+
+@pytest.mark.asyncio
+async def test_get_signal_falls_back_to_flat_anchor_without_target():
+    """No target data → legacy 0.5-anchored behavior."""
+    from unittest.mock import patch
+    clear_flow_cache()
+
+    flow_metrics = {
+        "data_source": "composite",
+        "asset": "bitcoin",
+        "pressure_score": 0.5,
+        "sources_available": 3,
+        "source_agreement": 1.0,
+        "stablecoins_tracked": 5,
+    }
+
+    provider = OnchainFlowProvider()
+    with patch("signals.onchain_flow._fetch_flow_data", return_value=(0.5, flow_metrics)):
+        result = await provider.get_signal(
+            "Will Bitcoin do something?", "crypto", "2026-06-18T00:00:00Z",
+            resolution_keywords={"coin_id": "bitcoin"},
+        )
+
+    assert result.probability is not None
+    # 0.5 + tanh-shaped adjustment for pressure 0.5 (positive, < cap)
+    assert 0.5 < result.probability <= 0.5 + MAX_ADJUSTMENT
+
+
 def test_aggregator_includes_onchain_flow():
-    """Verify the aggregator's default providers include OnchainFlowProvider."""
+    """Verify the aggregator knows onchain_flow (benched at weight 0 until it
+    earns its way back via calibration — see docs/PROFITABILITY_FIX_PLAN.md)."""
     from signals.aggregator import DEFAULT_SIGNAL_WEIGHT_MULTIPLIERS
     assert "onchain_flow" in DEFAULT_SIGNAL_WEIGHT_MULTIPLIERS
-    assert DEFAULT_SIGNAL_WEIGHT_MULTIPLIERS["onchain_flow"] == 1.3
+    assert DEFAULT_SIGNAL_WEIGHT_MULTIPLIERS["onchain_flow"] == 0.0
 
 
 def test_aggregator_format_raw_evidence_composite():

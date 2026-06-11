@@ -16,6 +16,8 @@ from typing import Any
 import aiohttp
 
 from config.settings import (
+    BENCHED_EARN_BACK_BRIER,
+    BENCHED_EARN_BACK_MIN_SAMPLES,
     CALIBRATION_LOOKBACK_DAYS,
     MIN_CALIBRATION_SAMPLES,
     ONCHAIN_FLOW_SIGNAL_WEIGHT,
@@ -37,6 +39,10 @@ DEFAULT_MULTIPLIERS: dict[str, float] = {
 
 # Brier score of a random guesser (always predicting 0.5)
 BASELINE_BRIER = 0.25
+
+# Weight a benched source (default multiplier 0) starts from when it earns
+# its way back via the earn-back path — scaled by the usual Brier ratio.
+EARN_BACK_BASE_WEIGHT = 1.0
 
 # Gamma API for checking market resolutions
 GAMMA_MARKET_URL = "https://gamma-api.polymarket.com/markets"
@@ -61,17 +67,35 @@ def record_prediction(
 ) -> None:
     """Record a signal provider's prediction for later calibration.
 
-    Called after each signal is produced during aggregation.
+    Called after each signal is produced during aggregation. One open
+    prediction per (market, source): re-analysis cycles update it in place
+    instead of inserting duplicates — a market churned every 30 minutes
+    previously produced 15+ identical rows, letting a single resolution
+    masquerade as 15 calibration samples (and inflating earn-back counts).
     """
     try:
         d = db.get_db()
+        now = datetime.now(timezone.utc).isoformat()
+        existing = d.execute(
+            "SELECT id FROM signal_calibration "
+            "WHERE market_id = ? AND signal_source = ? AND actual_outcome IS NULL "
+            "LIMIT 1",
+            [market_id, signal_source],
+        ).fetchone()
+        if existing:
+            d.execute(
+                "UPDATE signal_calibration "
+                "SET predicted_probability = ?, timestamp = ? WHERE id = ?",
+                [predicted_probability, now, existing[0]],
+            )
+            return
         d["signal_calibration"].insert({
             "market_id": market_id,
             "signal_source": signal_source,
             "predicted_probability": predicted_probability,
             "actual_outcome": None,
             "market_question": market_question[:200],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now,
             "resolved_at": None,
         })
     except Exception as e:
@@ -176,6 +200,11 @@ def get_dynamic_multipliers() -> dict[str, ProviderCalibration]:
     - Clamp between 0.5x and 2.0x of the default multiplier
 
     For providers with insufficient history, use defaults.
+
+    Benched providers (default multiplier 0) stay at 0 regardless of the
+    ratio formula — except via the earn-back path: once their rolling Brier
+    beats BENCHED_EARN_BACK_BRIER over >= BENCHED_EARN_BACK_MIN_SAMPLES
+    resolved predictions, they re-enter at EARN_BACK_BASE_WEIGHT * ratio.
     """
     brier_data = get_provider_brier_scores()
     result: dict[str, ProviderCalibration] = {}
@@ -193,6 +222,34 @@ def get_dynamic_multipliers() -> dict[str, ProviderCalibration]:
         avg_brier = BASELINE_BRIER
 
     for source, default_mult in DEFAULT_MULTIPLIERS.items():
+        if default_mult <= 0:
+            # Benched source: weight 0 until it earns its way back with a
+            # strong rolling Brier on enough resolved samples.
+            brier, count = brier_data.get(source, (BASELINE_BRIER, 0))
+            if count >= BENCHED_EARN_BACK_MIN_SAMPLES and brier < BENCHED_EARN_BACK_BRIER:
+                ratio = avg_brier / max(brier, 0.001)
+                ratio = max(0.5, min(2.0, ratio))
+                earned_mult = EARN_BACK_BASE_WEIGHT * ratio
+                result[source] = ProviderCalibration(
+                    source=source,
+                    brier_score=brier,
+                    sample_count=count,
+                    multiplier=earned_mult,
+                    is_default=False,
+                )
+                logger.info(
+                    "Benched source %s earned back weight: brier=%.3f samples=%d mult=%.2f",
+                    source, brier, count, earned_mult,
+                )
+            else:
+                result[source] = ProviderCalibration(
+                    source=source,
+                    brier_score=brier if count else BASELINE_BRIER,
+                    sample_count=count,
+                    multiplier=0.0,
+                    is_default=True,
+                )
+            continue
         if source in sufficient:
             provider_brier, count = sufficient[source]
 

@@ -75,15 +75,15 @@ def mock_llm():
 
 class TestPreliminaryProbability:
     def test_single_signal(self):
-        signals = [_make_signal(source="web_search", probability=0.6, confidence=0.8)]
+        signals = [_make_signal(source="prediction_markets", probability=0.6, confidence=0.8)]
         result = compute_preliminary_probability(signals)
         # With log-odds averaging (now default), single signal → same result
         assert abs(result - 0.6) < 1e-6
 
     def test_multiple_signals_equal_weight(self):
         signals = [
-            _make_signal(source="web_search", probability=0.4, confidence=1.0),
-            _make_signal(source="web_search", probability=0.8, confidence=1.0),
+            _make_signal(source="prediction_markets", probability=0.4, confidence=1.0),
+            _make_signal(source="prediction_markets", probability=0.8, confidence=1.0),
         ]
         result = compute_preliminary_probability(signals)
         # Log-odds average of 0.4 and 0.8 with equal weights:
@@ -92,19 +92,37 @@ class TestPreliminaryProbability:
         import math
         lo1 = math.log(0.4 / 0.6)
         lo2 = math.log(0.8 / 0.2)
-        avg_lo = (lo1 * 1.5 + lo2 * 1.5) / (1.5 + 1.5)
+        avg_lo = (lo1 + lo2) / 2  # equal weights cancel
         expected = 1.0 / (1.0 + math.exp(-avg_lo))
         assert abs(result - expected) < 1e-4
 
     def test_confidence_weighted(self):
         """Higher confidence signal should have more influence."""
         signals = [
-            _make_signal(source="web_search", probability=0.3, confidence=0.1),
-            _make_signal(source="web_search", probability=0.9, confidence=0.9),
+            _make_signal(source="prediction_markets", probability=0.3, confidence=0.1),
+            _make_signal(source="prediction_markets", probability=0.9, confidence=0.9),
         ]
         result = compute_preliminary_probability(signals)
         # With log-odds: high-confidence 0.9 signal should dominate
         assert result > 0.7  # Strongly pulled toward 0.9
+
+    def test_benched_signal_has_no_influence(self):
+        """web_search is benched (weight 0) — it must not move the estimate."""
+        signals = [
+            _make_signal(source="prediction_markets", probability=0.6, confidence=0.8),
+            _make_signal(source="web_search", probability=0.95, confidence=1.0),
+        ]
+        result = compute_preliminary_probability(signals)
+        assert abs(result - 0.6) < 1e-6
+
+    def test_all_benched_signals_returns_default(self):
+        """Only zero-weight sources → no usable weight → default 0.5."""
+        signals = [
+            _make_signal(source="web_search", probability=0.9, confidence=0.9),
+            _make_signal(source="onchain_flow", probability=0.8, confidence=0.8),
+        ]
+        result = compute_preliminary_probability(signals)
+        assert result == 0.5
 
     def test_no_usable_signals_returns_default(self):
         signals = [
@@ -124,14 +142,13 @@ class TestPreliminaryProbability:
 
 class TestResolutionSourceWeight:
     def test_resolution_crypto_higher_weight(self):
-        """Resolution crypto (2.0x) should pull result more than web_search (1.5x)."""
+        """Resolution crypto (2.5x) should dominate benched web_search (0x)."""
         signals = [
             _make_signal(source="web_search", probability=0.4, confidence=1.0),
             _make_signal(source="resolution_crypto", probability=0.8, confidence=1.0),
         ]
         result = compute_preliminary_probability(signals)
-        # With log-odds, resolution_crypto's 2.0x weight dominates
-        # Result should be closer to 0.8 than to 0.4
+        # With web_search benched, resolution_crypto fully determines the result
         assert result > 0.6
 
     def test_prediction_markets_weight(self):
@@ -781,3 +798,54 @@ class TestPreFrontierGate:
         ws_provider.get_signal.assert_not_called()
         mock_llm.call_json.assert_not_called()
         mock_db.record_frontier_decision.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Test: benched signals (Phase 2 — web_search disabled, onchain_flow weight 0)
+# ---------------------------------------------------------------------------
+
+class TestBenchedSignals:
+    def test_default_providers_exclude_web_search_when_disabled(self, mock_llm):
+        """ENABLE_WEB_SEARCH_SIGNAL=False → Sonar provider not constructed."""
+        aggregator = SignalAggregator(llm=mock_llm)
+        names = [getattr(p, "name", "") for p in aggregator._providers]
+        assert "web_search" not in names
+        assert set(names) == {"resolution_crypto", "prediction_markets", "onchain_flow"}
+
+    def test_default_providers_include_web_search_when_enabled(self, mock_llm):
+        with patch("signals.aggregator.ENABLE_WEB_SEARCH_SIGNAL", True):
+            aggregator = SignalAggregator(llm=mock_llm)
+        names = [getattr(p, "name", "") for p in aggregator._providers]
+        assert "web_search" in names
+
+    @pytest.mark.asyncio
+    async def test_benched_onchain_flow_still_counts_and_calibrates(self, mock_llm):
+        """A zero-weight signal still satisfies the 2+ requirement, reaches the
+        frontier prompt, and records calibration — it just can't move prelim."""
+        providers = [
+            _make_mock_provider(_make_signal(source="resolution_crypto", probability=0.70, confidence=0.9)),
+            _make_mock_provider(_make_signal(source="onchain_flow", probability=0.95, confidence=0.8)),
+        ]
+        aggregator = SignalAggregator(llm=mock_llm, providers=providers)
+
+        with patch("signals.aggregator.db"), \
+             patch("signals.aggregator.record_prediction") as mock_rp:
+            result = await aggregator.aggregate(
+                market_question="Test benched onchain?",
+                market_category="crypto",
+                market_end_date="2026-12-31",
+                market_price=0.50,
+                condition_id="0xbench",
+            )
+
+        assert result is not None and result.skipped is False
+        # onchain_flow counted toward the 2+ usable requirement
+        assert {s.source for s in result.individual_signals} == {"resolution_crypto", "onchain_flow"}
+        # ...but with weight 0 it did not move the preliminary estimate
+        assert abs(result.preliminary_probability - 0.70) < 1e-6
+        # ...and its prediction was still recorded for calibration earn-back
+        recorded = {c[1]["signal_source"] for c in mock_rp.call_args_list}
+        assert "onchain_flow" in recorded
+        # frontier still sees the onchain_flow evidence in the prompt
+        prompt = mock_llm.call_json.call_args[0][0]
+        assert "onchain_flow" in prompt

@@ -20,6 +20,7 @@ from typing import Any, Optional
 
 from config.settings import (
     DIVERGENCE_CONFIDENCE_THRESHOLD,
+    ENABLE_WEB_SEARCH_SIGNAL,
     EVENT_MARKET_BASELINE_EDGE,
     MAX_DIVERGENCE_ANY_CONFIDENCE,
     MAX_DIVERGENCE_LOW_CONFIDENCE,
@@ -56,12 +57,14 @@ DEFAULT_SIGNAL_WEIGHT_MULTIPLIERS: dict[str, float] = {
     "onchain_flow": ONCHAIN_FLOW_SIGNAL_WEIGHT,
 }
 
-# Event markets rely on LLM signals — math model is not available
+# Event markets rely on LLM signals — math model is not available.
+# onchain_flow is benched (Brier ~0.25) here too; it still runs and feeds
+# calibration, it just doesn't move the preliminary estimate.
 EVENT_SIGNAL_WEIGHT_MULTIPLIERS: dict[str, float] = {
     "resolution_crypto": 0.0,
     "prediction_markets": 2.0,
     "web_search": 2.0,
-    "onchain_flow": 1.0,
+    "onchain_flow": 0.0,
 }
 
 
@@ -488,10 +491,14 @@ class SignalAggregator:
         else:
             self._providers = [
                 CryptoResolutionProvider(llm=llm),
-                WebSearchSignalProvider(llm=llm),
                 PredictionMarketsSignalProvider(llm=llm),
                 OnchainFlowProvider(llm=llm),
             ]
+            # The Sonar-backed provider costs money per call and is benched
+            # by default (Brier ~0.25 on resolved markets). The flag brings
+            # it back without a code change.
+            if ENABLE_WEB_SEARCH_SIGNAL:
+                self._providers.append(WebSearchSignalProvider(llm=llm))
 
     def _emit(self, question: str, stage: str, detail: str = "") -> None:
         """Emit a progress update if a callback is registered."""

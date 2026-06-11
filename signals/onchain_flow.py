@@ -2,8 +2,9 @@
 
 Queries multiple free APIs to compute a directional capital-flow pressure
 score from -1.0 (capital leaving crypto) to +1.0 (capital entering crypto).
-Converts that pressure into a probability adjustment relative to the math
-model's baseline.
+Applies that pressure as a tilt on a market-specific baseline probability
+computed from the target distance, time to expiry, and 14-day realized vol
+(falls back to a flat 0.5 anchor when no target/price data is available).
 
 Data sources (all free, no auth required):
 1. DeFi Llama stablecoin supply — weekly/monthly stablecoin mint/burn
@@ -84,6 +85,51 @@ def _pressure_to_adjustment(pressure: float) -> float:
     """
     clamped = max(-1.0, min(1.0, pressure))
     return MAX_ADJUSTMENT * math.tanh(_TANH_K * clamped) / _TANH_NORM
+
+
+def _baseline_probability(
+    current_price: float,
+    target_price: float,
+    daily_vol: float,
+    days_remaining: float,
+    resolution_type: str,
+    target_direction: str,
+) -> float | None:
+    """Crude market-specific baseline P(YES) from target distance and vol.
+
+    Driftless normal approximation on log returns using the 14-day realized
+    daily vol the coin fetcher already computed. Deliberately rougher than
+    resolution_crypto's calibrated model (shorter vol window, no drift, no
+    EWM/IV blending) — this is an independent anchor so the flow tilt is
+    applied to THIS market's odds instead of a flat 0.5, which made every
+    market get the same ~0.48 prediction (Brier 0.25 over 81 resolved).
+
+    Returns None when inputs can't support an estimate (caller falls back).
+    """
+    if (
+        current_price <= 0
+        or target_price <= 0
+        or daily_vol <= 0
+        or days_remaining <= 0
+    ):
+        return None
+
+    z = math.log(target_price / current_price) / (daily_vol * math.sqrt(days_remaining))
+    phi = 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))  # P(terminal price < target)
+
+    if resolution_type == "terminal":
+        p = (1.0 - phi) if target_direction != "below" else phi
+    else:
+        # Barrier (touch anytime): reflection principle ≈ doubles the
+        # terminal tail probability on the target's side of spot.
+        if target_price > current_price:
+            p = 2.0 * (1.0 - phi)
+        elif target_price < current_price:
+            p = 2.0 * phi
+        else:
+            p = 1.0
+
+    return max(0.02, min(0.98, p))
 
 
 # ---------------------------------------------------------------------------
@@ -354,12 +400,28 @@ async def _fetch_coin_specific(
     pressure = price_pressure * 0.7 + vol_pressure * 0.3
     pressure = max(-1.0, min(1.0, pressure))
 
+    # Realized daily vol from the same series — feeds the market-aware
+    # baseline so each market's probability reflects its target distance.
+    daily_vol = 0.0
+    try:
+        log_returns = [
+            math.log(prices[i][1] / prices[i - 1][1])
+            for i in range(1, len(prices))
+            if prices[i][1] > 0 and prices[i - 1][1] > 0
+        ]
+        if len(log_returns) >= 5:
+            daily_vol = statistics.stdev(log_returns)
+    except (ValueError, ZeroDivisionError):
+        pass
+
     metrics = {
         "source": "coingecko_coin",
         "pressure": pressure,
         "coin_id": coin_id,
         "price_change_7d_pct": round(price_change_7d * 100, 2),
         "volume_change_7d_pct": round(vol_change_7d * 100, 2),
+        "current_price": recent_price,
+        "daily_vol": daily_vol,
     }
     return pressure, metrics
 
@@ -477,6 +539,8 @@ async def _fetch_flow_data(
             "total_market_cap": source_metrics.get("global_market", {}).get("total_market_cap"),
             "coin_price_change_7d_pct": source_metrics.get("coin_specific", {}).get("price_change_7d_pct"),
             "coin_volume_change_7d_pct": source_metrics.get("coin_specific", {}).get("volume_change_7d_pct"),
+            "coin_current_price": source_metrics.get("coin_specific", {}).get("current_price"),
+            "coin_daily_vol": source_metrics.get("coin_specific", {}).get("daily_vol"),
         }
 
         _flow_cache[cache_key] = (composite_metrics, time.monotonic())
@@ -496,7 +560,8 @@ class OnchainFlowProvider(SignalProvider):
        - CoinGecko global market data
     4. Blend source pressures into composite score [-1, +1]
     5. Scale confidence by source count and agreement
-    6. Apply probability adjustment (±10pp max)
+    6. Tilt the market-specific baseline (target distance / expiry / vol)
+       by the flow adjustment (±18pp max); flat 0.5 anchor as fallback
     7. Return with rich raw data for frontier model
 
     No LLM calls — pure data pipeline.
@@ -602,22 +667,65 @@ class OnchainFlowProvider(SignalProvider):
         # High agreement = more confidence (up to +15% boost)
         agreement_bonus = agreement * 0.15
         raw_conf = base_confidence + source_bonus + agreement_bonus
-        # Attenuate when the pressure magnitude is small — a near-zero signal
-        # should not be reported with high confidence even if 5 sources agree
-        # there is no movement. |p|>=0.5 keeps full confidence; |p|=0 halves it.
-        strength = min(1.0, abs(pressure) * 2.0)
-        confidence = min(0.80, raw_conf * (0.5 + 0.5 * strength))
 
         data_points = raw_metrics.get("stablecoins_tracked", 0) + sources_available
 
         # Convert pressure to probability adjustment
         adjustment = _pressure_to_adjustment(pressure)
 
-        probability = 0.5 + adjustment
-
+        # Market-aware baseline: anchor on THIS market's odds (target distance,
+        # time to expiry, realized vol) instead of a flat 0.5. The flat anchor
+        # made every market get the same ~0.48 prediction regardless of
+        # question, direction, or deadline — pure noise per market.
         target_direction = resolution_keywords.get("target_direction", "above")
-        if target_direction == "below":
-            probability = 0.5 - adjustment
+        resolution_type = resolution_keywords.get("resolution_type", "barrier")
+        target_value = resolution_keywords.get("target_value")
+        current_price = raw_metrics.get("coin_current_price") or 0.0
+        daily_vol = raw_metrics.get("coin_daily_vol") or 0.0
+
+        days_remaining = 0.0
+        if market_end_date:
+            try:
+                from datetime import datetime, timezone
+                end_dt = datetime.fromisoformat(market_end_date.replace("Z", "+00:00"))
+                if end_dt.tzinfo is None:
+                    end_dt = end_dt.replace(tzinfo=timezone.utc)
+                days_remaining = (end_dt - datetime.now(timezone.utc)).total_seconds() / 86400
+            except (ValueError, TypeError):
+                pass
+
+        baseline = None
+        if target_value is not None:
+            try:
+                baseline = _baseline_probability(
+                    current_price=float(current_price),
+                    target_price=float(target_value),
+                    daily_vol=float(daily_vol),
+                    days_remaining=days_remaining,
+                    resolution_type=resolution_type,
+                    target_direction=target_direction,
+                )
+            except (ValueError, TypeError):
+                baseline = None
+
+        strength = min(1.0, abs(pressure) * 2.0)
+        if baseline is not None:
+            # Tilt the market-specific baseline by flow pressure. Positive
+            # pressure (capital entering crypto) favors upside events.
+            if resolution_type == "terminal":
+                upside_event = target_direction != "below"
+            else:
+                upside_event = float(target_value) > float(current_price)
+            probability = baseline + (adjustment if upside_event else -adjustment)
+            # The baseline carries real information even at zero pressure —
+            # only mild attenuation for weak flow.
+            confidence = min(0.80, raw_conf * (0.75 + 0.25 * strength))
+        else:
+            # Fallback (no target/price/vol data, event markets): legacy
+            # flat-anchor behavior. Attenuate hard when pressure is weak —
+            # without a baseline, a near-zero tilt carries no information.
+            probability = 0.5 + (adjustment if target_direction != "below" else -adjustment)
+            confidence = min(0.80, raw_conf * (0.5 + 0.5 * strength))
 
         probability = max(0.02, min(0.98, probability))
 
@@ -630,9 +738,18 @@ class OnchainFlowProvider(SignalProvider):
         tvl_chg = raw_metrics.get("tvl_weekly_change_pct")
         mcap_chg = raw_metrics.get("market_cap_change_24h_pct")
 
+        if baseline is not None:
+            anchor_desc = (
+                f"baseline={baseline:.3f} (target ${float(target_value):,.0f} vs "
+                f"${float(current_price):,.0f}, {resolution_type}, {days_remaining:.1f}d, "
+                f"vol={daily_vol:.1%}/d)"
+            )
+        else:
+            anchor_desc = "baseline=0.500 (no market-specific data)"
         parts = [
             f"Composite flow ({sources_available} sources, agreement={agreement:.0%}): "
-            f"pressure={pressure:+.2f}, adjustment={adjustment:+.3f} -> P={probability:.3f}.",
+            f"pressure={pressure:+.2f}, {anchor_desc}, "
+            f"adjustment={adjustment:+.3f} -> P={probability:.3f}.",
         ]
         if supply:
             parts.append(f"Stablecoins: ${supply/1e9:.1f}B (weekly={weekly_chg:+.1f}%, monthly={monthly_chg:+.1f}%).")
