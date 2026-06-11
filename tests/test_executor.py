@@ -17,6 +17,7 @@ from strategy.executor import (
     check_trade_rate,
     compute_limit_price,
     effective_stop_loss_pct,
+    refresh_book_and_recheck_edge,
 )
 from strategy.kelly import TradeDecision
 
@@ -157,6 +158,101 @@ class TestComputeLimitPrice:
         market = _make_market_data(bestAsk="1.05")
         price, _ = compute_limit_price(decision, market)
         assert price <= 0.99
+
+
+# ---------------------------------------------------------------------------
+# refresh_book_and_recheck_edge tests
+# ---------------------------------------------------------------------------
+
+class TestRefreshBookAndRecheckEdge:
+    @pytest.mark.asyncio
+    @patch("strategy.executor.get_effective_param", side_effect=lambda k, d: d)
+    @patch("strategy.executor._fetch_gamma_book", new_callable=AsyncMock)
+    async def test_refreshes_book_and_passes_when_edge_holds(self, mock_book, _eff):
+        # effective_prob=0.60, fresh mid=0.52 → edge 0.08 > 0.04 threshold
+        mock_book.return_value = {"best_bid": 0.51, "best_ask": 0.53, "mid": 0.52}
+        decision = _make_decision()
+        market = _make_market_data(bestBid="0.40", bestAsk="0.45")
+
+        ok, reason = await refresh_book_and_recheck_edge(decision, market)
+        assert ok is True
+        assert market["bestBid"] == "0.51"
+        assert market["bestAsk"] == "0.53"
+
+    @pytest.mark.asyncio
+    @patch("strategy.executor.get_effective_param", side_effect=lambda k, d: d)
+    @patch("strategy.executor._fetch_gamma_book", new_callable=AsyncMock)
+    async def test_blocks_when_edge_evaporates(self, mock_book, _eff):
+        # Price moved up to our estimate: effective_prob=0.60, mid=0.59 → edge 0.01
+        mock_book.return_value = {"best_bid": 0.58, "best_ask": 0.60, "mid": 0.59}
+        decision = _make_decision()
+        market = _make_market_data()
+
+        ok, reason = await refresh_book_and_recheck_edge(decision, market)
+        assert ok is False
+        assert "edge evaporated" in reason
+
+    @pytest.mark.asyncio
+    @patch("strategy.executor.get_effective_param", side_effect=lambda k, d: d)
+    @patch("strategy.executor._fetch_gamma_book", new_callable=AsyncMock)
+    async def test_buy_no_edge_direction(self, mock_book, _eff):
+        # BUY_NO: edge = fresh_mid - effective_prob. mid=0.50, eff=0.40 → 0.10
+        mock_book.return_value = {"best_bid": 0.49, "best_ask": 0.51, "mid": 0.50}
+        decision = _make_decision(side="BUY_NO", effective_prob=0.40, estimated_prob=0.35)
+        market = _make_market_data()
+
+        ok, _ = await refresh_book_and_recheck_edge(decision, market)
+        assert ok is True
+
+        # Market dropped toward our estimate: mid=0.42 → edge 0.02 → block
+        mock_book.return_value = {"best_bid": 0.41, "best_ask": 0.43, "mid": 0.42}
+        ok, reason = await refresh_book_and_recheck_edge(decision, market)
+        assert ok is False
+        assert "edge evaporated" in reason
+
+    @pytest.mark.asyncio
+    @patch("strategy.executor._fetch_gamma_book", new_callable=AsyncMock)
+    async def test_fetch_failure_keeps_snapshot_and_proceeds(self, mock_book):
+        mock_book.return_value = None
+        decision = _make_decision()
+        market = _make_market_data()
+
+        ok, reason = await refresh_book_and_recheck_edge(decision, market)
+        assert ok is True
+        assert market["bestAsk"] == "0.55"  # snapshot untouched
+
+    @pytest.mark.asyncio
+    @patch("strategy.executor.REALISTIC_PRICING", False)
+    @patch("strategy.executor._fetch_gamma_book", new_callable=AsyncMock)
+    async def test_flag_off_skips_refresh(self, mock_book):
+        decision = _make_decision()
+        market = _make_market_data()
+
+        ok, _ = await refresh_book_and_recheck_edge(decision, market)
+        assert ok is True
+        mock_book.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("strategy.executor.get_effective_param", side_effect=lambda k, d: d)
+    @patch("strategy.executor._fetch_gamma_book", new_callable=AsyncMock)
+    @patch("strategy.executor.db")
+    async def test_paper_fill_uses_refreshed_ask(self, mock_db, mock_book, _eff):
+        # Fresh book moved from the 0.55 snapshot ask to 0.53 — the recorded
+        # paper fill must be the execution-time ask, not the stale snapshot.
+        mock_book.return_value = {"best_bid": 0.51, "best_ask": 0.53, "mid": 0.52}
+        mock_db.get_open_positions.return_value = []
+        mock_db.get_recent_trade_count.return_value = 0
+        mock_db.get_total_pnl.return_value = 0.0
+        mock_db.get_daily_pnl.return_value = 0.0
+        mock_db.get_paper_balance.return_value = {"available_cash": 900.0}
+
+        executor = PaperExecutor()
+        trade_id = await executor.execute_trade(
+            _make_decision(), _make_market_data(), 1000.0,
+        )
+        assert trade_id is not None
+        call_kwargs = mock_db.record_trade.call_args.kwargs
+        assert call_kwargs["price"] == pytest.approx(0.53)
 
 
 # ---------------------------------------------------------------------------

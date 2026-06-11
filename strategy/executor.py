@@ -19,6 +19,7 @@ from config.settings import (
     MAX_ENTRY_SPREAD_PCT,
     MAX_NEW_TRADES_PER_HOUR,
     MAX_OPEN_POSITIONS,
+    MIN_EDGE_THRESHOLD,
     REALISTIC_PRICING,
     SLIPPAGE_BUFFER,
     STALE_ORDER_MINUTES,
@@ -286,6 +287,46 @@ def compute_limit_price(
     return price, token_id
 
 
+async def refresh_book_and_recheck_edge(
+    decision: TradeDecision,
+    market_data: dict[str, Any],
+) -> tuple[bool, str]:
+    """Re-fetch the live order book immediately before execution.
+
+    The snapshot in ``market_data`` was taken before signal aggregation ran;
+    the frontier LLM call alone can add 30s-2min, during which odds on
+    short-horizon crypto markets routinely move. Refreshing here makes the
+    fill price, limit price, and entry-spread guardrail key off the book as
+    it stands at execution time, and re-validates that the edge still clears
+    MIN_EDGE_THRESHOLD at the fresh mid. Mutates ``market_data`` in place.
+
+    Returns (ok, reason). A failed fetch keeps the snapshot and proceeds —
+    a missing refresh should not block more than the pre-existing behavior.
+    """
+    if not REALISTIC_PRICING:
+        return True, ""
+    book = await _fetch_gamma_book(decision.market_id)
+    if book is None:
+        return True, ""
+    market_data["bestBid"] = str(book["best_bid"])
+    market_data["bestAsk"] = str(book["best_ask"])
+
+    fresh_mid = book["mid"]
+    eff_min_edge = get_effective_param("MIN_EDGE_THRESHOLD", MIN_EDGE_THRESHOLD)
+    if decision.side == "BUY_YES":
+        fresh_edge = decision.effective_prob - fresh_mid
+    else:
+        fresh_edge = fresh_mid - decision.effective_prob
+    if fresh_edge < eff_min_edge:
+        return False, (
+            f"edge evaporated before execution "
+            f"(decision edge={decision.edge:.3f} @ mid={decision.market_price:.3f}, "
+            f"fresh edge={fresh_edge:.3f} @ mid={fresh_mid:.3f}, "
+            f"min={eff_min_edge:.3f})"
+        )
+    return True, ""
+
+
 # ---------------------------------------------------------------------------
 # PaperExecutor
 # ---------------------------------------------------------------------------
@@ -300,6 +341,11 @@ class PaperExecutor:
         bankroll: float,
     ) -> str | None:
         """Execute a paper trade. Returns trade_id or None if blocked."""
+        ok, reason = await refresh_book_and_recheck_edge(decision, market_data)
+        if not ok:
+            logger.warning("Trade blocked at pre-execution re-check: %s", reason)
+            return None
+
         # Run guardrails
         ok, reason = check_all_guardrails(
             bankroll,
@@ -475,6 +521,11 @@ class TradeExecutor:
         bankroll: float,
     ) -> str | None:
         """Execute a live trade. Returns trade_id or None if blocked."""
+        ok, reason = await refresh_book_and_recheck_edge(decision, market_data)
+        if not ok:
+            logger.warning("Trade blocked at pre-execution re-check: %s", reason)
+            return None
+
         ok, reason = check_all_guardrails(
             bankroll,
             market_question=decision.market_question,
