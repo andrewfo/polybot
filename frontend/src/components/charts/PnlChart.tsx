@@ -21,9 +21,9 @@ export default function PnlChart({ snapshots }: { snapshots: PnlSnapshot[] }) {
         flex: 1, minHeight: 200, color: colors.textDim, fontSize: 13,
         background: `repeating-linear-gradient(
           -45deg, transparent, transparent 10px,
-          rgba(30,45,74,0.2) 10px, rgba(30,45,74,0.2) 20px
+          rgba(233, 230, 223, 0.05) 10px, rgba(233, 230, 223, 0.05) 20px
         )`,
-        borderRadius: 8,
+        borderRadius: 3,
       }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 24, marginBottom: 8, opacity: 0.4 }}>~</div>
@@ -42,7 +42,7 @@ export default function PnlChart({ snapshots }: { snapshots: PnlSnapshot[] }) {
   const values = snapshots.map(s => s.total_value)
   const isPositive = values.length > 1 ? values[values.length - 1] >= values[0] : true
   const lineColor = isPositive ? colors.success : colors.danger
-  const fillColor = isPositive ? 'rgba(0, 255, 136, 0.08)' : 'rgba(255, 51, 102, 0.08)'
+  const fillColor = isPositive ? 'rgba(63, 185, 112, 0.08)' : 'rgba(229, 72, 77, 0.08)'
 
   return (
     <div style={{ flex: 1, minHeight: 200 }}>
@@ -80,7 +80,7 @@ export default function PnlChart({ snapshots }: { snapshots: PnlSnapshot[] }) {
               },
             },
             y: {
-              grid: { color: 'rgba(30, 45, 74, 0.4)', lineWidth: 1 },
+              grid: { color: 'rgba(233, 230, 223, 0.05)', lineWidth: 1 },
               border: { display: false },
               ticks: {
                 color: colors.textDim,
@@ -91,13 +91,13 @@ export default function PnlChart({ snapshots }: { snapshots: PnlSnapshot[] }) {
           },
           plugins: {
             tooltip: {
-              backgroundColor: 'rgba(8, 13, 26, 0.95)',
+              backgroundColor: 'rgba(21, 22, 26, 0.97)',
               borderColor: colors.border,
               borderWidth: 1,
               titleFont: { size: 11, family: fonts.body },
               bodyFont: { size: 13, family: fonts.mono, weight: 600 },
               padding: 10,
-              cornerRadius: 8,
+              cornerRadius: 3,
               displayColors: false,
               callbacks: {
                 label: ctx => `$${(ctx.parsed.y ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,

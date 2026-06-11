@@ -64,7 +64,7 @@ function Card({ title, children, accent, style, index = 0 }: {
 function PillBadge({ text, bg, fg }: { text: string; bg: string; fg?: string }) {
   return (
     <span style={{
-      padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600,
+      padding: '3px 10px', borderRadius: 2, fontSize: 10, fontWeight: 600,
       background: bg, color: fg || '#fff', letterSpacing: '0.04em',
       fontFamily: fonts.mono, border: `1px solid ${fg || '#fff'}15`,
     }}>
@@ -110,15 +110,15 @@ function RecommendationRow({ rec, onRevert }: { rec: LearningRecommendation; onR
 
   return (
     <div style={{
-      padding: '12px 14px', borderRadius: 8,
-      background: rec.auto_applied ? 'rgba(0,255,136,0.03)' : 'rgba(255, 255, 255,0.02)',
-      border: `1px solid ${rec.auto_applied ? 'rgba(0,255,136,0.1)' : colors.border}`,
+      padding: '12px 14px', borderRadius: 3,
+      background: rec.auto_applied ? 'rgba(63, 185, 112,0.03)' : 'rgba(255, 255, 255,0.02)',
+      border: `1px solid ${rec.auto_applied ? 'rgba(63, 185, 112,0.1)' : colors.border}`,
       borderLeft: `3px solid ${accentColor}`,
       marginBottom: 8,
       transition: 'background 0.25s ease, border-color 0.25s ease',
     }}
-      onMouseEnter={e => { e.currentTarget.style.background = rec.auto_applied ? 'rgba(0,255,136,0.05)' : 'rgba(255, 255, 255,0.04)' }}
-      onMouseLeave={e => { e.currentTarget.style.background = rec.auto_applied ? 'rgba(0,255,136,0.03)' : 'rgba(255, 255, 255,0.02)' }}>
+      onMouseEnter={e => { e.currentTarget.style.background = rec.auto_applied ? 'rgba(63, 185, 112,0.05)' : 'rgba(255, 255, 255,0.04)' }}
+      onMouseLeave={e => { e.currentTarget.style.background = rec.auto_applied ? 'rgba(63, 185, 112,0.03)' : 'rgba(255, 255, 255,0.02)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{
@@ -284,7 +284,7 @@ function CalibrationChart({ data }: { data: CalibrationResponse }) {
     <div>
       {/* Plain-language explainer */}
       <div style={{
-        padding: '8px 10px', borderRadius: 6, marginBottom: 12,
+        padding: '8px 10px', borderRadius: 3, marginBottom: 12,
         background: 'rgba(0,0,0,0.2)', border: `1px solid ${colors.border}`,
         fontSize: 10, color: colors.textSecondary, lineHeight: 1.45,
       }}>
@@ -317,13 +317,13 @@ function CalibrationChart({ data }: { data: CalibrationResponse }) {
           },
         ].map((stat) => (
           <div key={stat.label} style={{
-            flex: 1, padding: '8px 10px', borderRadius: 8,
+            flex: 1, padding: '8px 10px', borderRadius: 3,
             background: `${stat.color}06`, border: `1px solid ${stat.color}18`,
             textAlign: 'center',
           }}>
             <div style={{
               fontSize: 20, fontWeight: 700, fontFamily: fonts.mono, color: stat.color,
-              textShadow: `0 0 16px ${stat.color}25`,
+              textShadow: 'none',
             }}>
               {stat.value}
             </div>
@@ -431,7 +431,7 @@ function CalibrationChart({ data }: { data: CalibrationResponse }) {
               const col = biasColorFor(info.mean_bias)
               return (
                 <div key={band} style={{
-                  padding: '6px 10px', borderRadius: 6,
+                  padding: '6px 10px', borderRadius: 3,
                   background: 'rgba(0,0,0,0.2)', border: `1px solid ${colors.border}`,
                   textAlign: 'center', minWidth: 70,
                 }}>
@@ -459,7 +459,7 @@ function OverridesTable({ overrides, onRevert }: {
       <div style={{
         padding: 20, textAlign: 'center', color: colors.textDim,
         fontSize: 11, fontFamily: fonts.mono,
-        border: `1px dashed ${colors.borderLight}`, borderRadius: 8,
+        border: `1px dashed ${colors.borderLight}`, borderRadius: 3,
       }}>
         No active parameter overrides
       </div>
@@ -477,7 +477,7 @@ function OverridesTable({ overrides, onRevert }: {
         return (
           <div key={o.parameter} style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '10px 14px', borderRadius: 8,
+            padding: '10px 14px', borderRadius: 3,
             background: 'rgba(255, 255, 255,0.02)',
             border: `1px solid ${colors.border}`,
             borderLeft: `3px solid ${colors.warning}`,
@@ -528,7 +528,7 @@ function SkipAnalysisPanel({ data }: { data: SkipAnalysis }) {
       <div style={{
         padding: 20, textAlign: 'center', color: colors.textDim,
         fontSize: 11, fontFamily: fonts.mono,
-        border: `1px dashed ${colors.borderLight}`, borderRadius: 8,
+        border: `1px dashed ${colors.borderLight}`, borderRadius: 3,
       }}>
         No skipped markets to analyze yet
       </div>
@@ -550,13 +550,13 @@ function SkipAnalysisPanel({ data }: { data: SkipAnalysis }) {
           { value: `${missedRate}%`, label: 'Miss Rate', color: colors.textPrimary },
         ].map((stat) => (
           <div key={stat.label} style={{
-            padding: '10px 8px', borderRadius: 8,
+            padding: '10px 8px', borderRadius: 3,
             background: `${stat.color}06`, border: `1px solid ${stat.color}12`,
             textAlign: 'center',
           }}>
             <div style={{
               fontSize: 20, fontWeight: 700, fontFamily: fonts.mono, color: stat.color,
-              textShadow: `0 0 16px ${stat.color}25`,
+              textShadow: 'none',
             }}>
               {stat.value}
             </div>
@@ -570,8 +570,8 @@ function SkipAnalysisPanel({ data }: { data: SkipAnalysis }) {
       {/* Avg missed edge */}
       {data.avg_missed_edge > 0 && (
         <div style={{
-          padding: '8px 12px', borderRadius: 6, marginBottom: 10,
-          background: 'rgba(255,170,0,0.04)', border: `1px solid rgba(255,170,0,0.1)`,
+          padding: '8px 12px', borderRadius: 3, marginBottom: 10,
+          background: 'rgba(217, 160, 63,0.04)', border: `1px solid rgba(217, 160, 63,0.1)`,
           fontSize: 12, fontFamily: fonts.mono, color: colors.warning,
         }}>
           Avg missed edge: {fmtPct(data.avg_missed_edge)}
@@ -619,7 +619,7 @@ function SkipAnalysisPanel({ data }: { data: SkipAnalysis }) {
       {/* Recommendation */}
       {data.recommendation && (
         <div style={{
-          marginTop: 10, padding: '8px 12px', borderRadius: 6,
+          marginTop: 10, padding: '8px 12px', borderRadius: 3,
           background: colors.accentDim, border: `1px solid ${colors.border}`,
           fontSize: 11, color: colors.textSecondary, lineHeight: 1.4,
         }}>
@@ -723,7 +723,7 @@ export default function Learning() {
       <div style={{
         ...cardStyle, padding: '16px 24px',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        background: `linear-gradient(135deg, rgba(10, 15, 30, 0.95) 0%, rgba(255, 255, 255, 0.02) 100%)`,
+        background: `linear-gradient(135deg, rgba(18, 19, 23, 0.95) 0%, rgba(255, 255, 255, 0.02) 100%)`,
         borderBottom: `1px solid ${colors.borderLight}`,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
@@ -733,7 +733,7 @@ export default function Learning() {
             </div>
             <div style={{
               fontSize: 18, fontWeight: 700, fontFamily: fonts.mono, color: suffColor, marginTop: 3,
-              textShadow: `0 0 16px ${suffColor}33`,
+              textShadow: 'none',
             }}>
               {dataSufficiency.toUpperCase()}
             </div>
@@ -776,7 +776,7 @@ export default function Learning() {
             disabled={runLoading}
             onClick={handleRunCycle}
             style={{
-              padding: '10px 24px', borderRadius: 8, border: 'none', fontFamily: fonts.mono,
+              padding: '10px 24px', borderRadius: 3, border: 'none', fontFamily: fonts.mono,
               background: runLoading ? colors.bgSecondary : colors.gradientAccent,
               color: runLoading ? colors.textMuted : '#000',
               cursor: runLoading ? 'wait' : 'pointer',
@@ -803,7 +803,7 @@ export default function Learning() {
             <div style={{
               padding: 20, textAlign: 'center', color: colors.textDim,
               fontSize: 11, fontFamily: fonts.mono,
-              border: `1px dashed ${colors.borderLight}`, borderRadius: 8,
+              border: `1px dashed ${colors.borderLight}`, borderRadius: 3,
             }}>
               {report.status === 'no_data'
                 ? 'No learning data yet. Run a learning cycle after some trades resolve.'

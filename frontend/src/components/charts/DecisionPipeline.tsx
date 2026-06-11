@@ -36,7 +36,7 @@ export default function DecisionPipeline({ gates }: { gates: Gate[] }) {
               padding: '6px 10px',
               background: c + '0a',
               borderLeft: `3px solid ${c}`,
-              borderRadius: i === 0 ? '6px 6px 0 0' : i === gates.length - 1 ? '0 0 6px 6px' : 0,
+              borderRadius: i === 0 ? '3px 3px 0 0' : i === gates.length - 1 ? '0 0 6px 6px' : 0,
             }}>
               {/* Status icon */}
               <span style={{

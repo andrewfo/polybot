@@ -89,7 +89,7 @@ function PnlBadge({ pnl }: { pnl: number | null | undefined }) {
   return (
     <span style={{
       fontSize: 11, fontWeight: 600, fontFamily: fonts.mono, color: fg,
-      textShadow: `0 0 8px ${fg}30`,
+      textShadow: 'none',
     }}>
       {positive ? '+' : ''}{fmtUsd(pnl)}
     </span>
@@ -134,7 +134,7 @@ function PaperBadge() {
     <span style={{
       padding: '2px 6px', borderRadius: 3, fontSize: 8, fontWeight: 600,
       background: colors.warningDim, color: colors.warning, fontFamily: fonts.mono,
-      border: `1px solid rgba(255,170,0,0.15)`, letterSpacing: '0.04em',
+      border: `1px solid rgba(217, 160, 63,0.15)`, letterSpacing: '0.04em',
     }}>
       PAPER
     </span>
@@ -143,13 +143,13 @@ function PaperBadge() {
 
 const RESOLUTION_CONFIG: Record<string, { label: string; fg: string }> = {
   pending_fill: { label: 'AWAITING FILL', fg: '#8899bb' },
-  open_winning: { label: 'WINNING', fg: '#00ff88' },
-  open_losing:  { label: 'LOSING', fg: '#ff3366' },
+  open_winning: { label: 'WINNING', fg: '#3fb970' },
+  open_losing:  { label: 'LOSING', fg: '#e5484d' },
   open_flat:    { label: 'FLAT', fg: '#8899bb' },
-  won:          { label: 'WON', fg: '#00ff88' },
-  lost:         { label: 'LOST', fg: '#ff3366' },
-  closed_profit:{ label: 'CLOSED +', fg: '#00ff88' },
-  closed_loss:  { label: 'CLOSED -', fg: '#ff3366' },
+  won:          { label: 'WON', fg: '#3fb970' },
+  lost:         { label: 'LOST', fg: '#e5484d' },
+  closed_profit:{ label: 'CLOSED +', fg: '#3fb970' },
+  closed_loss:  { label: 'CLOSED -', fg: '#e5484d' },
   expired:      { label: 'EXPIRED', fg: '#556688' },
 }
 
@@ -184,8 +184,8 @@ function SignalCard({ signal }: { signal: Signal }) {
 
   return (
     <div style={{
-      background: 'rgba(6, 10, 20, 0.6)', border: `1px solid ${colors.border}`,
-      borderRadius: 6, padding: 12, marginBottom: 8,
+      background: 'rgba(11, 12, 14, 0.65)', border: `1px solid ${colors.border}`,
+      borderRadius: 3, padding: 12, marginBottom: 8,
       backdropFilter: 'blur(8px)',
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -222,7 +222,7 @@ function SignalCard({ signal }: { signal: Signal }) {
           {!expanded && signal.reasoning.length > 200 && (
             <div style={{
               position: 'absolute', bottom: 0, left: 0, right: 0, height: 24,
-              background: 'linear-gradient(transparent, rgba(6,10,20,0.9))',
+              background: 'linear-gradient(transparent, rgba(14,15,18,0.92))',
             }} />
           )}
         </div>
@@ -306,7 +306,7 @@ function FrontierDecisionPanel({ fd }: { fd: FrontierDecision }) {
             <span style={{
               fontSize: 13, fontWeight: 600, fontFamily: fonts.mono,
               color: s.color || colors.textPrimary,
-              textShadow: s.color ? `0 0 12px ${s.color}25` : 'none',
+              textShadow: 'none',
             }}>
               {s.value}
             </span>
@@ -342,7 +342,7 @@ function FrontierDecisionPanel({ fd }: { fd: FrontierDecision }) {
       {fd.skip_reason && (
         <div style={{
           marginTop: 8, padding: '6px 10px', borderRadius: 4,
-          background: colors.warningDim, border: `1px solid rgba(255,170,0,0.15)`,
+          background: colors.warningDim, border: `1px solid rgba(217, 160, 63,0.15)`,
           fontSize: 11, color: colors.warning,
         }}>
           Skip reason: {fd.skip_reason}
@@ -398,8 +398,8 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
       {/* Trade execution header */}
       <div style={{
         marginBottom: 16, padding: 16,
-        background: 'rgba(6, 10, 20, 0.6)', border: `1px solid ${colors.border}`,
-        borderRadius: 8, backdropFilter: 'blur(8px)',
+        background: 'rgba(11, 12, 14, 0.65)', border: `1px solid ${colors.border}`,
+        borderRadius: 3, backdropFilter: 'blur(8px)',
       }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: colors.textPrimary, lineHeight: 1.4, marginBottom: 10 }}>
           {trade.market_question || 'Unknown Market'}
@@ -470,7 +470,7 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
             {/* Cost hero — the main "how much money was placed" number */}
             <div style={{
               display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12,
-              padding: '10px 12px', borderRadius: 6,
+              padding: '10px 12px', borderRadius: 3,
               background: 'rgba(68,136,204,0.06)', border: `1px solid ${colors.accent}20`,
             }}>
               <span style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', fontFamily: fonts.mono, letterSpacing: '0.06em' }}>
@@ -490,8 +490,8 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
             {showThenNow && (
               <div style={{
                 display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 12, alignItems: 'center',
-                marginBottom: 12, padding: '10px 12px', borderRadius: 6,
-                background: 'rgba(6,10,20,0.45)', border: `1px solid ${deltaColor}25`,
+                marginBottom: 12, padding: '10px 12px', borderRadius: 3,
+                background: 'rgba(11,12,14,0.5)', border: `1px solid ${deltaColor}25`,
               }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <span style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase', fontFamily: fonts.mono, letterSpacing: '0.06em' }}>
@@ -521,7 +521,7 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
                   </span>
                   <span style={{
                     fontSize: 18, fontWeight: 700, fontFamily: fonts.mono, color: deltaColor,
-                    textShadow: `0 0 12px ${deltaColor}25`,
+                    textShadow: 'none',
                   }}>
                     {fmtUsd(exitValue)}
                   </span>
@@ -585,7 +585,7 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
                   <span style={{
                     fontSize: 13, fontWeight: 600, fontFamily: fonts.mono,
                     color: s.color || colors.textPrimary,
-                    textShadow: s.color ? `0 0 12px ${s.color}25` : 'none',
+                    textShadow: 'none',
                   }}>
                     {s.value}
                   </span>
@@ -627,7 +627,7 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
           {!frontier_decision && signals.length === 0 && (
             <div style={{
               marginTop: 20, padding: 16, textAlign: 'center',
-              background: 'rgba(85,102,136,0.05)', borderRadius: 6,
+              background: 'rgba(85,102,136,0.05)', borderRadius: 3,
               border: `1px solid ${colors.border}`,
             }}>
               <div style={{ fontSize: 12, color: colors.textDim }}>No analysis data linked to this trade</div>
@@ -685,7 +685,7 @@ function TradeStats({ trades, paperBal }: { trades: Trade[]; paperBal: PaperBala
           <span style={{
             fontSize: 16, fontWeight: 700, fontFamily: fonts.mono,
             color: s.color || colors.textPrimary,
-            textShadow: s.color ? `0 0 12px ${s.color}30` : 'none',
+            textShadow: 'none',
           }}>
             {s.value}
           </span>

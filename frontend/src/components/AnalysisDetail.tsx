@@ -52,7 +52,7 @@ function Badge({ text, color: fg }: { text: string; color: string }) {
       padding: '3px 10px', borderRadius: 3, fontSize: 10, fontWeight: 600,
       background: fg + '15', color: fg, fontFamily: fonts.mono,
       letterSpacing: '0.04em', border: `1px solid ${fg}20`,
-      textShadow: `0 0 8px ${fg}30`,
+      textShadow: 'none',
     }}>
       {text}
     </span>
@@ -71,7 +71,7 @@ function Stat({ label, value, highlight, mono, small }: { label: string; value: 
       <span style={{
         fontSize: small ? 11 : 13, fontWeight: 600, color: highlight || colors.textPrimary,
         fontFamily: mono !== false ? fonts.mono : fonts.body,
-        textShadow: highlight ? `0 0 12px ${highlight}25` : 'none',
+        textShadow: 'none',
       }}>
         {value}
       </span>
@@ -102,8 +102,8 @@ function MetricRow({ label, value, highlight, detail }: { label: string; value: 
 function InfoBox({ children, accent }: { children: React.ReactNode; accent?: string }) {
   return (
     <div style={{
-      background: 'rgba(6, 10, 20, 0.6)', border: `1px solid ${accent ? accent + '20' : colors.border}`,
-      borderRadius: 6, padding: 12, marginBottom: 8,
+      background: 'rgba(11, 12, 14, 0.65)', border: `1px solid ${accent ? accent + '20' : colors.border}`,
+      borderRadius: 3, padding: 12, marginBottom: 8,
       backdropFilter: 'blur(8px)',
     }}>
       {children}
@@ -186,7 +186,7 @@ function CryptoSignalDetail({ raw }: { raw: Record<string, unknown> }) {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
             <div style={{
-              padding: 8, borderRadius: 6, textAlign: 'center',
+              padding: 8, borderRadius: 3, textAlign: 'center',
               background: resType === 'barrier' ? '#f59e0b11' : 'transparent',
               border: resType === 'barrier' ? '1px solid #f59e0b33' : `1px solid ${colors.border}`,
             }}>
@@ -200,7 +200,7 @@ function CryptoSignalDetail({ raw }: { raw: Record<string, unknown> }) {
               {resType === 'barrier' && <div style={{ fontSize: 8, color: '#f59e0b', marginTop: 2 }}>ACTIVE</div>}
             </div>
             <div style={{
-              padding: 8, borderRadius: 6, textAlign: 'center',
+              padding: 8, borderRadius: 3, textAlign: 'center',
               background: resType === 'terminal' ? '#b8b8b811' : 'transparent',
               border: resType === 'terminal' ? '1px solid #b8b8b833' : `1px solid ${colors.border}`,
             }}>
@@ -214,7 +214,7 @@ function CryptoSignalDetail({ raw }: { raw: Record<string, unknown> }) {
               {resType === 'terminal' && <div style={{ fontSize: 8, color: '#b8b8b8', marginTop: 2 }}>ACTIVE</div>}
             </div>
             <div style={{
-              padding: 8, borderRadius: 6, textAlign: 'center',
+              padding: 8, borderRadius: 3, textAlign: 'center',
               border: `1px solid ${colors.accent}33`,
               background: colors.accentDim,
             }}>
@@ -310,7 +310,7 @@ function PredictionMarketsDetail({ raw, consensusProb }: { raw: Record<string, u
         <div style={{ marginTop: 8 }}>
           {matched.map((mm, i) => (
             <div key={i} style={{
-              padding: '6px 8px', marginBottom: 4, borderRadius: 6,
+              padding: '6px 8px', marginBottom: 4, borderRadius: 3,
               background: 'rgba(0,0,0,0.2)', fontSize: 11,
             }}>
               <div style={{ color: colors.textSecondary, marginBottom: 3, lineHeight: 1.3 }}>
@@ -392,8 +392,8 @@ function OnchainFlowDetail({ raw }: { raw: Record<string, unknown> }) {
           )}
           {agreement != null && (
             <span style={{
-              padding: '2px 8px', borderRadius: 10, fontSize: 10,
-              background: agreement >= 0.7 ? 'rgba(0,200,100,0.1)' : 'rgba(255,170,0,0.1)',
+              padding: '2px 8px', borderRadius: 4, fontSize: 10,
+              background: agreement >= 0.7 ? 'rgba(63, 185, 112,0.1)' : 'rgba(217, 160, 63,0.1)',
               color: agreement >= 0.7 ? colors.success : colors.warning,
               fontFamily: fonts.mono,
             }}>
@@ -402,8 +402,8 @@ function OnchainFlowDetail({ raw }: { raw: Record<string, unknown> }) {
           )}
           {raw.fear_greed_value != null && (
             <span style={{
-              padding: '2px 8px', borderRadius: 10, fontSize: 10,
-              background: 'rgba(255,170,0,0.1)', color: colors.warning,
+              padding: '2px 8px', borderRadius: 4, fontSize: 10,
+              background: 'rgba(217, 160, 63,0.1)', color: colors.warning,
               fontFamily: fonts.mono,
             }}>
               Fear/Greed: {String(raw.fear_greed_value)}
@@ -457,7 +457,7 @@ function OnchainFlowDetail({ raw }: { raw: Record<string, unknown> }) {
               const barWidth = Math.abs(p) * 100
               return (
                 <div key={name} style={{
-                  padding: '6px 8px', borderRadius: 6,
+                  padding: '6px 8px', borderRadius: 3,
                   background: 'rgba(0,0,0,0.2)', fontSize: 11,
                   borderLeft: `3px solid ${srcColor}`,
                 }}>
@@ -506,7 +506,7 @@ function WebSearchDetail({ raw }: { raw: Record<string, unknown> }) {
             const text = typeof ev === 'string' ? ev : String((ev as Record<string, unknown>).title || (ev as Record<string, unknown>).text || (ev as Record<string, unknown>).snippet || JSON.stringify(ev))
             return (
               <div key={i} style={{
-                padding: '6px 8px', marginBottom: 4, borderRadius: 6,
+                padding: '6px 8px', marginBottom: 4, borderRadius: 3,
                 background: 'rgba(0,0,0,0.2)', fontSize: 11, color: colors.textSecondary,
                 borderLeft: `2px solid ${colors.warning}44`,
               }}>
@@ -544,7 +544,7 @@ function SignalCard({ signal, index }: { signal: Record<string, unknown>; index:
   return (
     <div style={{
       background: colors.bgSecondary, border: `1px solid ${colors.border}`,
-      borderLeft: `3px solid ${cardColor}`, borderRadius: 8, marginBottom: 8, overflow: 'hidden',
+      borderLeft: `3px solid ${cardColor}`, borderRadius: 3, marginBottom: 8, overflow: 'hidden',
       opacity: usable ? 1 : 0.6,
     }}>
       <div
@@ -558,7 +558,7 @@ function SignalCard({ signal, index }: { signal: Record<string, unknown>; index:
           <span style={{ fontSize: 13, fontWeight: 600, color: cardColor }}>{source.replace(/_/g, ' ')}</span>
           {!usable && (
             <span style={{
-              fontSize: 9, padding: '1px 6px', borderRadius: 10,
+              fontSize: 9, padding: '1px 6px', borderRadius: 4,
               background: colors.dangerDim, color: colors.danger,
             }}>
               {prob == null ? 'NO DATA' : 'UNUSABLE'}
@@ -571,7 +571,7 @@ function SignalCard({ signal, index }: { signal: Record<string, unknown>; index:
           )}
           {conf != null && (
             <span style={{
-              fontSize: 10, padding: '1px 6px', borderRadius: 10,
+              fontSize: 10, padding: '1px 6px', borderRadius: 4,
               background: conf > 0.5 ? colors.successDim : conf > 0.25 ? colors.warningDim : colors.dangerDim,
               color: conf > 0.5 ? colors.success : conf > 0.25 ? colors.warning : colors.danger,
             }}>
@@ -579,7 +579,7 @@ function SignalCard({ signal, index }: { signal: Record<string, unknown>; index:
             </span>
           )}
           {effectiveWeight != null && effectiveWeight > 0 && (
-            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 10, background: colors.accentDim, color: colors.textDim }}>
+            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: colors.accentDim, color: colors.textDim }}>
               wt {effectiveWeight.toFixed(2)}
             </span>
           )}
@@ -587,7 +587,7 @@ function SignalCard({ signal, index }: { signal: Record<string, unknown>; index:
             <span style={{ fontSize: 9, color: colors.textDim }}>{baseMultiplier}x base</span>
           )}
           {model !== 'none' && (
-            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 10, background: 'rgba(190, 190, 190,0.15)', color: '#b8b8b8' }}>
+            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(190, 190, 190,0.15)', color: '#b8b8b8' }}>
               {model}
             </span>
           )}
@@ -605,7 +605,7 @@ function SignalCard({ signal, index }: { signal: Record<string, unknown>; index:
           {/* Signal reasoning */}
           {reasoning && (
             <pre style={{
-              background: 'rgba(0,0,0,0.2)', borderRadius: 6, padding: 10, marginTop: 8,
+              background: 'rgba(0,0,0,0.2)', borderRadius: 3, padding: 10, marginTop: 8,
               fontSize: 11, fontFamily: fonts.mono, color: colors.textSecondary,
               whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 150, overflow: 'auto',
               lineHeight: 1.4,
@@ -644,7 +644,7 @@ function SignalCard({ signal, index }: { signal: Record<string, unknown>; index:
             <details style={{ marginTop: 8 }}>
               <summary style={{ fontSize: 10, color: colors.textDim, cursor: 'pointer' }}>Raw Data</summary>
               <pre style={{
-                background: 'rgba(0,0,0,0.2)', borderRadius: 6, padding: 8, marginTop: 4,
+                background: 'rgba(0,0,0,0.2)', borderRadius: 3, padding: 8, marginTop: 4,
                 fontSize: 10, fontFamily: fonts.mono, color: colors.textDim,
                 whiteSpace: 'pre-wrap', maxHeight: 200, overflow: 'auto',
               }}>
@@ -856,7 +856,7 @@ export default function AnalysisDetail({ conditionId }: { conditionId: string })
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
         <span style={{
           fontFamily: fonts.mono, fontSize: 10, color: colors.textDim,
-          background: colors.accentDim, padding: '2px 8px', borderRadius: 10,
+          background: colors.accentDim, padding: '2px 8px', borderRadius: 4,
         }}>
           {conditionId.slice(0, 20)}...
         </span>
@@ -938,13 +938,13 @@ export default function AnalysisDetail({ conditionId }: { conditionId: string })
         <div style={{
           display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 8,
         }}>
-          <div style={{ background: colors.accentDim, padding: '6px 10px', borderRadius: 6 }}>
+          <div style={{ background: colors.accentDim, padding: '6px 10px', borderRadius: 3 }}>
             <Stat label="Market Price" value={fmtPct(marketPrice)} highlight={colors.accent} />
           </div>
-          <div style={{ background: colors.accentDim, padding: '6px 10px', borderRadius: 6 }}>
+          <div style={{ background: colors.accentDim, padding: '6px 10px', borderRadius: 3 }}>
             <Stat label="Frontier Est." value={fmtPct(estimate)} />
           </div>
-          <div style={{ background: colors.accentDim, padding: '6px 10px', borderRadius: 6 }}>
+          <div style={{ background: colors.accentDim, padding: '6px 10px', borderRadius: 3 }}>
             <Stat label="Confidence" value={fmtPct(confidence)} />
           </div>
         </div>
@@ -1175,7 +1175,7 @@ export default function AnalysisDetail({ conditionId }: { conditionId: string })
                 <pre style={{
                   background: colors.bgSecondary,
                   border: `1px solid ${colors.border}`,
-                  borderRadius: 8,
+                  borderRadius: 3,
                   padding: 14,
                   fontSize: 12,
                   fontFamily: fonts.mono,
@@ -1219,7 +1219,7 @@ export default function AnalysisDetail({ conditionId }: { conditionId: string })
       <details style={{ marginTop: 20 }}>
         <summary style={{ fontSize: 10, color: colors.textDim, cursor: 'pointer' }}>Raw API Response</summary>
         <pre style={{
-          background: 'rgba(0,0,0,0.3)', borderRadius: 6, padding: 10, marginTop: 4,
+          background: 'rgba(0,0,0,0.3)', borderRadius: 3, padding: 10, marginTop: 4,
           fontSize: 10, fontFamily: fonts.mono, color: colors.textDim,
           whiteSpace: 'pre-wrap', maxHeight: 400, overflow: 'auto',
         }}>

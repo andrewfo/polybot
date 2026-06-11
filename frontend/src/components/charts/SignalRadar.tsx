@@ -20,7 +20,7 @@ interface SignalData {
   effective_weight: number
 }
 
-const palette = ['#00ff88', '#ffffff', '#ffaa00', '#b8b8b8', '#06b6d4']
+const palette = ['#3fb970', '#ffffff', '#ffaa00', '#b8b8b8', '#06b6d4']
 
 export default function SignalRadar({ signals, marketPrice }: { signals: SignalData[]; marketPrice: number }) {
   const usable = signals.filter(s => s.probability != null && s.confidence > 0)
@@ -66,8 +66,8 @@ export default function SignalRadar({ signals, marketPrice }: { signals: SignalD
                 display: false,
                 stepSize: 25,
               },
-              grid: { color: 'rgba(30, 45, 74, 0.5)' },
-              angleLines: { color: 'rgba(30, 45, 74, 0.3)' },
+              grid: { color: 'rgba(233, 230, 223, 0.05)' },
+              angleLines: { color: 'rgba(233, 230, 223, 0.05)' },
               pointLabels: {
                 color: colors.textMuted,
                 font: { size: 10 },
@@ -85,10 +85,10 @@ export default function SignalRadar({ signals, marketPrice }: { signals: SignalD
               },
             },
             tooltip: {
-              backgroundColor: 'rgba(8, 13, 26, 0.95)',
+              backgroundColor: 'rgba(21, 22, 26, 0.97)',
               borderColor: colors.border,
               borderWidth: 1,
-              cornerRadius: 8,
+              cornerRadius: 3,
               callbacks: {
                 label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.r.toFixed(1)}`,
               },

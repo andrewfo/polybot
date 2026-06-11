@@ -1,75 +1,77 @@
+// ---------------------------------------------------------------------------
+// "The Ledger" — private-bank trading terminal.
+// Warm ink surfaces, a single brass accent, emerald/crimson reserved for P&L.
+// Flat panels, hairline rules, no glow, no gradients, no blur.
+// ---------------------------------------------------------------------------
+
 export const colors = {
-  // Void & backgrounds — pure black
-  bgVoid: '#000000',
-  bgPrimary: '#050505',
-  bgSecondary: '#0a0a0a',
-  bgCard: '#0c0c0c',
-  bgCardHover: '#141414',
-  bgGlass: 'rgba(8, 8, 10, 0.55)',
-  bgElevated: 'rgba(14, 14, 16, 0.78)',
+  // Ink — warm near-black, never a pure void
+  bgVoid: '#0b0c0e',
+  bgPrimary: '#0e0f12',
+  bgSecondary: '#121317',
+  bgCard: '#15161a',
+  bgCardHover: '#1a1b21',
+  bgGlass: 'rgba(21, 22, 26, 0.94)',
+  bgElevated: 'rgba(26, 27, 33, 0.98)',
 
-  // Text — pearl to graphite
-  textPrimary: '#f2f2f2',
-  textSecondary: '#9a9a9a',
-  textMuted: '#666666',
-  textDim: '#3a3a3a',
+  // Text — bone to graphite
+  textPrimary: '#e9e6df',
+  textSecondary: '#a3a099',
+  textMuted: '#6e6c66',
+  textDim: '#474642',
 
-  // Accent — neon profit green
-  accent: '#39ff14',
-  accentLight: '#7fff5e',
-  accentDim: 'rgba(57, 255, 20, 0.08)',
-  accentMid: 'rgba(57, 255, 20, 0.18)',
-  blue: '#39ff14',
-  purple: '#ffcc00',
+  // Accent — burnished brass, used sparingly for emphasis and chrome
+  accent: '#c5a572',
+  accentLight: '#d9bd8d',
+  accentDim: 'rgba(197, 165, 114, 0.08)',
+  accentMid: 'rgba(197, 165, 114, 0.18)',
+  blue: '#8aa8c5',   // steel — secondary chart series
+  purple: '#9d97c0', // slate violet — tertiary chart series
 
-  // Semantic — neon profit palette
-  success: '#39ff14',
-  successDim: 'rgba(57, 255, 20, 0.10)',
-  danger: '#ff2d55',
-  dangerDim: 'rgba(255, 45, 85, 0.10)',
-  warning: '#ffcc00',
-  warningDim: 'rgba(255, 204, 0, 0.10)',
+  // Semantic — reserved for P&L and state, never decoration
+  success: '#3fb970',
+  successDim: 'rgba(63, 185, 112, 0.09)',
+  danger: '#e5484d',
+  dangerDim: 'rgba(229, 72, 77, 0.09)',
+  warning: '#d9a03f',
+  warningDim: 'rgba(217, 160, 63, 0.09)',
 
-  // Borders — neon green at varying alphas
-  border: 'rgba(57, 255, 20, 0.14)',
-  borderLight: 'rgba(255, 204, 0, 0.22)',
-  borderHover: 'rgba(57, 255, 20, 0.55)',
+  // Hairlines
+  border: 'rgba(233, 230, 223, 0.08)',
+  borderLight: 'rgba(233, 230, 223, 0.14)',
+  borderHover: 'rgba(197, 165, 114, 0.45)',
 
-  // Gradients — neon profit
-  gradientAccent: 'linear-gradient(135deg, #39ff14 0%, #ffcc00 100%)',
-  gradientAccentHover: 'linear-gradient(135deg, #7fff5e 0%, #ffcc00 100%)',
-  gradientSuccess: 'linear-gradient(135deg, #39ff14 0%, #00b86b 100%)',
-  gradientDanger: 'linear-gradient(135deg, #ff2d55 0%, #b81444 100%)',
-  gradientCard: 'linear-gradient(145deg, rgba(12, 12, 14, 0.92) 0%, rgba(4, 4, 5, 0.96) 100%)',
-  gradientMesh: 'radial-gradient(ellipse at 20% 50%, rgba(255, 255, 255, 0.025) 0%, transparent 50%), radial-gradient(ellipse at 80% 20%, rgba(255, 255, 255, 0.018) 0%, transparent 50%), radial-gradient(ellipse at 50% 80%, rgba(255, 255, 255, 0.012) 0%, transparent 50%)',
+  // Legacy gradient tokens — kept for callers, now flat fills
+  gradientAccent: '#c5a572',
+  gradientAccentHover: '#d9bd8d',
+  gradientSuccess: '#3fb970',
+  gradientDanger: '#e5484d',
+  gradientCard: '#15161a',
+  gradientMesh: 'none',
 }
 
 export const fonts = {
-  display: "'Syne', sans-serif",
-  body: "'Outfit', -apple-system, BlinkMacSystemFont, sans-serif",
+  display: "'Fraunces', Georgia, serif",
+  body: "'Instrument Sans', -apple-system, BlinkMacSystemFont, sans-serif",
   mono: "'IBM Plex Mono', 'Menlo', monospace",
 }
 
 export const cardStyle: React.CSSProperties = {
-  background:
-    'linear-gradient(135deg, rgba(57,255,20,0.05) 0%, rgba(255,204,0,0.02) 45%, rgba(0,0,0,0.55) 100%), rgba(0, 0, 0, 0.72)',
-  border: '1px solid rgba(57, 255, 20, 0.22)',
-  borderRadius: 18,
+  background: colors.bgCard,
+  border: `1px solid ${colors.border}`,
+  borderRadius: 4,
   padding: 20,
-  backdropFilter: 'blur(28px) saturate(160%)',
-  WebkitBackdropFilter: 'blur(28px) saturate(160%)',
-  boxShadow:
-    'inset 0 1px 0 rgba(57,255,20,0.18), inset 0 -1px 0 rgba(0,0,0,0.65), 0 18px 50px rgba(0,0,0,0.85), 0 0 24px rgba(57,255,20,0.08)',
-  transition: 'border-color 0.3s ease, box-shadow 0.3s ease, transform 0.25s ease',
+  transition: 'border-color 0.2s ease, background 0.2s ease',
   position: 'relative',
   overflow: 'hidden',
 }
 
+// Legacy glow helper — now renders as a hairline ring of the given color
 export const glowShadow = (color: string, intensity = 0.15) =>
-  `0 0 24px ${color}${Math.round(intensity * 255).toString(16).padStart(2, '0')}, 0 0 48px ${color}${Math.round(intensity * 0.5 * 255).toString(16).padStart(2, '0')}, 0 4px 16px rgba(0,0,0,0.55)`
+  `0 0 0 1px ${color}${Math.round(Math.min(intensity * 3, 0.45) * 255).toString(16).padStart(2, '0')}`
 
 export const animDelay = (i: number) => ({
-  animation: 'fadeInUp 0.4s ease forwards',
-  animationDelay: `${i * 0.06}s`,
+  animation: 'fadeInUp 0.3s ease forwards',
+  animationDelay: `${i * 0.03}s`,
   opacity: 0,
 })

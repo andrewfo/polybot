@@ -20,7 +20,7 @@ export default function CashDeployedArea({ snapshots }: { snapshots: PnlSnapshot
         flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
         minHeight: 140, color: colors.textDim, fontSize: 11,
         fontFamily: fonts.mono,
-        border: `1px dashed ${colors.border}`, borderRadius: 6,
+        border: `1px dashed ${colors.border}`, borderRadius: 3,
         background: `linear-gradient(135deg, rgba(190, 190, 190, 0.02) 0%, rgba(200, 200, 200, 0.01) 100%)`,
       }}>
         Need more data for allocation view
@@ -59,7 +59,7 @@ export default function CashDeployedArea({ snapshots }: { snapshots: PnlSnapshot
               label: 'Deployed',
               data: deployedData,
               borderColor: colors.warning,
-              backgroundColor: 'rgba(255, 170, 0, 0.08)',
+              backgroundColor: 'rgba(217, 160, 63, 0.08)',
               fill: true,
               pointRadius: 0,
               pointHoverRadius: 4,
@@ -87,7 +87,7 @@ export default function CashDeployedArea({ snapshots }: { snapshots: PnlSnapshot
               stacked: true,
             },
             y: {
-              grid: { color: 'rgba(30, 45, 74, 0.3)', lineWidth: 1 },
+              grid: { color: 'rgba(233, 230, 223, 0.05)', lineWidth: 1 },
               border: { display: false },
               ticks: {
                 color: colors.textDim,
@@ -99,7 +99,7 @@ export default function CashDeployedArea({ snapshots }: { snapshots: PnlSnapshot
           },
           plugins: {
             tooltip: {
-              backgroundColor: 'rgba(8, 13, 26, 0.95)',
+              backgroundColor: 'rgba(21, 22, 26, 0.97)',
               borderColor: colors.border,
               borderWidth: 1,
               titleFont: { size: 10, family: fonts.body },

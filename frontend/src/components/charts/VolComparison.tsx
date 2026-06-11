@@ -8,7 +8,7 @@ const colorMap: Record<string, string> = {
   historical: '#8899bb',
   ewm: '#ffffff',
   short_term: '#ffaa00',
-  deribit_iv: '#00ff88',
+  deribit_iv: '#3fb970',
   selected: '#e4eaf6',
 }
 
@@ -47,7 +47,7 @@ export default function VolComparison({ data }: { data: Record<string, number> }
           maintainAspectRatio: false,
           scales: {
             y: {
-              grid: { color: 'rgba(30, 45, 74, 0.4)' },
+              grid: { color: 'rgba(233, 230, 223, 0.05)' },
               border: { display: false },
               ticks: { color: colors.textDim, callback: v => v + '%' },
             },
@@ -60,10 +60,10 @@ export default function VolComparison({ data }: { data: Record<string, number> }
           plugins: {
             legend: { display: false },
             tooltip: {
-              backgroundColor: 'rgba(8, 13, 26, 0.95)',
+              backgroundColor: 'rgba(21, 22, 26, 0.97)',
               borderColor: colors.border,
               borderWidth: 1,
-              cornerRadius: 8,
+              cornerRadius: 3,
               callbacks: { label: ctx => (ctx.parsed.y ?? 0).toFixed(1) + '%' },
             },
           },

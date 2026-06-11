@@ -60,17 +60,17 @@ export default function PriceChart({ data, target }: { data: PricePoint[]; targe
               ticks: { color: colors.textDim, maxRotation: 0, maxTicksLimit: 8, font: { size: 10 } },
             },
             y: {
-              grid: { color: 'rgba(30, 45, 74, 0.4)' },
+              grid: { color: 'rgba(233, 230, 223, 0.05)' },
               border: { display: false },
               ticks: { color: colors.textDim },
             },
           },
           plugins: {
             tooltip: {
-              backgroundColor: 'rgba(8, 13, 26, 0.95)',
+              backgroundColor: 'rgba(21, 22, 26, 0.97)',
               borderColor: colors.border,
               borderWidth: 1,
-              cornerRadius: 8,
+              cornerRadius: 3,
               callbacks: { label: ctx => `$${(ctx.parsed.y ?? 0).toLocaleString()}` },
             },
           },

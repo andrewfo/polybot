@@ -18,7 +18,7 @@ export default function DailyPnlBar({ snapshots }: { snapshots: PnlSnapshot[] })
         flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
         minHeight: 140, color: colors.textDim, fontSize: 11,
         fontFamily: fonts.mono,
-        border: `1px dashed ${colors.border}`, borderRadius: 6,
+        border: `1px dashed ${colors.border}`, borderRadius: 3,
         background: `linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(200, 200, 200, 0.01) 100%)`,
       }}>
         Need more data for daily P&L
@@ -51,7 +51,7 @@ export default function DailyPnlBar({ snapshots }: { snapshots: PnlSnapshot[] })
           datasets: [{
             label: 'Daily P&L',
             data: changes,
-            backgroundColor: changes.map(v => v >= 0 ? 'rgba(0, 255, 136, 0.6)' : 'rgba(255, 51, 102, 0.6)'),
+            backgroundColor: changes.map(v => v >= 0 ? 'rgba(63, 185, 112, 0.6)' : 'rgba(229, 72, 77, 0.6)'),
             borderColor: changes.map(v => v >= 0 ? colors.success : colors.danger),
             borderWidth: 1,
             borderRadius: 3,
@@ -74,7 +74,7 @@ export default function DailyPnlBar({ snapshots }: { snapshots: PnlSnapshot[] })
               },
             },
             y: {
-              grid: { color: 'rgba(30, 45, 74, 0.3)', lineWidth: 1 },
+              grid: { color: 'rgba(233, 230, 223, 0.05)', lineWidth: 1 },
               border: { display: false },
               ticks: {
                 color: colors.textDim,
@@ -85,7 +85,7 @@ export default function DailyPnlBar({ snapshots }: { snapshots: PnlSnapshot[] })
           },
           plugins: {
             tooltip: {
-              backgroundColor: 'rgba(8, 13, 26, 0.95)',
+              backgroundColor: 'rgba(21, 22, 26, 0.97)',
               borderColor: colors.border,
               borderWidth: 1,
               titleFont: { size: 10, family: fonts.body },

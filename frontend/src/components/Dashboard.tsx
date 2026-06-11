@@ -68,7 +68,6 @@ function Card({ title, children, accent, style, index = 0 }: {
         <span style={{
           width: 5, height: 5, borderRadius: 1,
           background: accent || colors.accent,
-          boxShadow: accent ? `0 0 8px ${accent}` : `0 0 8px ${colors.accent}`,
         }} />
         {title}
       </h3>
@@ -117,7 +116,7 @@ function StatValue({ value, label, color, size = 'md' }: {
       <div style={{
         fontSize, fontWeight: 600, color: color || colors.textPrimary,
         letterSpacing: '-0.02em', fontFamily: fonts.mono,
-        textShadow: color ? `0 0 20px ${color}44` : 'none',
+        textShadow: 'none',
         animation: flashAnim,
         transition: 'color 0.3s ease',
       }}>
@@ -161,7 +160,7 @@ function StatusDot({ ok, pulse, tone }: { ok: boolean; pulse?: boolean; tone?: '
 function PillBadge({ text, bg, fg }: { text: string; bg: string; fg?: string }) {
   return (
     <span style={{
-      padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600,
+      padding: '3px 10px', borderRadius: 2, fontSize: 10, fontWeight: 600,
       background: bg, color: fg || '#fff', letterSpacing: '0.04em',
       fontFamily: fonts.mono, border: `1px solid ${fg || '#fff'}15`,
     }}>
@@ -220,7 +219,6 @@ function CountdownRing({ secondsRemaining, totalSeconds, label, accent, sublabel
             strokeLinecap="round"
             style={{
               transition: 'stroke-dashoffset 1s linear',
-              filter: `drop-shadow(0 0 4px ${accent})`,
             }}
           />
         </svg>
@@ -475,7 +473,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                     disabled={actionLoading}
                     onClick={handlePauseResume}
                     style={{
-                      flex: 1, padding: '9px 0', borderRadius: 6, border: 'none', fontFamily: fonts.mono,
+                      flex: 1, padding: '9px 0', borderRadius: 3, border: 'none', fontFamily: fonts.mono,
                       background: displayStatus.paused ? colors.successDim : colors.warningDim,
                       color: displayStatus.paused ? colors.success : colors.warning,
                       cursor: actionLoading ? 'wait' : 'pointer',
@@ -494,7 +492,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                   disabled={actionLoading}
                   onClick={displayStatus.running ? handleStop : handleStart}
                   style={{
-                    flex: 1, padding: '9px 0', borderRadius: 6, border: 'none', fontFamily: fonts.mono,
+                    flex: 1, padding: '9px 0', borderRadius: 3, border: 'none', fontFamily: fonts.mono,
                     background: displayStatus.running
                       ? colors.dangerDim
                       : colors.gradientAccent,
@@ -502,7 +500,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                     cursor: actionLoading ? 'wait' : 'pointer',
                     fontSize: 11, fontWeight: 600,
                     transition: 'all 0.25s ease',
-                    boxShadow: displayStatus.running ? 'none' : `0 2px 16px rgba(255, 255, 255,0.3)`,
+                    boxShadow: 'none',
                     letterSpacing: '0.06em',
                     textTransform: 'uppercase',
                   }}
@@ -679,9 +677,8 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                     <div style={{
                       height: '100%', borderRadius: 2,
                       width: `${wr * 100}%`,
-                      background: `linear-gradient(90deg, ${wrColor} 0%, ${wrColor}aa 100%)`,
+                      background: wrColor,
                       transition: 'width 0.8s cubic-bezier(0.22, 1, 0.36, 1), background 0.4s ease',
-                      boxShadow: `0 0 10px ${wrColor}88`,
                       transformOrigin: 'left',
                     }} />
                   </div>
@@ -734,7 +731,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
           {/* Phase indicator bar */}
           {displayStatus?.running && displayStatus.phase !== 'idle' && displayStatus.phase !== 'waiting' && (
             <div style={{
-              marginTop: 10, padding: '6px 10px', borderRadius: 6,
+              marginTop: 10, padding: '6px 10px', borderRadius: 3,
               background: 'rgba(255, 255, 255,0.04)',
               border: `1px solid ${colors.border}`,
               display: 'flex', alignItems: 'center', gap: 8,
@@ -799,7 +796,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                     textTransform: 'uppercase', letterSpacing: '0.06em',
                   }}>
                     <span>Trade Hit Rate</span>
-                    <span style={{ color: hitColor, textShadow: `0 0 8px ${hitColor}66` }}>
+                    <span style={{ color: hitColor }}>
                       {(hitRate * 100).toFixed(0)}%
                     </span>
                   </div>
@@ -810,9 +807,8 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                     <div style={{
                       height: '100%',
                       width: `${hitRate * 100}%`,
-                      background: `linear-gradient(90deg, ${hitColor} 0%, ${hitColor}aa 100%)`,
+                      background: hitColor,
                       transition: 'width 0.8s cubic-bezier(0.22, 1, 0.36, 1), background 0.4s ease',
-                      boxShadow: `0 0 10px ${hitColor}88`,
                       borderRadius: 2,
                     }} />
                   </div>
@@ -866,9 +862,9 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                 {health.services.map((s, si) => (
                   <div key={s.name} style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '6px 10px', borderRadius: 6,
-                    background: s.healthy ? 'rgba(0,255,136,0.03)' : 'rgba(255,51,102,0.05)',
-                    border: `1px solid ${s.healthy ? 'rgba(0,255,136,0.08)' : 'rgba(255,51,102,0.1)'}`,
+                    padding: '6px 10px', borderRadius: 3,
+                    background: s.healthy ? 'rgba(63, 185, 112,0.03)' : 'rgba(229, 72, 77,0.05)',
+                    border: `1px solid ${s.healthy ? 'rgba(63, 185, 112,0.08)' : 'rgba(229, 72, 77,0.1)'}`,
                     transition: 'all 0.3s',
                     ...animDelay(si + 8),
                   }}>
@@ -901,14 +897,14 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                     {health.health_checks.map((hc, hi) => {
                       const statusColor = hc.status === 'ok' ? colors.success
                         : hc.status === 'warning' ? colors.warning : colors.danger
-                      const statusBg = hc.status === 'ok' ? 'rgba(0,255,136,0.03)'
-                        : hc.status === 'warning' ? 'rgba(255,170,0,0.05)' : 'rgba(255,51,102,0.05)'
-                      const statusBorder = hc.status === 'ok' ? 'rgba(0,255,136,0.08)'
-                        : hc.status === 'warning' ? 'rgba(255,170,0,0.1)' : 'rgba(255,51,102,0.1)'
+                      const statusBg = hc.status === 'ok' ? 'rgba(63, 185, 112,0.03)'
+                        : hc.status === 'warning' ? 'rgba(217, 160, 63,0.05)' : 'rgba(229, 72, 77,0.05)'
+                      const statusBorder = hc.status === 'ok' ? 'rgba(63, 185, 112,0.08)'
+                        : hc.status === 'warning' ? 'rgba(217, 160, 63,0.1)' : 'rgba(229, 72, 77,0.1)'
                       return (
                         <div key={hc.check_name} style={{
                           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                          padding: '5px 10px', borderRadius: 6,
+                          padding: '5px 10px', borderRadius: 3,
                           background: statusBg,
                           border: `1px solid ${statusBorder}`,
                           ...animDelay(hi + health.services.length + 8),
@@ -1016,7 +1012,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
               padding: 40, textAlign: 'center', color: colors.textDim,
               background: `linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(200, 200, 200, 0.01) 100%)`,
               border: `1px dashed ${colors.borderLight}`,
-              borderRadius: 10,
+              borderRadius: 4,
               position: 'relative', overflow: 'hidden',
             }}>
               <div style={{
@@ -1067,7 +1063,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                     return (
                       <tr key={p.token_id} style={{
                         background: colors.bgCard,
-                        borderRadius: 6,
+                        borderRadius: 3,
                         transition: 'background 0.25s ease, box-shadow 0.25s ease',
                         ...animDelay(pi + 11),
                       }}
@@ -1081,7 +1077,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                       }}>
                         <td style={{
                           padding: '10px 12px', maxWidth: 260, overflow: 'hidden',
-                          textOverflow: 'ellipsis', whiteSpace: 'nowrap', borderRadius: '6px 0 0 6px',
+                          textOverflow: 'ellipsis', whiteSpace: 'nowrap', borderRadius: '3px 0 0 3px',
                           fontSize: 12,
                         }}>
                           {p.market_question || p.market_id}
@@ -1126,7 +1122,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                             padding: '3px 8px', borderRadius: 4,
                             background: pnlBg, color: pnlColor, fontWeight: 600,
                             border: `1px solid ${pnlColor}15`,
-                            textShadow: `0 0 10px ${pnlColor}30`,
+                            textShadow: 'none',
                             lineHeight: 1.2,
                           }}>
                             <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', opacity: 0.85 }}>
@@ -1141,7 +1137,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                           </span>
                         </td>
                         <td style={{
-                          padding: '10px 12px', whiteSpace: 'nowrap', borderRadius: '0 6px 6px 0',
+                          padding: '10px 12px', whiteSpace: 'nowrap', borderRadius: '0 3px 3px 0',
                           fontFamily: fonts.mono, fontSize: 10, color: colors.textDim,
                         }}>
                           {openedAgo}
@@ -1163,7 +1159,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
             padding: 40, textAlign: 'center', color: colors.textDim,
             background: `linear-gradient(135deg, rgba(190, 190, 190, 0.02) 0%, rgba(200, 200, 200, 0.01) 100%)`,
             border: `1px dashed ${colors.borderLight}`,
-            borderRadius: 10,
+            borderRadius: 4,
             position: 'relative', overflow: 'hidden',
           }}>
             <div style={{
@@ -1207,7 +1203,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                       onClick={() => handleTradeClick(t.id)}
                       style={{
                         background: colors.bgCard,
-                        borderRadius: 6,
+                        borderRadius: 3,
                         cursor: 'pointer',
                         transition: 'background 0.25s ease, box-shadow 0.25s ease',
                       }}
@@ -1222,7 +1218,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                     >
                       <td style={{
                         padding: '8px 12px', fontSize: 10, fontFamily: fonts.mono,
-                        color: colors.textDim, whiteSpace: 'nowrap', borderRadius: '6px 0 0 6px',
+                        color: colors.textDim, whiteSpace: 'nowrap', borderRadius: '3px 0 0 3px',
                       }}>
                         {t.timestamp ? t.timestamp.replace('T', ' ').slice(0, 19) : '--'}
                       </td>
@@ -1271,7 +1267,7 @@ export default function Dashboard({ wsBotStatus, wsDiscovery, wsBatchProgress }:
                       </td>
                       <td style={{
                         padding: '8px 12px', textAlign: 'right', fontFamily: fonts.mono,
-                        fontSize: 11, borderRadius: '0 6px 6px 0',
+                        fontSize: 11, borderRadius: '0 3px 3px 0',
                       }}>
                         {hasPnl ? (
                           <span style={{
@@ -1335,7 +1331,7 @@ function SignalAccuracyCard({ calibration, skipAnalysis }: {
       {calibration && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
           <div style={{
-            padding: '8px 6px', borderRadius: 6, textAlign: 'center',
+            padding: '8px 6px', borderRadius: 3, textAlign: 'center',
             background: 'rgba(190, 190, 190,0.06)', border: `1px solid rgba(190, 190, 190,0.1)`,
           }}>
             <div style={{
@@ -1353,7 +1349,7 @@ function SignalAccuracyCard({ calibration, skipAnalysis }: {
             </div>
           </div>
           <div style={{
-            padding: '8px 6px', borderRadius: 6, textAlign: 'center',
+            padding: '8px 6px', borderRadius: 3, textAlign: 'center',
             background: 'rgba(255, 255, 255,0.04)', border: `1px solid ${colors.border}`,
           }}>
             <div style={{
@@ -1371,7 +1367,7 @@ function SignalAccuracyCard({ calibration, skipAnalysis }: {
             </div>
           </div>
           <div style={{
-            padding: '8px 6px', borderRadius: 6, textAlign: 'center',
+            padding: '8px 6px', borderRadius: 3, textAlign: 'center',
             background: 'rgba(255, 255, 255,0.04)', border: `1px solid ${colors.border}`,
           }}>
             <div style={{
@@ -1442,8 +1438,8 @@ function SignalAccuracyCard({ calibration, skipAnalysis }: {
       {/* Skip analysis */}
       {skipAnalysis && skipAnalysis.total_skipped > 0 && (
         <div style={{
-          padding: '8px 10px', borderRadius: 6,
-          background: 'rgba(255,170,0,0.04)', border: `1px solid rgba(255,170,0,0.08)`,
+          padding: '8px 10px', borderRadius: 3,
+          background: 'rgba(217, 160, 63,0.04)', border: `1px solid rgba(217, 160, 63,0.08)`,
         }}>
           <div style={{
             fontSize: 9, color: colors.textDim, fontFamily: fonts.mono,
@@ -1489,7 +1485,7 @@ function SessionStat({ value, label, color }: { value: number; label: string; co
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
-      padding: '10px 6px', borderRadius: 8,
+      padding: '10px 6px', borderRadius: 3,
       background: `${color}08`,
       border: `1px solid ${color}12`,
       transition: 'border-color 0.3s ease, background 0.3s ease',
@@ -1506,7 +1502,7 @@ function SessionStat({ value, label, color }: { value: number; label: string; co
       <span style={{
         fontSize: 22, fontWeight: 700, fontFamily: fonts.mono,
         color, letterSpacing: '-0.02em',
-        textShadow: `0 0 20px ${color}33`,
+        textShadow: 'none',
       }}>
         {value}
       </span>
@@ -1531,7 +1527,7 @@ function ActivityFeed({ events }: { events: ActivityEvent[] }) {
         flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
         textAlign: 'center', color: colors.textDim,
         fontSize: 11, fontFamily: fonts.mono,
-        border: `1px dashed ${colors.border}`, borderRadius: 6,
+        border: `1px dashed ${colors.border}`, borderRadius: 3,
         background: `linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(200, 200, 200, 0.01) 100%)`,
       }}>
         No pipeline activity yet
@@ -1552,7 +1548,7 @@ function ActivityFeed({ events }: { events: ActivityEvent[] }) {
         return (
           <div key={`${evt.timestamp}-${i}`} style={{
             display: 'flex', alignItems: 'flex-start', gap: 10,
-            padding: '7px 10px', borderRadius: 6,
+            padding: '7px 10px', borderRadius: 3,
             background: i === 0 ? `${meta.color}08` : 'transparent',
             borderLeft: i === 0 ? `2px solid ${meta.color}` : '2px solid transparent',
             transition: 'background 0.25s ease, border-color 0.25s ease',
@@ -1639,7 +1635,7 @@ function TradeDetailModal({ detail, loading, onClose }: {
         style={{
           background: colors.gradientCard,
           border: `1px solid ${colors.borderLight}`,
-          borderRadius: 16,
+          borderRadius: 3,
           padding: 32,
           width: '90%',
           maxWidth: 720,
@@ -1657,7 +1653,7 @@ function TradeDetailModal({ detail, loading, onClose }: {
           style={{
             position: 'absolute', top: 14, right: 14,
             background: 'rgba(255,255,255,0.05)', border: `1px solid ${colors.border}`,
-            borderRadius: 6, width: 28, height: 28,
+            borderRadius: 3, width: 28, height: 28,
             color: colors.textMuted, cursor: 'pointer', fontSize: 14,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontFamily: fonts.mono,
@@ -1707,7 +1703,7 @@ function TradeDetailModal({ detail, loading, onClose }: {
             {/* Trade Info Grid */}
             <div style={{
               display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12,
-              background: 'rgba(255, 255, 255,0.02)', borderRadius: 8,
+              background: 'rgba(255, 255, 255,0.02)', borderRadius: 3,
               padding: 14, border: `1px solid ${colors.border}`,
             }}>
               <ModalStat label="Limit Price" value={`$${trade.price.toFixed(4)}`} />
@@ -1740,7 +1736,7 @@ function TradeDetailModal({ detail, loading, onClose }: {
                 </div>
                 <div style={{
                   display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12,
-                  background: 'rgba(190, 190, 190,0.03)', borderRadius: 8,
+                  background: 'rgba(190, 190, 190,0.03)', borderRadius: 3,
                   padding: 14, border: `1px solid rgba(190, 190, 190,0.1)`,
                 }}>
                   <ModalStat label="Estimated Prob" value={`${(fd.estimated_prob * 100).toFixed(1)}%`} color={colors.accent} />
@@ -1804,7 +1800,7 @@ function TradeDetailModal({ detail, loading, onClose }: {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {signals.map((sig, si) => (
                     <div key={sig.id || si} style={{
-                      padding: '10px 14px', borderRadius: 8,
+                      padding: '10px 14px', borderRadius: 3,
                       background: 'rgba(255, 255, 255,0.02)',
                       border: `1px solid ${colors.border}`,
                     }}>
@@ -1867,7 +1863,7 @@ function TradeDetailModal({ detail, loading, onClose }: {
             <div style={{
               fontSize: 9, color: colors.textDim, fontFamily: fonts.mono,
               display: 'flex', flexDirection: 'column', gap: 3,
-              padding: '10px 12px', borderRadius: 6,
+              padding: '10px 12px', borderRadius: 3,
               background: 'rgba(0,0,0,0.2)', border: `1px solid ${colors.border}`,
             }}>
               <span>Market ID: {trade.market_id}</span>

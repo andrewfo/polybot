@@ -9,7 +9,7 @@ interface WeightEntry {
   weight: number
 }
 
-const barPalette = ['#00ff88', '#ffffff', '#ffaa00', '#b8b8b8', '#06b6d4']
+const barPalette = ['#3fb970', '#ffffff', '#ffaa00', '#b8b8b8', '#06b6d4']
 
 export default function SignalWeights({ data }: { data: WeightEntry[] }) {
   if (data.length === 0) return null
@@ -35,7 +35,7 @@ export default function SignalWeights({ data }: { data: WeightEntry[] }) {
           maintainAspectRatio: false,
           scales: {
             x: {
-              grid: { color: 'rgba(30, 45, 74, 0.4)' },
+              grid: { color: 'rgba(233, 230, 223, 0.05)' },
               border: { display: false },
               ticks: { color: colors.textDim, font: { size: 10 } },
             },
@@ -47,10 +47,10 @@ export default function SignalWeights({ data }: { data: WeightEntry[] }) {
           },
           plugins: {
             tooltip: {
-              backgroundColor: 'rgba(8, 13, 26, 0.95)',
+              backgroundColor: 'rgba(21, 22, 26, 0.97)',
               borderColor: colors.border,
               borderWidth: 1,
-              cornerRadius: 8,
+              cornerRadius: 3,
               callbacks: { label: ctx => (ctx.parsed.x ?? 0).toFixed(2) },
             },
           },

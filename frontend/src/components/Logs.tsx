@@ -6,16 +6,16 @@ const levelColors: Record<string, string> = {
   DEBUG: colors.textDim,
   INFO: '#ffffff',
   WARNING: '#ffaa00',
-  ERROR: '#ff3366',
-  CRITICAL: '#ff3366',
+  ERROR: '#e5484d',
+  CRITICAL: '#e5484d',
 }
 
 const levelBg: Record<string, string> = {
   DEBUG: 'transparent',
   INFO: 'rgba(255, 255, 255,0.03)',
-  WARNING: 'rgba(255,170,0,0.03)',
-  ERROR: 'rgba(255,51,102,0.05)',
-  CRITICAL: 'rgba(255,51,102,0.08)',
+  WARNING: 'rgba(217, 160, 63,0.03)',
+  ERROR: 'rgba(229, 72, 77,0.05)',
+  CRITICAL: 'rgba(229, 72, 77,0.08)',
 }
 
 export default function Logs() {
@@ -156,7 +156,7 @@ export default function Logs() {
               <span style={{
                 color: levelColors[entry.level] || colors.textMuted,
                 fontWeight: 600, minWidth: 55, fontSize: 10,
-                textShadow: entry.level !== 'DEBUG' ? `0 0 6px ${levelColors[entry.level]}30` : 'none',
+                textShadow: 'none',
               }}>
                 {entry.level}
               </span>

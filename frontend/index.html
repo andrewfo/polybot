@@ -7,129 +7,71 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Outfit:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..700&family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
 
+      /* ---- "The Ledger" — warm ink, brass accent, hairline rules ---- */
       :root {
-        --bg-void: #000000;
-        --bg-primary: #050505;
-        --bg-card: #0a0a0a;
-        --bg-card-hover: #111111;
-        --cyan: #39ff14;
-        --cyan-dim: rgba(57, 255, 20, 0.10);
-        --cyan-glow: rgba(57, 255, 20, 0.45);
-        --blue: #39ff14;
-        --neon-green: #39ff14;
-        --hot-red: #ff2d55;
-        --amber: #ffcc00;
-        --text-primary: #f2f2f2;
-        --text-secondary: #999999;
-        --text-muted: #666666;
-        --border: rgba(57, 255, 20, 0.16);
-        --border-hover: rgba(57, 255, 20, 0.55);
+        --bg-void: #0b0c0e;
+        --bg-primary: #0e0f12;
+        --bg-card: #15161a;
+        --bg-card-hover: #1a1b21;
+        --brass: #c5a572;
+        --brass-dim: rgba(197, 165, 114, 0.10);
+        --emerald: #3fb970;
+        --crimson: #e5484d;
+        --amber: #d9a03f;
+        --text-primary: #e9e6df;
+        --text-secondary: #a3a099;
+        --text-muted: #6e6c66;
+        --border: rgba(233, 230, 223, 0.08);
+        --border-hover: rgba(197, 165, 114, 0.45);
       }
 
+      html { background: var(--bg-primary); }
+
       body {
-        font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
-        background: #000000;
+        font-family: 'Instrument Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+        background: var(--bg-primary);
         color: var(--text-primary);
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
         overflow-x: hidden;
-        position: relative;
+        font-variant-numeric: tabular-nums;
       }
 
-      /* ---- Pure black void ---- */
-      html { background: #000000; }
-
-      /* Pure black void — no glow pools, no grain */
-      body::before, body::after { content: none; display: none; }
-
-      @keyframes slowDrift {
-        0%   { transform: translate3d(0, 0, 0) scale(1); }
-        50%  { transform: translate3d(2%, -2%, 0) scale(1.06); }
-        100% { transform: translate3d(-2%, 2%, 0) scale(1.02); }
-      }
-
-      /* ---- Liquid glass utility — pure obsidian glass ---- */
+      /* ---- Panel utility (legacy class name kept) — flat ink panel ---- */
       .liquid-glass {
-        position: relative;
-        background:
-          linear-gradient(135deg, rgba(57,255,20,0.05) 0%, rgba(255,204,0,0.02) 45%, rgba(0,0,0,0.55) 100%),
-          rgba(0, 0, 0, 0.72);
-        backdrop-filter: blur(28px) saturate(160%);
-        -webkit-backdrop-filter: blur(28px) saturate(160%);
-        border: 1px solid rgba(57, 255, 20, 0.22);
-        border-radius: 18px;
-        box-shadow:
-          inset 0 1px 0 rgba(57, 255, 20, 0.18),
-          inset 0 -1px 0 rgba(0, 0, 0, 0.65),
-          0 0 0 1px rgba(255, 204, 0, 0.05),
-          0 18px 50px rgba(0, 0, 0, 0.85),
-          0 0 24px rgba(57, 255, 20, 0.08);
-        overflow: hidden;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        transition: border-color 0.2s ease;
       }
-      /* Top-edge specular highlight — the meniscus of glass */
-      .liquid-glass::before {
-        content: '';
-        position: absolute;
-        inset: 0;
-        border-radius: inherit;
-        background:
-          linear-gradient(180deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0) 22%),
-          radial-gradient(120% 60% at 50% -10%, rgba(255,255,255,0.10) 0%, transparent 60%);
-        pointer-events: none;
-        z-index: 0;
-      }
-      /* Slow-moving diagonal shine — refracted light passing across glass */
-      .liquid-glass::after {
-        content: '';
-        position: absolute;
-        top: -50%; left: -50%;
-        width: 200%; height: 200%;
-        background: linear-gradient(115deg,
-          transparent 40%,
-          rgba(255, 255, 255, 0.06) 48%,
-          rgba(255, 255, 255, 0.14) 50%,
-          rgba(255, 255, 255, 0.06) 52%,
-          transparent 60%);
-        transform: translateX(-30%);
-        animation: liquidShine 11s ease-in-out infinite;
-        pointer-events: none;
-        z-index: 0;
-        mix-blend-mode: screen;
-      }
-      .liquid-glass > * { position: relative; z-index: 1; }
-
-      @keyframes liquidShine {
-        0%, 100% { transform: translateX(-40%) translateY(-12%); opacity: 0.0; }
-        45%      { opacity: 1; }
-        50%      { transform: translateX(40%) translateY(12%); opacity: 1; }
-        55%      { opacity: 0.0; }
-      }
+      .liquid-glass::before, .liquid-glass::after { content: none; }
+      .liquid-glass:hover { border-color: rgba(233, 230, 223, 0.16); }
 
       /* Scrollbars */
-      ::-webkit-scrollbar { width: 4px; height: 4px; }
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-track { background: transparent; }
-      ::-webkit-scrollbar-thumb { background: rgba(57, 255, 20, 0.35); border-radius: 2px; }
-      ::-webkit-scrollbar-thumb:hover { background: rgba(57, 255, 20, 0.7); }
-      ::selection { background: rgba(57, 255, 20, 0.35); color: #000; }
+      ::-webkit-scrollbar-thumb { background: rgba(233, 230, 223, 0.14); border-radius: 3px; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(233, 230, 223, 0.28); }
+      ::selection { background: rgba(197, 165, 114, 0.35); color: #0e0f12; }
 
-      /* Global animations */
+      /* ---- Animations (names preserved for component references) ---- */
       @keyframes fadeInUp {
-        from { opacity: 0; transform: translateY(12px); }
+        from { opacity: 0; transform: translateY(6px); }
         to { opacity: 1; transform: translateY(0); }
       }
 
       @keyframes pulse {
-        0%, 100% { opacity: 0.4; transform: scale(1); }
-        50% { opacity: 1; transform: scale(1.5); }
+        0%, 100% { opacity: 0.45; }
+        50% { opacity: 1; }
       }
 
       @keyframes borderGlow {
-        0%, 100% { border-color: rgba(255, 255, 255, 0.06); }
-        50% { border-color: rgba(255, 255, 255, 0.20); }
+        0%, 100% { border-color: rgba(233, 230, 223, 0.08); }
+        50% { border-color: rgba(233, 230, 223, 0.18); }
       }
 
       @keyframes shimmer {
@@ -147,22 +89,22 @@
         100% { top: 100%; }
       }
 
+      /* Once a glow pulse — now a quiet opacity breath */
       @keyframes textGlow {
-        0%, 100% { text-shadow: 0 0 8px rgba(57, 255, 20, 0.45); }
-        50% { text-shadow: 0 0 16px rgba(57, 255, 20, 0.85), 0 0 32px rgba(255, 204, 0, 0.35); }
+        0%, 100% { opacity: 0.65; }
+        50% { opacity: 1; }
       }
 
       @keyframes orbFloat {
-        0%, 100% { transform: translate(0, 0) scale(1); }
-        33% { transform: translate(30px, -20px) scale(1.05); }
-        66% { transform: translate(-20px, 15px) scale(0.95); }
+        0%, 100% { transform: translate(0, 0); }
+        50% { transform: translate(0, -4px); }
       }
 
       @keyframes dataStream {
-        0% { opacity: 0; transform: translateY(-10px); }
+        0% { opacity: 0; transform: translateY(-6px); }
         10% { opacity: 1; }
         90% { opacity: 1; }
-        100% { opacity: 0; transform: translateY(10px); }
+        100% { opacity: 0; transform: translateY(6px); }
       }
 
       @keyframes barFill {
@@ -176,23 +118,22 @@
       }
 
       @keyframes twinkle {
-        0%, 100% { opacity: 0; transform: scale(0.6); }
-        50%      { opacity: 1; transform: scale(1.3); }
+        0%, 100% { opacity: 0.3; }
+        50% { opacity: 1; }
       }
 
       @keyframes tabSwoop {
-        from { opacity: 0; transform: translateY(20px) scale(0.985); filter: blur(8px); }
-        to   { opacity: 1; transform: translateY(0)    scale(1);     filter: blur(0); }
+        from { opacity: 0; transform: translateY(8px); }
+        to   { opacity: 1; transform: translateY(0); }
       }
 
       @keyframes floatY {
         0%, 100% { transform: translateY(0); }
-        50%      { transform: translateY(-6px); }
+        50%      { transform: translateY(-3px); }
       }
 
       @keyframes hueCycle {
-        0%   { filter: hue-rotate(0deg); }
-        100% { filter: hue-rotate(360deg); }
+        0%, 100% { opacity: 1; }
       }
 
       @keyframes gradientFlow {
@@ -200,59 +141,42 @@
         50%      { background-position: 100% 50%; }
       }
 
+      /* Value change ticks — a brief color-true flash, no glow */
       @keyframes flashUp {
-        0%   { text-shadow: 0 0 0px rgba(57,255,20,0); transform: translateY(0); }
-        25%  { text-shadow: 0 0 22px rgba(57,255,20,0.95), 0 0 40px rgba(57,255,20,0.45); transform: translateY(-2px); }
-        100% { text-shadow: 0 0 14px rgba(57,255,20,0.30); transform: translateY(0); }
+        0%   { color: #3fb970; }
+        60%  { color: #3fb970; }
+        100% { color: inherit; }
       }
       @keyframes flashDown {
-        0%   { text-shadow: 0 0 0px rgba(255,45,85,0); transform: translateY(0); }
-        25%  { text-shadow: 0 0 22px rgba(255,45,85,0.95), 0 0 40px rgba(255,45,85,0.45); transform: translateY(2px); }
-        100% { text-shadow: 0 0 14px rgba(255,45,85,0.30); transform: translateY(0); }
+        0%   { color: #e5484d; }
+        60%  { color: #e5484d; }
+        100% { color: inherit; }
       }
       @keyframes flashNeutral {
-        0%   { text-shadow: 0 0 0px rgba(255,204,0,0); }
-        25%  { text-shadow: 0 0 22px rgba(255,204,0,0.85); }
-        100% { text-shadow: 0 0 12px rgba(255,204,0,0.25); }
-      }
-
-      /* Card lift on hover */
-      .liquid-glass { transition: transform 0.35s cubic-bezier(0.2,0.8,0.2,1), box-shadow 0.35s ease, border-color 0.35s ease; }
-      .liquid-glass:hover {
-        transform: translateY(-3px);
-        border-color: rgba(57, 255, 20, 0.65);
-        box-shadow:
-          inset 0 1px 0 rgba(57, 255, 20, 0.30),
-          inset 0 -1px 0 rgba(0, 0, 0, 0.65),
-          0 28px 72px rgba(0, 0, 0, 0.80),
-          0 0 36px rgba(57, 255, 20, 0.30),
-          0 0 64px rgba(255, 204, 0, 0.10);
+        0%   { color: #d9a03f; }
+        60%  { color: #d9a03f; }
+        100% { color: inherit; }
       }
 
       @keyframes glitchSlice {
-        0%, 100% { clip-path: inset(0 0 100% 0); }
-        20% { clip-path: inset(20% 0 60% 0); }
-        40% { clip-path: inset(60% 0 20% 0); }
-        60% { clip-path: inset(40% 0 40% 0); }
-        80% { clip-path: inset(80% 0 5% 0); }
+        0%, 100% { clip-path: inset(0 0 0 0); }
       }
 
-      /* Focus styles */
+      @keyframes slowDrift {
+        0%, 100% { transform: none; }
+      }
+
+      /* Focus styles — hairline brass ring */
       input:focus, select:focus {
         outline: none;
-        border-color: rgba(57, 255, 20, 0.7) !important;
-        box-shadow: 0 0 0 2px rgba(57, 255, 20, 0.22), 0 0 20px rgba(255, 204, 0, 0.15);
-      }
-
-      /* Button hover glow */
-      button {
-        position: relative;
+        border-color: rgba(197, 165, 114, 0.55) !important;
+        box-shadow: 0 0 0 2px rgba(197, 165, 114, 0.15);
       }
 
       /* Select option styling */
       option {
-        background: #0a0a0a;
-        color: #f2f2f2;
+        background: #15161a;
+        color: #e9e6df;
       }
     </style>
   </head>

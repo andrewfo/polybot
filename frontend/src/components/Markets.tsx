@@ -146,7 +146,7 @@ export default function Markets() {
                     padding: '10px 12px', textAlign: 'right',
                     fontFamily: fonts.mono, fontSize: 11,
                     color: colors.success,
-                    textShadow: `0 0 12px ${colors.success}20`,
+                    textShadow: 'none',
                   }}>
                     {yes !== null ? (yes * 100).toFixed(1) + '%' : '\u2014'}
                   </td>
@@ -154,7 +154,7 @@ export default function Markets() {
                     padding: '10px 12px', textAlign: 'right',
                     fontFamily: fonts.mono, fontSize: 11,
                     color: colors.danger,
-                    textShadow: `0 0 12px ${colors.danger}20`,
+                    textShadow: 'none',
                   }}>
                     {no !== null ? (no * 100).toFixed(1) + '%' : '\u2014'}
                   </td>
@@ -237,7 +237,7 @@ function DetailField({ label, value, mono, color }: { label: string; value: stri
         color: color || colors.textPrimary,
         fontWeight: 500,
         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        textShadow: color ? `0 0 12px ${color}25` : 'none',
+        textShadow: 'none',
       }}>
         {value}
       </div>

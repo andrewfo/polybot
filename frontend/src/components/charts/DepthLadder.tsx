@@ -63,7 +63,7 @@ export default function DepthLadder({
         gap: 6, marginBottom: 10,
       }}>
         <div style={{
-          background: colors.bgSecondary, borderRadius: 6, padding: '8px 10px',
+          background: colors.bgSecondary, borderRadius: 3, padding: '8px 10px',
           border: `1px solid ${colors.border}`,
         }}>
           <div style={{ fontSize: 9, color: colors.textDim, textTransform: 'uppercase' }}>Price Levels</div>
@@ -73,7 +73,7 @@ export default function DepthLadder({
         </div>
         {wasAdjusted && adjustedBet != null && (
           <div style={{
-            background: colors.warningDim, borderRadius: 6, padding: '8px 10px',
+            background: colors.warningDim, borderRadius: 3, padding: '8px 10px',
             border: `1px solid ${colors.warning}33`,
           }}>
             <div style={{ fontSize: 9, color: colors.warning, textTransform: 'uppercase' }}>Adjusted Bet</div>

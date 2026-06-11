@@ -5,9 +5,9 @@ import AnalysisDetail from './AnalysisDetail'
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { bg: string; fg: string; glow?: boolean }> = {
-    done: { bg: 'rgba(0,255,136,0.1)', fg: '#00ff88' },
+    done: { bg: 'rgba(63, 185, 112,0.1)', fg: '#3fb970' },
     processing: { bg: 'rgba(255, 255, 255,0.1)', fg: '#ffffff', glow: true },
-    error: { bg: 'rgba(255,51,102,0.1)', fg: '#ff3366' },
+    error: { bg: 'rgba(229, 72, 77,0.1)', fg: '#e5484d' },
     skipped: { bg: 'rgba(85,102,136,0.1)', fg: '#556688' },
     waiting: { bg: 'rgba(51,68,102,0.1)', fg: '#334466' },
   }
@@ -31,12 +31,12 @@ function DecisionBadge({ decision }: { decision: string | null }) {
   return (
     <span style={{
       padding: '2px 8px', borderRadius: 3, fontSize: 9, fontWeight: 600,
-      background: isTrade ? 'rgba(0,255,136,0.1)' : 'rgba(255,170,0,0.1)',
-      color: isTrade ? '#00ff88' : '#ffaa00',
+      background: isTrade ? 'rgba(63, 185, 112,0.1)' : 'rgba(217, 160, 63,0.1)',
+      color: isTrade ? '#3fb970' : '#ffaa00',
       fontFamily: fonts.mono, textTransform: 'uppercase',
       letterSpacing: '0.06em',
-      border: `1px solid ${isTrade ? 'rgba(0,255,136,0.15)' : 'rgba(255,170,0,0.15)'}`,
-      textShadow: isTrade ? '0 0 8px rgba(0,255,136,0.3)' : 'none',
+      border: `1px solid ${isTrade ? 'rgba(63, 185, 112,0.15)' : 'rgba(217, 160, 63,0.15)'}`,
+      textShadow: 'none',
     }}>
       {decision.toUpperCase()}
     </span>
@@ -194,7 +194,7 @@ export default function Analysis() {
             {sigTestResults.map((s, i) => (
               <div key={i} style={{
                 display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px',
-                borderRadius: 6, background: 'rgba(0,0,0,0.2)',
+                borderRadius: 3, background: 'rgba(0,0,0,0.2)',
                 borderLeft: `3px solid ${s.probability != null ? colors.accent : colors.textDim}`,
               }}>
                 <span style={{ fontSize: 12, fontWeight: 600, color: colors.textPrimary, minWidth: 120 }}>
@@ -204,7 +204,7 @@ export default function Analysis() {
                   {s.probability != null ? (s.probability * 100).toFixed(1) + '%' : '--'}
                 </span>
                 <span style={{
-                  fontSize: 10, padding: '1px 6px', borderRadius: 10, fontFamily: fonts.mono,
+                  fontSize: 10, padding: '1px 6px', borderRadius: 4, fontFamily: fonts.mono,
                   background: s.confidence > 0.5 ? colors.successDim : s.confidence > 0.25 ? colors.warningDim : colors.dangerDim,
                   color: s.confidence > 0.5 ? colors.success : s.confidence > 0.25 ? colors.warning : colors.danger,
                 }}>
@@ -268,7 +268,7 @@ export default function Analysis() {
                         fontSize: 10, fontWeight: 600,
                         fontFamily: fonts.mono,
                         color: e.edge > 0 ? colors.success : colors.danger,
-                        textShadow: `0 0 8px ${e.edge > 0 ? colors.success : colors.danger}30`,
+                        textShadow: 'none',
                       }}>
                         {e.edge > 0 ? '+' : ''}{(e.edge * 100).toFixed(1)}%
                       </span>

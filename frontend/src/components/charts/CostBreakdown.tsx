@@ -5,7 +5,7 @@ import { ModelBreakdown } from '../../api'
 
 ChartJS.register(ArcElement, Tooltip, Legend)
 
-const palette = ['#ffffff', '#b8b8b8', '#00ff88', '#ffaa00', '#ff3366', '#06b6d4']
+const palette = ['#ffffff', '#b8b8b8', '#3fb970', '#ffaa00', '#e5484d', '#06b6d4']
 
 export default function CostBreakdown({ data }: { data: ModelBreakdown[] }) {
   if (data.length === 0) return null
@@ -38,10 +38,10 @@ export default function CostBreakdown({ data }: { data: ModelBreakdown[] }) {
             },
           },
           tooltip: {
-            backgroundColor: 'rgba(8, 13, 26, 0.95)',
+            backgroundColor: 'rgba(21, 22, 26, 0.97)',
             borderColor: colors.border,
             borderWidth: 1,
-            cornerRadius: 8,
+            cornerRadius: 3,
             titleFont: { size: 11, family: fonts.body },
             bodyFont: { size: 12, family: fonts.mono },
             callbacks: {

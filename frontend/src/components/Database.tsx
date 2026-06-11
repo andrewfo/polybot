@@ -27,7 +27,7 @@ function TableCard({ table, isActive, onClick, index }: {
         ...animDelay(index),
         background: isActive ? 'rgba(255, 255, 255, 0.08)' : colors.gradientCard,
         border: `1px solid ${isActive ? colors.borderHover : colors.border}`,
-        borderRadius: 8,
+        borderRadius: 3,
         padding: '10px 14px',
         cursor: 'pointer',
         textAlign: 'left',
@@ -52,7 +52,7 @@ function TableCard({ table, isActive, onClick, index }: {
         color: colors.textMuted,
         background: 'rgba(255, 255, 255, 0.05)',
         padding: '2px 8px',
-        borderRadius: 10,
+        borderRadius: 4,
       }}>
         {table.row_count.toLocaleString()}
       </span>

@@ -84,33 +84,7 @@ function useWebSocket() {
   return { botStatus, lastDiscovery, batchProgress }
 }
 
-/* Cursor-following neon halo — profit-green tint */
-function CursorGlow() {
-  const ref = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      if (ref.current) {
-        ref.current.style.transform = `translate(${e.clientX - 220}px, ${e.clientY - 220}px)`
-      }
-    }
-    window.addEventListener('mousemove', onMove)
-    return () => window.removeEventListener('mousemove', onMove)
-  }, [])
-  return (
-    <div ref={ref} style={{
-      position: 'fixed', top: 0, left: 0,
-      width: 440, height: 440, pointerEvents: 'none',
-      zIndex: 0,
-      background: 'radial-gradient(circle, rgba(57,255,20,0.10) 0%, rgba(255,204,0,0.04) 40%, transparent 70%)',
-      mixBlendMode: 'screen',
-      transition: 'transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1)',
-      willChange: 'transform',
-      filter: 'blur(2px)',
-    }} />
-  )
-}
-
-/* Top ticker bar */
+/* Top rule bar — UTC clock and session marker */
 function TickerBar() {
   const [time, setTime] = useState(new Date())
   useEffect(() => {
@@ -120,23 +94,21 @@ function TickerBar() {
 
   return (
     <div style={{
-      background: 'rgba(255, 255, 255, 0.015)',
+      background: colors.bgVoid,
       borderBottom: `1px solid ${colors.border}`,
-      backdropFilter: 'blur(20px) saturate(140%)',
-      WebkitBackdropFilter: 'blur(20px) saturate(140%)',
-      padding: '4px 28px',
+      padding: '5px 28px',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
       fontFamily: fonts.mono,
       fontSize: 10,
       color: colors.textMuted,
-      letterSpacing: '0.05em',
+      letterSpacing: '0.08em',
     }}>
-      <span>POLYBOT v1.0</span>
-      <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
+      <span>POLYBOT · NO. 001</span>
+      <div style={{ display: 'flex', gap: 24, alignItems: 'center' }}>
         <span>{time.toISOString().slice(0, 19).replace('T', ' ')} UTC</span>
-        <span style={{ color: colors.accent, animation: 'textGlow 3s ease-in-out infinite' }}>ACTIVE</span>
+        <span style={{ color: colors.accent }}>ACTIVE</span>
       </div>
     </div>
   )
@@ -149,25 +121,20 @@ export default function App() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'transparent',
+      background: colors.bgPrimary,
       color: colors.textPrimary,
       fontFamily: fonts.body,
       position: 'relative',
     }}>
-      <CursorGlow />
-
       <div style={{ position: 'relative', zIndex: 1 }}>
         {/* Micro ticker bar */}
         <TickerBar />
 
-        {/* Header — liquid glass */}
+        {/* Header — masthead */}
         <header style={{
-          background: 'linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0) 60%), rgba(4, 4, 6, 0.62)',
-          backdropFilter: 'blur(34px) saturate(140%)',
-          WebkitBackdropFilter: 'blur(34px) saturate(140%)',
-          borderBottom: '1px solid rgba(255,255,255,0.09)',
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.14), 0 12px 32px rgba(0,0,0,0.55)',
-          padding: '12px 28px',
+          background: colors.bgPrimary,
+          borderBottom: `1px solid ${colors.borderLight}`,
+          padding: '14px 28px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -175,72 +142,55 @@ export default function App() {
           top: 0,
           zIndex: 50,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            {/* Animated logo */}
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 14 }}>
+            {/* Brass monogram */}
             <div style={{
-              width: 36, height: 36, borderRadius: 8,
-              background: 'linear-gradient(135deg, #39ff14 0%, #ffcc00 55%, #ff2d55 100%)',
+              width: 30, height: 30, borderRadius: 2,
+              border: `1px solid ${colors.accent}`,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 16, fontWeight: 800, color: '#000',
-              fontFamily: fonts.display,
-              boxShadow: '0 0 20px rgba(57,255,20,0.55), 0 0 36px rgba(255,204,0,0.25)',
-              position: 'relative',
-              overflow: 'hidden',
+              fontSize: 17, fontWeight: 600, color: colors.accent,
+              fontFamily: fonts.display, fontStyle: 'italic',
+              alignSelf: 'center', paddingBottom: 2,
             }}>
-              <span style={{ position: 'relative', zIndex: 1 }}>P</span>
-              {/* Shine sweep */}
-              <div style={{
-                position: 'absolute', inset: 0,
-                background: 'linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.2) 50%, transparent 60%)',
-                animation: 'shimmer 3s ease-in-out infinite',
-                backgroundSize: '200% 100%',
-              }} />
+              P
             </div>
-            <div>
-              <span style={{
-                fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em',
-                fontFamily: fonts.display,
-                background: 'linear-gradient(90deg, #39ff14 0%, #ffcc00 50%, #ff2d55 100%)',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-                textShadow: '0 0 24px rgba(57,255,20,0.35)',
-                filter: 'drop-shadow(0 0 10px rgba(57,255,20,0.35))',
-              }}>
-                Polybot
-              </span>
-              <span style={{
-                color: colors.textDim, fontSize: 11, marginLeft: 12,
-                fontFamily: fonts.mono, letterSpacing: '0.04em',
-              }}>
-                POLYBOT
-              </span>
-            </div>
+            <span style={{
+              fontSize: 21, fontWeight: 550, letterSpacing: '-0.01em',
+              fontFamily: fonts.display,
+              color: colors.textPrimary,
+            }}>
+              Polybot
+            </span>
+            <span style={{
+              color: colors.textMuted, fontSize: 10,
+              fontFamily: fonts.mono, letterSpacing: '0.14em',
+            }}>
+              CRYPTO PREDICTION DESK
+            </span>
           </div>
 
           {/* Status indicator */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{
-              padding: '4px 12px', borderRadius: 20,
+              padding: '4px 12px', borderRadius: 2,
               background: wsBotStatus?.paused ? colors.warningDim
-                : wsBotStatus?.running ? colors.successDim : 'rgba(85,102,136,0.1)',
-              border: `1px solid ${wsBotStatus?.paused ? 'rgba(255,180,0,0.2)'
-                : wsBotStatus?.running ? 'rgba(0,255,136,0.2)' : 'rgba(85,102,136,0.15)'}`,
-              display: 'flex', alignItems: 'center', gap: 6,
+                : wsBotStatus?.running ? colors.successDim : 'transparent',
+              border: `1px solid ${wsBotStatus?.paused ? 'rgba(217,160,63,0.3)'
+                : wsBotStatus?.running ? 'rgba(63,185,112,0.3)' : colors.border}`,
+              display: 'flex', alignItems: 'center', gap: 7,
             }}>
               <div style={{
-                width: 6, height: 6, borderRadius: '50%',
+                width: 5, height: 5, borderRadius: '50%',
                 background: wsBotStatus?.paused ? colors.warning
                   : wsBotStatus?.running ? colors.success : colors.textDim,
-                boxShadow: wsBotStatus?.paused ? `0 0 8px ${colors.warning}`
-                  : wsBotStatus?.running ? `0 0 8px ${colors.success}` : 'none',
                 animation: wsBotStatus?.running ? 'pulse 2s ease-in-out infinite' : 'none',
               }} />
               <span style={{
-                fontSize: 11, fontWeight: 600,
+                fontSize: 10, fontWeight: 600,
                 fontFamily: fonts.mono,
                 color: wsBotStatus?.paused ? colors.warning
                   : wsBotStatus?.running ? colors.success : colors.textMuted,
-                letterSpacing: '0.04em',
+                letterSpacing: '0.12em',
               }}>
                 {wsBotStatus?.paused ? 'PAUSED' : wsBotStatus?.running ? 'LIVE' : 'OFFLINE'}
               </span>
@@ -251,10 +201,10 @@ export default function App() {
         <TabBar active={activeTab} onChange={setActiveTab} />
 
         <main key={activeTab} style={{
-          padding: '20px 28px',
+          padding: '24px 28px 48px',
           maxWidth: 1440,
           margin: '0 auto',
-          animation: 'tabSwoop 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) forwards',
+          animation: 'tabSwoop 0.3s ease forwards',
         }}>
           {activeTab === 'dashboard' && <Dashboard wsBotStatus={wsBotStatus} wsDiscovery={lastDiscovery} wsBatchProgress={batchProgress} />}
           {activeTab === 'markets' && <Markets />}
@@ -267,8 +217,4 @@ export default function App() {
       </div>
     </div>
   )
-}
-
-function glowShadowCSS(color: string, intensity = 0.15) {
-  return `0 0 24px ${color}${Math.round(intensity * 255).toString(16).padStart(2, '0')}, 0 4px 16px rgba(0,0,0,0.4)`
 }

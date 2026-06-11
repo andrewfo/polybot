@@ -73,17 +73,17 @@ export default function EdgeWaterfall({ steps }: { steps: WaterfallStep[] }) {
               stacked: true,
               min: 0,
               max: 100,
-              grid: { color: 'rgba(30, 45, 74, 0.4)' },
+              grid: { color: 'rgba(233, 230, 223, 0.05)' },
               border: { display: false },
               ticks: { color: colors.textDim, callback: v => v + '%', font: { size: 10 } },
             },
           },
           plugins: {
             tooltip: {
-              backgroundColor: 'rgba(8, 13, 26, 0.95)',
+              backgroundColor: 'rgba(21, 22, 26, 0.97)',
               borderColor: colors.border,
               borderWidth: 1,
-              cornerRadius: 8,
+              cornerRadius: 3,
               filter: (item) => item.datasetIndex === 1,
               callbacks: {
                 label: (ctx) => {
