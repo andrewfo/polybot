@@ -122,6 +122,25 @@ USE_LOG_ODDS_AVERAGING = os.getenv("USE_LOG_ODDS_AVERAGING", "true").lower() == 
 MIN_CALIBRATION_SAMPLES = int(os.getenv("MIN_CALIBRATION_SAMPLES", "20"))  # Min resolved predictions to use dynamic weights
 CALIBRATION_LOOKBACK_DAYS = int(os.getenv("CALIBRATION_LOOKBACK_DAYS", "90"))  # Rolling window for Brier scores
 
+# --- Learning Data Regime ---
+# Rows timestamped before this cutoff were produced under the optimistic paper
+# pricing engine (entries at limit price, exits at mid; realistic-pricing fixes
+# landed 2026-05-22) and include pre-upsert calibration churn duplicates. Win
+# rates, edge efficiency, Brier scores, and parameter recommendations computed
+# from them are unreliable, so the learning engine and dynamic signal
+# calibration exclude them. scripts/reset_learning_state.py tags those rows
+# with data_regime='pre_fix' for audit.
+LEARNING_DATA_CUTOFF = os.getenv("LEARNING_DATA_CUTOFF", "2026-05-22T20:30:00+00:00")
+
+# --- Paper Run Validation Gate ---
+# Go/no-go thresholds for the honest-pricing paper run, evaluated by
+# GET /api/paper/summary over post-cutoff data only. Live trading should not
+# be enabled until every criterion passes.
+PAPER_RUN_MIN_DAYS = float(os.getenv("PAPER_RUN_MIN_DAYS", "7"))
+PAPER_RUN_MIN_CLOSED_TRADES = int(os.getenv("PAPER_RUN_MIN_CLOSED_TRADES", "100"))
+PAPER_RUN_MAX_PROFIT_CONCENTRATION = float(os.getenv("PAPER_RUN_MAX_PROFIT_CONCENTRATION", "0.25"))
+PAPER_RUN_MIN_BRIER_SAMPLES = int(os.getenv("PAPER_RUN_MIN_BRIER_SAMPLES", "30"))
+
 # --- Execution ---
 PAPER_TRADING = os.getenv("PAPER_TRADING", "true").lower() == "true"
 STALE_ORDER_MINUTES = int(os.getenv("STALE_ORDER_MINUTES", "15"))

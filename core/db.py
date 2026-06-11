@@ -759,18 +759,25 @@ def get_daily_pnl() -> float:
     return float(rows[0][0]) if rows else 0.0
 
 
-def get_total_pnl() -> float:
-    """Return total realized P&L across all time.
+def get_total_pnl(since: str | None = None) -> float:
+    """Return total realized P&L, optionally only for trades closed at/after ``since``.
 
     Sums ``trades.pnl`` over every closed trade. ``positions.realized_pnl`` is
     not authoritative because ``upsert_position`` resets it to NULL whenever a
     token is re-entered after a previous close.
     """
     db = get_db()
-    rows = list(db.execute(
-        "SELECT COALESCE(SUM(pnl), 0) as total FROM trades "
-        "WHERE pnl IS NOT NULL"
-    ).fetchall())
+    if since:
+        rows = list(db.execute(
+            "SELECT COALESCE(SUM(pnl), 0) as total FROM trades "
+            "WHERE pnl IS NOT NULL AND closed_at >= ?",
+            [since],
+        ).fetchall())
+    else:
+        rows = list(db.execute(
+            "SELECT COALESCE(SUM(pnl), 0) as total FROM trades "
+            "WHERE pnl IS NOT NULL"
+        ).fetchall())
     return float(rows[0][0]) if rows else 0.0
 
 
@@ -805,6 +812,229 @@ def get_paper_balance(starting_bankroll: float) -> dict[str, float]:
         "available_cash": available_cash,
         "total_value": total_value,
         "open_positions": len(positions),
+    }
+
+
+# Skip reason recorded by the aggregator's pre-frontier edge gate. Those rows
+# carry the preliminary free-signal probability, not a frontier output, so
+# frontier-quality analyses must exclude them.
+PRE_FRONTIER_GATE_SKIP_REASON = "prelim edge below pre-frontier gate"
+
+
+def get_paper_summary(window_start: str | None = None) -> dict[str, Any]:
+    """Paper-run validation summary over the honest-pricing measurement window.
+
+    The go/no-go gate for live trading: net-of-LLM-cost PnL, win rate, average
+    return per trade, profit concentration, per-signal Brier scores, and a
+    frontier-vs-market-price Brier comparison — all restricted to rows at or
+    after ``window_start`` (defaults to LEARNING_DATA_CUTOFF, so pre-fix
+    optimistic-pricing data never counts toward readiness).
+    """
+    from config.settings import (
+        LEARNING_DATA_CUTOFF,
+        PAPER_RUN_MAX_PROFIT_CONCENTRATION,
+        PAPER_RUN_MIN_BRIER_SAMPLES,
+        PAPER_RUN_MIN_CLOSED_TRADES,
+        PAPER_RUN_MIN_DAYS,
+    )
+
+    start = window_start or LEARNING_DATA_CUTOFF
+    db = get_db()
+    now = datetime.now(timezone.utc)
+
+    # --- Trade counts and PnL (paper trades only) ---
+    row = db.execute(
+        "SELECT COUNT(*) FROM trades WHERE paper = 1 AND timestamp >= ?",
+        [start],
+    ).fetchone()
+    total_trades = int(row[0]) if row else 0
+
+    closed_rows = db.execute(
+        "SELECT market_id, pnl, price, size FROM trades "
+        "WHERE paper = 1 AND pnl IS NOT NULL AND closed_at >= ?",
+        [start],
+    ).fetchall()
+
+    closed_trades = len(closed_rows)
+    wins = sum(1 for r in closed_rows if (r[1] or 0) > 0)
+    gross_pnl = sum(float(r[1] or 0) for r in closed_rows)
+    win_rate = wins / closed_trades if closed_trades else 0.0
+
+    returns: list[float] = []
+    pnl_by_market: dict[str, float] = {}
+    for market_id, pnl, price, size in closed_rows:
+        pnl = float(pnl or 0)
+        notional = (price or 0) * (size or 0)
+        if notional > 0:
+            returns.append(pnl / notional)
+        pnl_by_market[market_id] = pnl_by_market.get(market_id, 0.0) + pnl
+    avg_return_per_trade = sum(returns) / len(returns) if returns else 0.0
+
+    top_market_id = ""
+    top_market_pnl = 0.0
+    profit_concentration: float | None = None
+    if gross_pnl > 0 and pnl_by_market:
+        top_market_id, top_market_pnl = max(pnl_by_market.items(), key=lambda kv: kv[1])
+        profit_concentration = top_market_pnl / gross_pnl if top_market_pnl > 0 else 0.0
+
+    # --- LLM cost over the same window (real spend, paper or not) ---
+    row = db.execute(
+        "SELECT COALESCE(SUM(cost_usd), 0) FROM llm_costs WHERE timestamp >= ?",
+        [start],
+    ).fetchone()
+    llm_cost = float(row[0]) if row else 0.0
+    net_pnl = gross_pnl - llm_cost
+
+    # --- Days of trading inside the window ---
+    row = db.execute(
+        "SELECT MIN(timestamp) FROM trades WHERE paper = 1 AND timestamp >= ?",
+        [start],
+    ).fetchone()
+    days_running = 0.0
+    if row and row[0]:
+        try:
+            first = datetime.fromisoformat(str(row[0]))
+            if first.tzinfo is None:
+                first = first.replace(tzinfo=timezone.utc)
+            days_running = max(0.0, (now - first).total_seconds() / 86400)
+        except (ValueError, TypeError):
+            pass
+
+    # --- Per-signal Brier scores (resolved predictions made in the window) ---
+    cal_rows = db.execute(
+        "SELECT signal_source, predicted_probability, actual_outcome "
+        "FROM signal_calibration "
+        "WHERE actual_outcome IS NOT NULL AND timestamp >= ?",
+        [start],
+    ).fetchall()
+    grouped: dict[str, list[float]] = {}
+    for source, pred, actual in cal_rows:
+        grouped.setdefault(source, []).append((float(pred) - float(actual)) ** 2)
+    brier_by_signal = {
+        source: {"brier": round(sum(errs) / len(errs), 4), "samples": len(errs)}
+        for source, errs in grouped.items()
+    }
+
+    # --- Frontier vs market-price Brier ---
+    # Latest real frontier estimate per resolved market; pre-frontier-gate
+    # skips are excluded because their estimated_prob is the preliminary
+    # free-signal probability, not a frontier output.
+    fd_rows = db.execute(
+        """
+        SELECT fd.estimated_prob, fd.market_price, sc.actual_outcome
+        FROM frontier_decisions fd
+        INNER JOIN (
+            SELECT market_id, actual_outcome
+            FROM signal_calibration
+            WHERE actual_outcome IS NOT NULL
+            GROUP BY market_id
+        ) sc ON fd.market_id = sc.market_id
+        WHERE fd.timestamp >= ?
+              AND COALESCE(fd.skip_reason, '') != ?
+              AND fd.id = (
+                  SELECT MAX(f2.id) FROM frontier_decisions f2
+                  WHERE f2.market_id = fd.market_id AND f2.timestamp >= ?
+                        AND COALESCE(f2.skip_reason, '') != ?
+              )
+        """,
+        [start, PRE_FRONTIER_GATE_SKIP_REASON, start, PRE_FRONTIER_GATE_SKIP_REASON],
+    ).fetchall()
+    brier_samples = len(fd_rows)
+    frontier_brier: float | None = None
+    market_brier: float | None = None
+    if brier_samples:
+        frontier_brier = round(
+            sum((float(r[0]) - float(r[2])) ** 2 for r in fd_rows) / brier_samples, 4
+        )
+        market_brier = round(
+            sum((float(r[1]) - float(r[2])) ** 2 for r in fd_rows) / brier_samples, 4
+        )
+
+    # --- Go/no-go criteria ---
+    criteria: dict[str, dict[str, Any]] = {
+        "min_days": {
+            "required": PAPER_RUN_MIN_DAYS,
+            "actual": round(days_running, 2),
+            "passed": days_running >= PAPER_RUN_MIN_DAYS,
+        },
+        "min_closed_trades": {
+            "required": PAPER_RUN_MIN_CLOSED_TRADES,
+            "actual": closed_trades,
+            "passed": closed_trades >= PAPER_RUN_MIN_CLOSED_TRADES,
+        },
+        "net_pnl_positive": {
+            "required": "net PnL > 0 after LLM costs",
+            "actual": round(net_pnl, 2),
+            "passed": net_pnl > 0,
+        },
+        "profit_concentration": {
+            "required": f"top market < {PAPER_RUN_MAX_PROFIT_CONCENTRATION:.0%} of gross profit",
+            "actual": round(profit_concentration, 4) if profit_concentration is not None else None,
+            "passed": (
+                profit_concentration is not None
+                and profit_concentration < PAPER_RUN_MAX_PROFIT_CONCENTRATION
+            ),
+        },
+        "frontier_beats_market": {
+            "required": (
+                f"frontier Brier <= market-price Brier on "
+                f">= {PAPER_RUN_MIN_BRIER_SAMPLES} resolved markets"
+            ),
+            "frontier_brier": frontier_brier,
+            "market_brier": market_brier,
+            "samples": brier_samples,
+            "passed": (
+                brier_samples >= PAPER_RUN_MIN_BRIER_SAMPLES
+                and frontier_brier is not None
+                and market_brier is not None
+                and frontier_brier <= market_brier
+            ),
+        },
+    }
+    ready = all(c["passed"] for c in criteria.values())
+    failed = [name for name, c in criteria.items() if not c["passed"]]
+    if ready:
+        recommendation = "READY: all go/no-go criteria pass — live trading may be considered."
+    else:
+        recommendation = "NOT READY — failing criteria: " + ", ".join(failed)
+    if (
+        brier_samples >= PAPER_RUN_MIN_BRIER_SAMPLES
+        and frontier_brier is not None
+        and market_brier is not None
+        and frontier_brier > market_brier
+    ):
+        recommendation += (
+            " Frontier estimates are not beating the market-price baseline: "
+            "consider demoting the frontier call (size from the preliminary "
+            "math-weighted probability, reserve the frontier for high-edge "
+            "confirmations only)."
+        )
+
+    return {
+        "window_start": start,
+        "window_end": now.isoformat(),
+        "days_running": round(days_running, 2),
+        "total_trades": total_trades,
+        "closed_trades": closed_trades,
+        "wins": wins,
+        "losses": closed_trades - wins,
+        "win_rate": round(win_rate, 4),
+        "gross_pnl": round(gross_pnl, 2),
+        "llm_cost": round(llm_cost, 2),
+        "net_pnl": round(net_pnl, 2),
+        "avg_return_per_trade": round(avg_return_per_trade, 4),
+        "top_market_id": top_market_id,
+        "top_market_pnl": round(top_market_pnl, 2),
+        "profit_concentration": (
+            round(profit_concentration, 4) if profit_concentration is not None else None
+        ),
+        "brier_by_signal": brier_by_signal,
+        "frontier_brier": frontier_brier,
+        "market_price_brier": market_brier,
+        "brier_comparison_samples": brier_samples,
+        "criteria": criteria,
+        "ready_for_live": ready,
+        "recommendation": recommendation,
     }
 
 

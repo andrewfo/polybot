@@ -444,3 +444,118 @@ class TestSkippedResolutions:
         count = await update_skipped_resolutions()
         # Will be 0 since we can't actually reach Gamma in tests
         assert count == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: Pre-fix data exclusion (Phase 3, profitability fix plan)
+# ---------------------------------------------------------------------------
+
+PRE_FIX_TS = "2026-05-18T12:00:00+00:00"   # before LEARNING_DATA_CUTOFF
+
+
+def _post_fix_ts(days_ago: float = 0.0) -> str:
+    """A timestamp after LEARNING_DATA_CUTOFF (recent, so time-decay weight ~1)."""
+    from datetime import timedelta
+    return (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
+
+
+def _insert_frontier_decision(d, market_id, ts, should_trade=1, est=0.7, price=0.5, skip_reason=""):
+    d["frontier_decisions"].insert({
+        "market_id": market_id, "estimated_prob": est, "effective_prob": est,
+        "market_price": price, "edge": abs(est - price), "kelly_fraction": 0.1,
+        "bet_size_usd": 10.0, "confidence": 0.8, "should_trade": should_trade,
+        "skip_reason": skip_reason, "timestamp": ts,
+    })
+
+
+def _insert_resolved_calibration(d, market_id, ts, source="resolution_crypto", pred=0.7, actual=1.0):
+    d["signal_calibration"].insert({
+        "market_id": market_id, "signal_source": source,
+        "predicted_probability": pred, "actual_outcome": actual,
+        "market_question": "q", "timestamp": ts, "resolved_at": _post_fix_ts(),
+    })
+
+
+class TestPreFixExclusion:
+    """The learning engine must ignore rows from the optimistic-pricing regime."""
+
+    def test_frontier_bias_excludes_pre_fix(self):
+        import core.db as db_mod
+        d = db_mod.get_db()
+        _insert_frontier_decision(d, "m_pre", PRE_FIX_TS)
+        _insert_frontier_decision(d, "m_post", _post_fix_ts())
+        _insert_resolved_calibration(d, "m_pre", PRE_FIX_TS)
+        _insert_resolved_calibration(d, "m_post", _post_fix_ts())
+
+        report = analyze_frontier_bias()
+        assert report.sample_count == 1
+
+    def test_skip_retro_excludes_pre_fix(self):
+        from core.db import get_db
+        d = get_db()
+        for mid, ts in (("m_pre", PRE_FIX_TS), ("m_post", _post_fix_ts())):
+            d["skipped_markets"].insert({
+                "market_id": mid, "skip_reason": "edge below threshold",
+                "market_price_at_skip": 0.5, "estimated_prob": 0.6,
+                "confidence": 0.4, "timestamp": ts, "resolution_outcome": 1.0,
+            })
+
+        report = analyze_skipped_markets()
+        assert report.total_skipped == 1
+        assert report.resolved_skipped == 1
+
+    def test_edge_realization_excludes_pre_fix(self):
+        from core.db import get_db
+        d = get_db()
+        for mid, tok, ts in (
+            ("m_pre", "tok_pre", PRE_FIX_TS),
+            ("m_post", "tok_post", _post_fix_ts()),
+        ):
+            _insert_frontier_decision(d, mid, ts, should_trade=1)
+            d["positions"].insert({
+                "token_id": tok, "market_id": mid, "market_question": "q",
+                "side": "BUY_YES", "avg_entry": 0.5, "size": 20.0,
+                "current_price": 0.6, "unrealized_pnl": 2.0, "opened_at": ts,
+                "last_updated": ts, "paper": 1, "status": "closed",
+                "exit_price": 0.6, "realized_pnl": 2.0,
+            })
+
+        report = analyze_edge_realization()
+        assert report.total_trades == 1
+
+    def test_signal_features_excludes_pre_fix(self):
+        from core.db import get_db
+        d = get_db()
+        for mid, ts in (("m_pre", PRE_FIX_TS), ("m_post", _post_fix_ts())):
+            d["signals"].insert({
+                "market_id": mid, "signal_source": "resolution_crypto",
+                "probability": 0.7, "confidence": 0.8, "reasoning": "r",
+                "model_used": "none", "timestamp": ts,
+                "raw_data": json.dumps({"vol_regime": "normal"}),
+            })
+            _insert_resolved_calibration(d, mid, ts)
+
+        report = analyze_signal_features()
+        assert report.by_source["resolution_crypto"]["count"] == 1
+
+    def test_cost_effectiveness_excludes_pre_fix(self):
+        from core.db import get_db, record_llm_cost
+        d = get_db()
+        record_llm_cost(PRE_FIX_TS, "anthropic/claude-opus-4-6", "decide", 100, 50, 5.0)
+        record_llm_cost(_post_fix_ts(), "anthropic/claude-opus-4-6", "decide", 100, 50, 1.25)
+        # One pre-fix and one post-fix closed trade
+        for tid, ts, pnl in (("t_pre", PRE_FIX_TS, 10.0), ("t_post", _post_fix_ts(), 3.0)):
+            d["trades"].insert({
+                "id": tid, "market_id": "m", "token_id": "tok", "side": "BUY_YES",
+                "price": 0.5, "size": 20.0, "timestamp": ts, "status": "FILLED",
+                "fill_price": 0.5, "pnl": pnl, "paper": 1, "closed_at": ts,
+                "exit_price": 0.65, "close_reason": "take_profit",
+            })
+        _insert_frontier_decision(d, "m_pre", PRE_FIX_TS)
+        _insert_frontier_decision(d, "m_post", _post_fix_ts())
+
+        report = analyze_cost_effectiveness()
+        assert report.total_llm_cost == pytest.approx(1.25)
+        assert report.frontier_cost == pytest.approx(1.25)
+        # ROI uses post-fix PnL ($3) over post-fix cost ($1.25)
+        assert report.roi == pytest.approx(3.0 / 1.25)

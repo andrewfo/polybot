@@ -1297,6 +1297,16 @@ def create_app() -> FastAPI:
         except Exception as e:
             return JSONResponse(status_code=500, content={"error": str(e)[:200]})
 
+    @app.get("/api/paper/summary")
+    async def paper_summary():
+        """Honest-pricing paper-run validation: post-cutoff stats and the
+        go/no-go criteria for enabling live trading."""
+        try:
+            from core.db import get_paper_summary
+            return get_paper_summary()
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": str(e)[:200]})
+
     @app.get("/api/costs")
     async def costs():
         try:

@@ -19,6 +19,7 @@ from config.settings import (
     BENCHED_EARN_BACK_BRIER,
     BENCHED_EARN_BACK_MIN_SAMPLES,
     CALIBRATION_LOOKBACK_DAYS,
+    LEARNING_DATA_CUTOFF,
     MIN_CALIBRATION_SAMPLES,
     ONCHAIN_FLOW_SIGNAL_WEIGHT,
     PREDICTION_MARKETS_SIGNAL_WEIGHT,
@@ -128,7 +129,10 @@ def get_provider_brier_scores() -> dict[str, tuple[float, int]]:
     """Compute time-weighted Brier score per signal source from resolved predictions.
 
     Returns dict of source -> (weighted_brier_score, sample_count).
-    Only considers predictions within CALIBRATION_LOOKBACK_DAYS.
+    Only considers predictions within CALIBRATION_LOOKBACK_DAYS, and ignores
+    predictions made before LEARNING_DATA_CUTOFF — those came from the old
+    signal implementations and contain pre-upsert churn duplicates, so they
+    must not count toward dynamic multipliers or the benched earn-back path.
 
     Time decay: weight = exp(-age_days / 45) — predictions from 90 days ago
     are weighted ~14% vs yesterday's at 100%. This ensures the bot adapts
@@ -142,8 +146,9 @@ def get_provider_brier_scores() -> dict[str, tuple[float, int]]:
             "SELECT signal_source, predicted_probability, actual_outcome, resolved_at "
             "FROM signal_calibration "
             "WHERE actual_outcome IS NOT NULL "
-            "AND resolved_at >= datetime('now', ?)",
-            [f"-{CALIBRATION_LOOKBACK_DAYS} days"],
+            "AND resolved_at >= datetime('now', ?) "
+            "AND timestamp >= ?",
+            [f"-{CALIBRATION_LOOKBACK_DAYS} days", LEARNING_DATA_CUTOFF],
         ).fetchall())
     except Exception as e:
         logger.warning("Failed to query calibration data: %s", e)

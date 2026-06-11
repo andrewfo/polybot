@@ -81,6 +81,12 @@ Ordered by impact. Each phase is independently shippable; run the full test suit
 
 ### Phase 3 — Reset poisoned learning state
 
+**Status: IMPLEMENTED (2026-06-11).**
+- `scripts/reset_learning_state.py` run against `data/bot.db`: KELLY_FRACTION override (0.25→0.312) deactivated (effective value back to 0.25); `data_regime` column added to `trades`, `frontier_decisions`, `signal_calibration`, `skipped_markets` — all existing rows tagged `pre_fix` (65 / 892 / 2666 / 1082 rows). Script is idempotent and deactivates *all* active overrides, since every override to date derived from pre-fix data.
+- Enforcement is timestamp-based, not tag-based: `LEARNING_DATA_CUTOFF` (config/settings.py, env-overridable, default `2026-05-22T20:30:00+00:00`) is filtered on in every learning query — bias, skip retrospective, edge realization, signal features, and cost effectiveness in `monitoring/learning.py` all ignore pre-cutoff rows, so recommendations can only come from post-fix data.
+- `signals/calibration.py::get_provider_brier_scores` also respects the cutoff: pre-fix calibration rows (old market-blind `onchain_flow` predictions plus pre-upsert churn duplicates) no longer count toward dynamic multipliers or the benched earn-back path.
+- Tests: `TestPreFixExclusion` (5 tests, real DB), `tests/test_reset_learning_state.py` (7 tests), `TestBrierScoresCutoff`.
+
 **Goal:** stop acting on conclusions drawn from pre-fix optimistic data.
 
 1. Deactivate the `KELLY_FRACTION` 0.25→0.312 override in `parameter_overrides` (set `active = 0`), reverting to the configured 0.25.
@@ -89,6 +95,13 @@ Ordered by impact. Each phase is independently shippable; run the full test suit
 4. Tests: learning engine excludes pre-fix rows; override deactivation path works.
 
 ### Phase 4 — Re-validate under honest pricing (measurement, not code)
+
+**Status: MEASUREMENT TOOLING IMPLEMENTED (2026-06-11) — the 7-day run itself is pending.**
+- `GET /api/paper/summary` (`core/db.py::get_paper_summary`) reports, over the post-cutoff window only: total/closed paper trades, win rate, gross PnL, LLM cost in the same window, **net PnL after LLM costs**, avg return per trade, profit concentration (top market's share of gross profit), per-signal Brier, and a frontier-vs-market-price Brier comparison (latest real frontier estimate per resolved market; pre-frontier-gate skip rows are excluded since their `estimated_prob` is the preliminary value).
+- Go/no-go criteria evaluated in the response (`criteria` + `ready_for_live` + `recommendation`); thresholds env-overridable: `PAPER_RUN_MIN_DAYS` (7), `PAPER_RUN_MIN_CLOSED_TRADES` (100), `PAPER_RUN_MAX_PROFIT_CONCENTRATION` (0.25), `PAPER_RUN_MIN_BRIER_SAMPLES` (30).
+- If the frontier Brier loses to the market-price baseline on ≥30 resolved markets, the recommendation text flags the item-4 demotion option explicitly. The demotion itself is a post-run decision, intentionally not implemented yet.
+- `REALISTIC_PRICING` already defaults to true, so the measurement run starts by simply letting the bot trade paper from here.
+- Tests: `tests/test_paper_summary.py` (11 tests).
 
 **Goal:** establish whether real edge exists net of spreads. This is the go/no-go gate for everything else.
 

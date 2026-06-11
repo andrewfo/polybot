@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from config.settings import LEARNING_DATA_CUTOFF
 from core import db
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,8 @@ logger = logging.getLogger(__name__)
 # fired by the broken logic, not by genuine signal failure — feeding them into
 # the win-rate calculation pushes KELLY_FRACTION recommendations down
 # spuriously. We exclude those specific closes from edge-realization inputs.
+# (Largely subsumed by LEARNING_DATA_CUTOFF, kept as a second axis: it keys on
+# close time while the cutoff keys on decision time.)
 BROKEN_STOP_WINDOW_END = "2026-05-22T19:07:30+00:00"
 
 
@@ -145,7 +148,8 @@ def analyze_frontier_bias() -> BiasReport:
     try:
         d = db.get_db()
 
-        # Get frontier decisions for markets that have resolved (with resolution timestamp)
+        # Get frontier decisions for markets that have resolved (with resolution
+        # timestamp). Pre-fix rows (optimistic pricing regime) are excluded.
         rows = list(d.execute(
             """
             SELECT fd.estimated_prob, fd.effective_prob, fd.market_price, fd.confidence,
@@ -157,8 +161,10 @@ def analyze_frontier_bias() -> BiasReport:
                 WHERE actual_outcome IS NOT NULL
                 GROUP BY market_id
             ) sc ON fd.market_id = sc.market_id
-            WHERE fd.should_trade = 1 OR fd.should_trade = 0
-            """
+            WHERE (fd.should_trade = 1 OR fd.should_trade = 0)
+                  AND fd.timestamp >= ?
+            """,
+            [LEARNING_DATA_CUTOFF],
         ).fetchall())
 
         if not rows:
@@ -290,7 +296,8 @@ def analyze_skipped_markets() -> SkipRetroReport:
         rows = list(d.execute(
             "SELECT market_id, skip_reason, market_price_at_skip, "
             "estimated_prob, confidence, resolution_outcome, timestamp "
-            "FROM skipped_markets"
+            "FROM skipped_markets WHERE timestamp >= ?",
+            [LEARNING_DATA_CUTOFF],
         ).fetchall())
 
         if not rows:
@@ -413,7 +420,9 @@ def analyze_edge_realization() -> EdgeRealizationReport:
             INNER JOIN positions p ON fd.market_id = p.market_id
             WHERE fd.should_trade = 1 AND p.status = 'closed'
                   AND COALESCE(p.realized_pnl, p.unrealized_pnl) IS NOT NULL
-            """
+                  AND fd.timestamp >= ?
+            """,
+            [LEARNING_DATA_CUTOFF],
         ).fetchall())
 
         # Exclude stop-loss closes from the broken-stop window so we don't
@@ -556,8 +565,9 @@ def analyze_signal_features() -> SignalFeatureReport:
                 WHERE actual_outcome IS NOT NULL
                 GROUP BY market_id
             ) sc ON s.market_id = sc.market_id
-            WHERE s.probability IS NOT NULL
-            """
+            WHERE s.probability IS NOT NULL AND s.timestamp >= ?
+            """,
+            [LEARNING_DATA_CUTOFF],
         ).fetchall())
 
         if not rows:
@@ -645,9 +655,11 @@ def analyze_cost_effectiveness() -> CostEffectivenessReport:
     try:
         d = db.get_db()
 
-        # Total LLM costs by model category
+        # Total LLM costs by model category (post-fix window only, so ROI is
+        # measured against the same regime as the PnL it's compared to)
         cost_rows = list(d.execute(
-            "SELECT model, SUM(cost_usd) FROM llm_costs GROUP BY model"
+            "SELECT model, SUM(cost_usd) FROM llm_costs WHERE timestamp >= ? GROUP BY model",
+            [LEARNING_DATA_CUTOFF],
         ).fetchall())
 
         for row in cost_rows:
@@ -665,21 +677,24 @@ def analyze_cost_effectiveness() -> CostEffectivenessReport:
         # Trade counts — sourced from trades.pnl (positions.realized_pnl is
         # cleared on reopen, so it would undercount).
         trade_count_rows = list(d.execute(
-            "SELECT COUNT(*) FROM trades WHERE pnl IS NOT NULL"
+            "SELECT COUNT(*) FROM trades WHERE pnl IS NOT NULL AND closed_at >= ?",
+            [LEARNING_DATA_CUTOFF],
         ).fetchall())
         total_trades = int(trade_count_rows[0][0]) if trade_count_rows else 0
 
         profitable_rows = list(d.execute(
-            "SELECT COUNT(*) FROM trades WHERE pnl IS NOT NULL AND pnl > 0"
+            "SELECT COUNT(*) FROM trades WHERE pnl IS NOT NULL AND pnl > 0 AND closed_at >= ?",
+            [LEARNING_DATA_CUTOFF],
         ).fetchall())
         profitable_trades = int(profitable_rows[0][0]) if profitable_rows else 0
 
-        # Total realized P&L
-        total_pnl = db.get_total_pnl()
+        # Total realized P&L (post-fix window)
+        total_pnl = db.get_total_pnl(since=LEARNING_DATA_CUTOFF)
 
         # Frontier call count
         frontier_calls = list(d.execute(
-            "SELECT COUNT(*) FROM frontier_decisions"
+            "SELECT COUNT(*) FROM frontier_decisions WHERE timestamp >= ?",
+            [LEARNING_DATA_CUTOFF],
         ).fetchall())
         frontier_count = int(frontier_calls[0][0]) if frontier_calls else 0
 

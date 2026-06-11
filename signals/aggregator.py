@@ -36,6 +36,7 @@ from config.settings import (
     get_effective_param,
 )
 from core import db
+from core.db import PRE_FRONTIER_GATE_SKIP_REASON
 from core.llm import LLMClient, LLMError
 from signals.base import SignalProvider, SignalResult
 from signals.calibration import get_multiplier_dict, record_prediction
@@ -612,7 +613,7 @@ class SignalAggregator:
                         bet_size_usd=0.0,
                         confidence=avg_conf,
                         should_trade=False,
-                        skip_reason="prelim edge below pre-frontier gate",
+                        skip_reason=PRE_FRONTIER_GATE_SKIP_REASON,
                     )
                 except Exception as e:
                     logger.warning("Failed to record pre-gate frontier decision: %s", e)

@@ -311,3 +311,30 @@ class TestCalibrationConditionId:
 
         params = mock_db.execute.call_args[0][1]
         assert params[2] == "0x1234abcd"  # market_id matches condition_id
+
+
+# ---------------------------------------------------------------------------
+# Pre-fix data exclusion (Phase 3, profitability fix plan)
+# ---------------------------------------------------------------------------
+
+class TestBrierScoresCutoff:
+    def test_pre_fix_predictions_excluded(self) -> None:
+        """Predictions made before LEARNING_DATA_CUTOFF must not count toward
+        Brier scores (they came from old signal code and churn duplicates)."""
+        from datetime import datetime, timezone
+        import core.db as db_mod
+
+        d = db_mod.get_db()
+        now = datetime.now(timezone.utc).isoformat()
+        pre_fix_ts = "2026-05-18T12:00:00+00:00"
+        for ts in (pre_fix_ts, now):
+            d["signal_calibration"].insert({
+                "market_id": f"mkt_{ts[:10]}", "signal_source": "onchain_flow",
+                "predicted_probability": 0.8, "actual_outcome": 1.0,
+                "market_question": "q", "timestamp": ts, "resolved_at": now,
+            })
+
+        scores = get_provider_brier_scores()
+
+        # Only the post-cutoff prediction counts
+        assert scores["onchain_flow"][1] == 1
