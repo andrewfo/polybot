@@ -501,7 +501,7 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
                     {fmtUsd(cost)}
                   </span>
                   <span style={{ fontSize: 10, color: colors.textDim, fontFamily: fonts.mono }}>
-                    @ {fmt(ep, 3)}
+                    @ {fmtPct(ep)} odds
                   </span>
                   <span style={{ fontSize: 9, color: colors.textDim, fontFamily: fonts.mono }}>
                     {formatTs(entryTs)}
@@ -527,8 +527,8 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
                   </span>
                   {exitPrice != null && (
                     <span style={{ fontSize: 10, color: colors.textDim, fontFamily: fonts.mono }}>
-                      @ {fmt(exitPrice, 3)}
-                      {!isClosed && <span style={{ marginLeft: 4, color: colors.textDim }}>(current)</span>}
+                      @ {fmtPct(exitPrice)} odds
+                      {!isClosed && <span style={{ marginLeft: 4, color: colors.textDim }}>(now)</span>}
                     </span>
                   )}
                   <span style={{ fontSize: 10, color: deltaColor, fontFamily: fonts.mono, fontWeight: 600 }}>
@@ -570,8 +570,14 @@ function TradeDetailPanel({ tradeId }: { tradeId: string }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 8 }}>
               {[
                 { label: 'Cost', value: fmtUsd(cost) },
-                { label: 'Entry Price', value: fmtUsd(trade.price) },
-                { label: 'Fill Price', value: trade.fill_price != null ? fmtUsd(trade.fill_price) : '--' },
+                { label: 'Odds When Placed', value: fmtPct(ep) },
+                {
+                  label: isClosed ? 'Odds At Close' : 'Odds Now',
+                  value: exitPrice != null ? fmtPct(exitPrice) : '--',
+                  color: exitPrice != null
+                    ? (exitPrice > ep ? colors.success : exitPrice < ep ? colors.danger : undefined)
+                    : undefined,
+                },
                 { label: 'Size (tokens)', value: fmt(trade.size, 1) },
                 { label: 'P&L', value: trade.pnl != null ? fmtUsd(trade.pnl) : '--', color: pnlColor },
                 { label: 'Max Gain', value: ep > 0 && ep < 1 ? fmtUsd(maxGain) : '--', color: colors.success },
@@ -892,11 +898,11 @@ export default function Trades() {
                           {fmtUsd(cost)}
                         </span>
                         <span style={{ fontSize: 9, color: colors.textDim, fontFamily: fonts.mono }}>
-                          {fmt(ep, 3)}
+                          {fmtPct(ep)}
                           {liveOpen && (
                             <>
                               <span style={{ margin: '0 4px', color: liveColor }}>→</span>
-                              <span style={{ color: liveColor, fontWeight: 600 }}>{fmt(cp, 3)}</span>
+                              <span style={{ color: liveColor, fontWeight: 600 }}>{fmtPct(cp)}</span>
                             </>
                           )}
                         </span>

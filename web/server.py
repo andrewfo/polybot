@@ -1546,6 +1546,21 @@ def create_app() -> FastAPI:
             result = get_trade_with_context(trade_id)
             if result is None:
                 return JSONResponse(status_code=404, content={"error": "Trade not found"})
+            # For open trades, replace the last manage-cycle mark with live
+            # Gamma odds at request time so "odds now" is actually now.
+            trade = result["trade"]
+            rs = trade.get("resolution_status") or ""
+            if rs.startswith("open_") or rs == "pending_fill":
+                from strategy.executor import _fetch_gamma_price
+                live = await _fetch_gamma_price(
+                    trade.get("market_id", ""), side=trade.get("side", "BUY_YES"),
+                )
+                if live is not None:
+                    trade["current_price"] = live
+                    entry = trade.get("fill_price") or trade.get("price") or 0
+                    size = trade.get("size") or 0
+                    if entry > 0:
+                        trade["unrealized_pnl"] = (live - entry) * size
             return result
         except Exception as e:
             return JSONResponse(status_code=500, content={"error": str(e)[:200]})
